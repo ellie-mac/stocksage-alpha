@@ -178,7 +178,7 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
 
     # Core 4 + 3 extended (original)
     value_factor    = score_value(quote.get("pe_ttm", 0), quote.get("pb", 0),
-                                  val_history, industry_stats, price_df, revision_df)
+                                  val_history, industry_stats, price_df, revision_df, financial_df)
     _pe_pct = value_factor["details"].get("pe_percentile")
     _pb_pct = value_factor["details"].get("pb_percentile")
     growth_factor   = score_growth(financial_df, _pe_pct)
@@ -206,12 +206,12 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
     # Extended B: additional API data
     sh_factor    = score_shareholder_change(shareholder_df, price_df, revision_df)
     lhb_factor   = score_lhb(lhb_df, price_df)
-    lk_factor    = score_lockup_pressure(lockup_df, circ_cap, price_df, financial_df)
-    ins_factor   = score_insider(insider_df, price_df)
+    lk_factor    = score_lockup_pressure(lockup_df, circ_cap, price_df, financial_df, social_dict)
+    ins_factor   = score_insider(insider_df, price_df, revision_df)
     vis_factor   = score_institutional_visits(visits_df, revision_df)
     ind_factor   = score_industry_momentum(industry_ret, market_ret, price_df)
     nba_factor   = score_northbound_actual(nb_df, price_df, revision_df, industry_ret, market_ret)
-    er_factor    = score_earnings_revision(revision_df, price_df, financial_df)
+    er_factor    = score_earnings_revision(revision_df, price_df, financial_df, visits_df)
 
     # Extended C: behavioral / market-context factors
     lim_factor    = score_limit_hits(price_df, financial_df, social_dict)

@@ -223,12 +223,12 @@ def compute_stock_scores(code: str, forward_days: int, group: str) -> Optional[d
             market_regime_df = fetcher.get_market_regime_data()
 
             # Re-compute with revision_df now available
-            scores["value"]                    = _safe(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df)
-            scores["sell_score_value"]         = _safe_sell(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df)
+            scores["value"]                    = _safe(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df)
+            scores["sell_score_value"]         = _safe_sell(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df)
 
             # Re-compute quality and piotroski with pe_pct/pb_pct from value
             try:
-                _val_full = score_value(quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df)
+                _val_full = score_value(quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df)
                 _pe_pct   = _val_full.get("details", {}).get("pe_percentile")
                 _pb_pct   = _val_full.get("details", {}).get("pb_percentile")
             except Exception:
@@ -247,11 +247,11 @@ def compute_stock_scores(code: str, forward_days: int, group: str) -> Optional[d
 
             scores["shareholder_change"]   = _safe(score_shareholder_change, shareholder_df, price_df, revision_df)
             scores["lhb"]                  = _safe(score_lhb, lhb_df, price_df)
-            scores["lockup_pressure"]      = _safe(score_lockup_pressure, lockup_df, circ_cap, price_df, financial_df)
-            scores["insider"]              = _safe(score_insider, insider_df, price_df)
+            scores["lockup_pressure"]      = _safe(score_lockup_pressure, lockup_df, circ_cap, price_df, financial_df, social_dict)
+            scores["insider"]              = _safe(score_insider, insider_df, price_df, revision_df)
             scores["institutional_visits"] = _safe(score_institutional_visits, visits_df, revision_df)
             scores["northbound_actual"]    = _safe(score_northbound_actual, nb_df, price_df, revision_df, None, market_ret)
-            scores["earnings_revision"]    = _safe(score_earnings_revision, revision_df, price_df, financial_df)
+            scores["earnings_revision"]    = _safe(score_earnings_revision, revision_df, price_df, financial_df, visits_df)
             scores["social_heat"]          = _safe(score_social_heat, social_dict, price_df, financial_df)
             scores["market_regime"]        = _safe(score_market_regime, market_regime_df)
 
@@ -271,11 +271,11 @@ def compute_stock_scores(code: str, forward_days: int, group: str) -> Optional[d
             # Sell scores for Ext-B
             scores["sell_score_shareholder_change"]   = _safe_sell(score_shareholder_change, shareholder_df, price_df, revision_df)
             scores["sell_score_lhb"]                  = _safe_sell(score_lhb, lhb_df, price_df)
-            scores["sell_score_lockup_pressure"]      = _safe_sell(score_lockup_pressure, lockup_df, circ_cap, price_df, financial_df)
-            scores["sell_score_insider"]              = _safe_sell(score_insider, insider_df, price_df)
+            scores["sell_score_lockup_pressure"]      = _safe_sell(score_lockup_pressure, lockup_df, circ_cap, price_df, financial_df, social_dict)
+            scores["sell_score_insider"]              = _safe_sell(score_insider, insider_df, price_df, revision_df)
             scores["sell_score_institutional_visits"] = _safe_sell(score_institutional_visits, visits_df, revision_df)
             scores["sell_score_northbound_actual"]    = _safe_sell(score_northbound_actual, nb_df, price_df, revision_df, None, market_ret)
-            scores["sell_score_earnings_revision"]    = _safe_sell(score_earnings_revision, revision_df, price_df, financial_df)
+            scores["sell_score_earnings_revision"]    = _safe_sell(score_earnings_revision, revision_df, price_df, financial_df, visits_df)
             scores["sell_score_social_heat"]          = _safe_sell(score_social_heat, social_dict, price_df, financial_df)
             scores["sell_score_market_regime"]        = _safe_sell(score_market_regime, market_regime_df)
             scores["sell_score_concept_momentum"]     = _safe_sell(score_concept_momentum, concept_data, price_df, _regime_float, financial_df)

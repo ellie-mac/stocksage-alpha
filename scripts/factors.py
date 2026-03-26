@@ -187,6 +187,7 @@ def score_value(
     industry_stats: Optional[dict] = None,
     price_df: Optional[pd.DataFrame] = None,
     revision_df: Optional[pd.DataFrame] = None,
+    financial_df: Optional[pd.DataFrame] = None,
 ) -> dict:
     """
     Value factor score (max 25).
@@ -203,6 +204,10 @@ def score_value(
     Earnings revision cross: the classic "double-bottom" signal (requires revision_df)
       Deep value (pe_pct <= 25 or pb_pct <= 25) + net analyst upgrades >= 2 -> buy +3
       High valuation (pe_pct >= 80 or pb_pct >= 80) + net downgrades <= -2  -> sell +3
+
+    Sector-relative PEG cross (requires financial_df):
+      PE pct <= 30 (cheap in sector) + profit growth >= 20% -> sector's best-value growth stock -> buy +2
+      PE pct >= 80 (expensive in sector) + profit growth <= 0 -> most expensive AND declining -> sell +2
     """
     from industry import industry_relative_percentile
 
@@ -362,6 +367,26 @@ def score_value(
                 sell_total = round(min(25.0, sell_total + 3.0), 1)
                 revision_signal = f"high valuation + analyst downgrades (net {net_revisions:+d}) — double kill"
 
+    # --- Sector-relative PEG cross: cheapest/most expensive growth stock in peer group ---
+    growth_signal = None
+    if financial_df is not None and not financial_df.empty and pe_pct is not None:
+        profit_growth = None
+        for key in ["净利润增长率(%)", "净利润同比增长率(%)", "归母净利润增长率(%)"]:
+            if key in financial_df.columns:
+                vals = pd.to_numeric(financial_df[key], errors="coerce").dropna()
+                if not vals.empty:
+                    profit_growth = float(vals.iloc[0])
+                break
+        if profit_growth is not None:
+            if pe_pct <= 30 and profit_growth >= 20:
+                # Cheapest quintile in sector + growing fast = best PEG in peer group
+                total = round(min(25.0, total + 2.0), 1)
+                growth_signal = f"sector-cheapest growth stock (PE pct {pe_pct:.0f}%, growth {profit_growth:.0f}%)"
+            elif pe_pct >= 80 and profit_growth <= 0:
+                # Most expensive quintile + declining earnings = worst risk/reward in peer group
+                sell_total = round(min(25.0, sell_total + 2.0), 1)
+                growth_signal = f"sector-most-expensive with declining earnings (PE pct {pe_pct:.0f}%, growth {profit_growth:.0f}%)"
+
     return {
         "score": total,
         "sell_score": sell_total,
@@ -378,6 +403,7 @@ def score_value(
             "ret_3m_pct": round(ret_3m, 2) if ret_3m is not None else None,
             "momentum_signal": momentum_signal,
             "revision_signal": revision_signal,
+            "growth_signal": growth_signal,
             "sell_score": sell_total,
         },
     }
@@ -1065,6 +1091,32 @@ def score_volume_breakout(price_df: Optional[pd.DataFrame]) -> dict:
             sell_score = min(10.0, sell_score + 1.5)
             vol_signal = vol_signal + " (downtrend — distribution confirmed)"
 
+    # --- 52w price position cross: volume events carry completely different meaning at highs vs lows ---
+    position_vb = None
+    try:
+        window = price_df["close"].tail(252)
+        hi = float(window.max())
+        lo = float(window.min())
+        cur = float(window.iloc[-1])
+        if hi > lo:
+            position_vb = (cur - lo) / (hi - lo)
+    except Exception:
+        pass
+
+    if position_vb is not None and ratio >= 1.5:
+        if change_pct >= 1.0 and position_vb < 0.3:
+            # Volume breakout at 52w low: institutional base-building, highest-conviction bottom signal
+            score = min(10.0, score + 2.0)
+            vol_signal = vol_signal + " (at 52w low — base breakout, institutional entry)"
+        elif change_pct >= 1.0 and position_vb > 0.7:
+            # Volume breakout at 52w high: possible blow-off top or distribution into strength
+            sell_score = min(10.0, sell_score + 1.5)
+            vol_signal = vol_signal + " (at 52w high — possible distribution top)"
+        elif change_pct <= -2.0 and position_vb < 0.3:
+            # High-volume selloff already at lows: panic capitulation, not a new trend start
+            sell_score = max(0.0, sell_score - 1.5)
+            vol_signal = vol_signal + " (at 52w low — panic capitulation, sell urgency reduced)"
+
     return {
         "score": round(score, 1),
         "sell_score": round(sell_score, 1),
@@ -1074,6 +1126,7 @@ def score_volume_breakout(price_df: Optional[pd.DataFrame]) -> dict:
             "change_pct": round(change_pct, 2),
             "lower_shadow_ratio": round(lower_shadow, 2),
             "ma_bull": ma_bull,
+            "position_52w": round(position_vb, 3) if position_vb is not None else None,
             "vol_signal": vol_signal,
             "sell_score": round(sell_score, 1),
         },

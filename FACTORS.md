@@ -43,7 +43,11 @@
 - **深度低估（PE/PB 百分位 ≤ 25%）+ 分析师净调升 ≥ 2（买入分 +3，双击信号）**：便宜 + 分析师开始积极评级——机构建仓前最经典的触发信号，两个独立信号源同向时置信度最高
 - **高估（PE/PB 百分位 ≥ 80%）+ 分析师净调降 ≤ -2（卖出分 +3，双杀信号）**：贵 + 基本面还在恶化，量化上最明确的做空/减仓信号
 
-**关键原则**：便宜≠买入信号，便宜 + 价格企稳或上涨才是真正的价值机会。"cheap but falling"是 A 股最常见的价值陷阱。便宜 + 分析师升级是双重确认——市场定价机制和分析师预测同时给出同向信号，是最高置信度的价值买入时机。
+**行业相对PEG交叉（行业内最便宜/最贵成长股识别）**：
+- **PE行业百分位 ≤ 30% + 利润增速 ≥ 20%（行业内最便宜的成长股，买入分 +2）**：行业内估值最低的高速成长企业——PEG < 1 的最直接表达，是行业配置时性价比最高的标的；便宜 + 高成长 = 估值扩张空间最大
+- **PE行业百分位 ≥ 80% + 利润增速 ≤ 0（行业内最贵的衰退股，卖出分 +2）**：以行业内最高估值定价一家利润正在萎缩的企业，是行业配置中最危险的组合——高溢价 + 基本面恶化 = 双重杀估值风险
+
+**关键原则**：便宜≠买入信号，便宜 + 价格企稳或上涨才是真正的价值机会。"cheap but falling"是 A 股最常见的价值陷阱。便宜 + 分析师升级是双重确认——市场定价机制和分析师预测同时给出同向信号，是最高置信度的价值买入时机。行业相对PEG交叉进一步升级这个问题：从"这家公司便宜吗"升级到"这是行业内最有性价比的成长机会吗"——价值投资与成长投资的最直接交叉点。
 
 **注意**：A 股市场情绪驱动明显，高估值可持续较长时间，卖出分作为预警而非一票否决。
 
@@ -160,7 +164,12 @@
 - 极端放量（量比 > 5 倍）→ 顶部高位出货风险（6 分）
 - **放量（≥ 1.5 倍）+ MA5 < MA20（下降趋势）→ 卖出分 +1.5**：下跌趋势中的放量是出货 / 恐慌抛售加速
 
-**关键原则**：放量 × 当日涨跌 是基础信号；放量 × 趋势方向（MA）是确认信号。两层叠加才能区分"主力进场"和"主力撤退"。
+**52周价格位置交叉（量能事件的背景诊断）**：
+- **量比 ≥ 1.5 倍 + 涨幅 ≥ 1% + 52周位置 < 30%（底部放量突破，买入分 +2）**：低位放量上涨 = 经典的机构建仓启动信号，底部吸筹完成、主力开始拉升，是 A 股量价配合最可信的布局形态
+- **量比 ≥ 1.5 倍 + 涨幅 ≥ 1% + 52周位置 > 70%（高位放量，卖出分 +1.5）**：高位放量上涨通常是主力在人气最旺时借势派发，与低位放量外表相同、本质相反
+- **量比 ≥ 1.5 倍 + 跌幅 ≥ 2% + 52周位置 < 30%（低位恐慌性抛售，卖出分 -1.5）**：底部区域的放量大跌通常是极度恐慌的情绪性抛售而非主力出货——相同的放量大跌在高位是出货信号，在底部是情绪顶点，降低卖出紧迫性
+
+**关键原则**：放量 × 当日涨跌 是基础信号；放量 × 趋势方向（MA）是确认信号；放量 × 52周价格位置是背景诊断层。三层叠加才能完整回答"这次放量意味着什么"——同样的放量大阴线，在年高附近是机构出货，在年低附近是散户恐慌，两者外表一致而意义截然不同。
 
 ---
 
@@ -541,7 +550,11 @@
 - **解禁比例 ≥ 5% + 52周位置 < 30%（低位解禁，股东本身亏损，减持动力不足，卖出分-3）**
 - **解禁比例 ≥ 5% + 利润增速 ≥ 20%（高速增长的企业吸引买盘，解禁冲击被基本面买方吸收，卖出分-2）**
 
-**关键原则**：解禁压力 = 潜在供给 ÷ 潜在需求。高增长企业的解禁有买盘对冲；衰退企业的解禁供给只能打压股价。
+**社交热度交叉（解禁遭遇散户FOMO）**：
+- **解禁比例 ≥ 5% + 社交热度前 10%（极端热度助力解禁套现，卖出分 +2）**：大规模解禁恰逢媒体极度关注 + 散户FOMO情绪 = 机构减持的最佳窗口，潜在供给叠加散户接盘热情被放大，是 A 股"解禁 + 热搜"套现模式的经典组合
+- **解禁比例 ≥ 5% + 社交热度后 50%（冷清环境下解禁，卖出分 -1）**：无散户接盘热情意味着潜在买方减少，出货更困难——降低（而非消除）解禁的卖出压力评估
+
+**关键原则**：解禁压力 = 潜在供给 ÷ 潜在需求。高增长企业的解禁有买盘对冲；衰退企业的解禁供给只能打压股价。社交热度交叉升级了对"需求侧"的判断：极端热度时散户接盘意愿最强，是机构完成解禁套现的最优窗口；冷清时无散户接盘，解禁压力更难消化。
 
 ---
 
@@ -558,7 +571,12 @@
 - **净卖出比例 > 30% + 52周位置 < 30%（低位减持 = 红色警报——在亏损时仍然减持，说明大股东预见结构性问题，卖出分 +3）**：这是整个系统中最危险的信号之一，大股东宁愿亏损也要出逃
 - **净卖出比例 > 30% + 52周位置 > 70%（高位减持 = 理性获利了结，卖出分 +2）**：高位减持是正常的，但仍是负面信号
 
-**关键原则**：增减持的含义完全依赖于价格水平。低位增持 = 大股东"押注"；低位减持 = 大股东"逃跑"，是性质截然不同的信号。
+**盈利修正交叉（大股东 + 分析师双向共识）**：
+- **净买入比例 > 30% + 分析师净调升 ≥ 2（买入分 +2，双重确信信号）**：大股东用真金白银增持，同时独立的卖方分析师也在上调评级——两个完全独立的信息优势群体同时看多，内部人信息 + 外部分析共识双向验证，是系统中最强的多头信号之一
+- **净卖出比例 > 30% + 分析师净调降 ≤ -2（卖出分 +2，双重退出信号）**：大股东和分析师同时看空，两个独立群体给出同向信号，是高确信度的卖出/减仓确认
+- **净买入比例 > 30% + 分析师净调降 ≤ -2（卖出分 -1，大股东逆势增持）**：大股东在分析师集体唱空时仍然增持——内部人掌握分析师不知道的信息，管理层的真金白银行动比卖方报告更具说服力，适当降低卖出分
+
+**关键原则**：增减持的含义完全依赖于价格水平。低位增持 = 大股东"押注"；低位减持 = 大股东"逃跑"，是性质截然不同的信号。盈利修正交叉进一步区分：大股东增持 + 分析师上调是双重确信（内部人 + 外部人同向）；大股东增持 + 分析师下调是管理层逆势信心（内部人信息 > 外部人分析），降低卖出冲动。
 
 ---
 
@@ -645,7 +663,12 @@
 - **净上调 ≥ 1 + 52周位置 > 70%（追涨上调，轻微卖出警示，卖出分 +1）**：分析师跟涨上调往往落后市场，股价已在高位意味着上调预期大部分已 Price in
 - **净上调 ≥ 2 + 历史利润增速 < 0%（空洞的上调，卖出分 +1.5）**：分析师在上调预期，但实际盈利正在下滑——往往是关系驱动的报告或市值管理配合，而非真实信号
 
-**关键原则**：分析师是跟随者而非领先者。低位逆势上调是稀有的高价值信号；高位上调往往是羊群效应。叠加历史增速交叉可以区分"真上调"（有业绩根基）和"假上调"（与实际趋势背离），显著提升信号纯度。
+**机构调研交叉（预测修正 + 实地尽调 = 两层验证）**：
+- **净上调 ≥ 2 + 近90日调研次数 ≥ 5（买入分 +1.5，卖方+买方双重共识）**：分析师公开上调报告 + 基金经理/买方机构实地到访——卖方预测和买方现场验证同时给出同向信号，是当前系统中最高置信度的卖方与买方共识配置信号
+- **净下调 ≤ -2 + 近90日调研次数 = 0（卖出分 +1.5，彻底被机构抛弃）**：分析师在下调，而且没有任何机构前来调研——卖方唱空 + 买方缺席，是完全的机构放弃状态，最彻底的悲观信号
+- **净上调 ≥ 2 + 近90日调研次数 = 0（卖出分 +1，无实地支撑的纸面上调）**：分析师上调报告缺乏买方实地验证，更可能来自模型更新或市值管理目的，而非基于扎实调研的真实看多——上调的信号质量存疑
+
+**关键原则**：分析师是跟随者而非领先者。低位逆势上调是稀有的高价值信号；高位上调往往是羊群效应。叠加历史增速交叉可以区分"真上调"（有业绩根基）和"假上调"（与实际趋势背离），显著提升信号纯度。机构调研交叉进一步增加一层买方现场验证：卖方上调 × 买方调研 = 两类机构通过完全不同渠道得出同一结论，是预测修正信号的最高置信度形态。
 
 ---
 
@@ -845,7 +868,11 @@ Composite scores (0–100):
 - **Deep value (PE/PB percentile ≤ 25%) + net analyst upgrades ≥ 2 (buy +3, double-bottom signal)**: cheap AND analysts awakening = the classic institutional accumulation trigger; two independent signal sources converging produces the highest-confidence value buy
 - **High valuation (PE/PB percentile ≥ 80%) + net downgrades ≤ −2 (sell +3, double-kill)**: expensive AND fundamentals deteriorating — the most unambiguous quantitative short/reduce signal
 
-**Key principle**: Cheap ≠ buy signal. Cheap + price stabilizing or recovering = true value opportunity. "Cheap but falling" is the most common value trap pattern in A-shares. Cheap + analyst upgrades is the strongest value confirmation: market pricing and sell-side consensus both giving the same signal simultaneously is the highest-conviction value entry window.
+**Sector-relative PEG cross (cheapest / most expensive growth stock in peer group)**:
+- **PE percentile ≤ 30% + profit growth ≥ 20% (sector-cheapest growth stock, buy +2)**: the lowest-valued high-growth company in its peer group — the most direct expression of PEG < 1 in a sector-relative context; the highest-value-for-money entry within a sector allocation; cheap valuation + high growth = maximum room for valuation re-rating
+- **PE percentile ≥ 80% + profit growth ≤ 0% (sector-most-expensive declining stock, sell +2)**: paying the sector's highest valuation premium for a company with contracting earnings — the most dangerous sector allocation combination; high premium + deteriorating fundamentals = dual valuation compression risk
+
+**Key principle**: Cheap ≠ buy signal. Cheap + price stabilizing or recovering = true value opportunity. "Cheap but falling" is the most common value trap pattern in A-shares. Cheap + analyst upgrades is the strongest value confirmation: market pricing and sell-side consensus both giving the same signal simultaneously is the highest-conviction value entry window. The sector-relative PEG cross upgrades the question from "is this stock cheap?" to "is this the best-value growth opportunity within its sector?" — the natural intersection of value and growth investing.
 
 **Note**: A-share markets can sustain stretched valuations for extended periods; treat sell_score as a warning, not a veto.
 
@@ -962,7 +989,12 @@ Composite scores (0–100):
 - Volume ratio > 5× (extreme climax — possible blow-off top, 6 pts)
 - **Volume ratio ≥ 1.5× + MA5 < MA20 (downtrend context, sell +1.5)**: volume surge in a downtrend = distribution/panic selling amplified
 
-**Key principle**: Volume × price direction is the base signal. Volume × trend direction (MA) is the confirmation layer. Both layers pointing the same way gives the highest-conviction volume interpretation.
+**52-week price position cross (contextual diagnosis of the volume event)**:
+- **Volume ratio ≥ 1.5× + price up ≥ 1% + 52w position < 30% (base breakout, buy +2)**: high-volume surge at annual lows = classic institutional accumulation launch signal; distribution phase completed, mark-up phase beginning — the most credible volume-price configuration in A-share bottoming analysis; likely institutional entry, not retail FOMO
+- **Volume ratio ≥ 1.5× + price up ≥ 1% + 52w position > 70% (possible distribution top, sell +1.5)**: high-volume surge at annual highs is often institutional distribution into retail buying — identical surface pattern to the base breakout but opposite in nature; smart money exiting on elevated price and elevated volume
+- **Volume ratio ≥ 1.5× + price down ≥ 2% + 52w position < 30% (panic capitulation, sell urgency reduced, sell −1.5)**: high-volume selloff at annual lows is typically emotional retail panic rather than institutional distribution — the same pattern that would be a strong sell signal at highs is instead a sentiment exhaustion signal at lows; reduce sell urgency
+
+**Key principle**: Volume × price direction is the base signal. Volume × trend direction (MA) is the confirmation layer. Volume × 52-week price position is the contextual diagnosis layer. All three combined answer the full question: "what does this volume event actually mean?" — the same high-volume selloff means active distribution near annual highs and panic capitulation near annual lows; surface appearance identical, interpretation opposite.
 
 ---
 
@@ -1334,7 +1366,11 @@ Composite scores (0–100):
 - **Unlock ratio ≥ 5% + 52w position < 30% (insiders underwater — limited selling motivation, sell −3)**
 - **Unlock ratio ≥ 5% + profit growth ≥ 20% (fast-growing business attracts buyers who absorb the supply, sell −2)**
 
-**Key principle**: Unlock pressure = potential supply ÷ potential demand. High-growth companies attract buyers who offset the supply; declining companies face supply with no offsetting demand.
+**Social heat cross (lockup expiry meets retail FOMO)**:
+- **Unlock ratio ≥ 5% + social heat top 10% (extreme retail attention amplifies the unlock, sell +2)**: large-scale unlock coinciding with peak media attention and retail FOMO = the optimal exit window for institutional holders; supply pressure amplified by a willing retail bid — the classic A-share "unlock + hot search" distribution pattern
+- **Unlock ratio ≥ 5% + social heat bottom 50% (unlocking into a cold market, sell −1)**: no retail buying enthusiasm means fewer natural buyers absorbing the supply, making distribution harder — reduces (but does not eliminate) the sell urgency; no retail bubble to exploit
+
+**Key principle**: Unlock pressure = potential supply ÷ potential demand. High-growth companies attract buyers who offset the supply; declining companies face supply with no offsetting demand. The social heat cross upgrades the demand-side assessment: extreme heat means peak retail absorption capacity — the optimal institutional exit window; cold market means no retail bid — the supply is harder to place.
 
 ---
 
@@ -1351,7 +1387,12 @@ Composite scores (0–100):
 - **Net sell ratio > 30% + 52w position < 30% (insider selling while underwater = RED FLAG, sell +3)**: insiders willing to take a loss to exit implies they see structural or undisclosed problems — one of the most dangerous signals in the entire system
 - **Net sell ratio > 30% + 52w position > 70% (insider selling near highs = rational profit-taking confirmed, sell +2)**
 
-**Key principle**: The same transaction means completely different things depending on price. Insider buying at lows = conviction bet. Insider selling at lows = structural alarm. These are opposite signals requiring position context to interpret correctly.
+**Earnings revision cross (insider + analyst dual conviction)**:
+- **Net buy ratio > 30% + net analyst upgrades ≥ 2 (buy +2, dual conviction signal)**: insiders committing capital AND independent sell-side analysts simultaneously raising ratings — two completely independent information-advantaged groups both bullish; insider information + external consensus analysis converging is one of the strongest long signals in the entire system
+- **Net sell ratio > 30% + net analyst downgrades ≤ −2 (sell +2, dual exit signal)**: both insiders and analysts bearish simultaneously — two independent groups giving the same negative signal produces high-conviction sell/reduce confirmation
+- **Net buy ratio > 30% + net analyst downgrades ≤ −2 (sell −1, insider conviction overrides sell-side)**: insiders accumulating despite widespread analyst cuts — management knows things analysts do not; the real-money action of insiders carries more informational weight than sell-side notes; reduce sell urgency
+
+**Key principle**: The same transaction means completely different things depending on price. Insider buying at lows = conviction bet. Insider selling at lows = structural alarm. These are opposite signals requiring position context to interpret correctly. The earnings revision cross adds a second dimension: insider + analyst convergence produces the system's strongest buy/sell signals; insider vs analyst divergence (buying against cuts) indicates management confidence that overrides public-information consensus.
 
 ---
 
@@ -1438,7 +1479,12 @@ Composite scores (0–100):
 - **Net upgrades ≥ 1 + 52w position > 70% (price-chasing upgrades, sell +1)**: upgrades after a large price run are usually analysts following the move rather than leading it; the upside is already priced in
 - **Net upgrades ≥ 2 + trailing profit growth < 0% (hollow upgrade, sell +1.5)**: analysts raising estimates while actual profits are declining — a characteristic pattern of relationship-driven coverage, IR-orchestrated market cap management, or systematic over-optimism; the upgrade is not supported by fundamental evidence
 
-**Key principle**: Analysts are followers, not leaders. Upgrades are most valuable when they arrive before the price move (stock at lows); upgrades after a large run indicate consensus formation and typically generate little further alpha. The trailing growth cross adds a quality filter: upgrades aligned with actual results carry signal; upgrades against declining earnings are noise or worse.
+**Institutional visits cross (earnings revision × field research = two-layer validation)**:
+- **Net upgrades ≥ 2 + institutional visits ≥ 5 in past 90 days (buy +1.5, sell-side + buy-side dual consensus)**: published analyst upgrade notes AND fund manager/buy-side field research visits — sell-side forward-looking conviction and buy-side on-the-ground verification arriving simultaneously; two completely independent institutional channels converging on the same conclusion is the highest-conviction upgrade configuration in the system
+- **Net downgrades ≤ −2 + institutional visits = 0 (sell +1.5, fully abandoned by institutions)**: analysts cutting while no institutions bother to visit — sell-side negative AND buy-side absent; total institutional abandonment is the most comprehensive bearish institutional signal
+- **Net upgrades ≥ 2 + institutional visits = 0 (sell +1, upgrades without field validation)**: analyst upgrade notes lacking buy-side field verification are more likely to reflect model updates, IR-driven coverage, or market-cap management than genuine fundamental conviction; signal quality is questionable without on-the-ground corroboration
+
+**Key principle**: Analysts are followers, not leaders. Upgrades are most valuable when they arrive before the price move (stock at lows); upgrades after a large run indicate consensus formation and typically generate little further alpha. The trailing growth cross adds a quality filter: upgrades aligned with actual results carry signal; upgrades against declining earnings are noise or worse. The institutional visits cross adds a field-verification layer: sell-side upgrades × buy-side research visits = two institutional groups converging through independent channels, the strongest possible upgrade validation.
 
 ---
 

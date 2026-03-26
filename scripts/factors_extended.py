@@ -1414,6 +1414,7 @@ def score_lockup_pressure(
     circulating_cap: float = 0,
     price_df: Optional[pd.DataFrame] = None,
     financial_df: Optional[pd.DataFrame] = None,
+    social_dict: Optional[dict] = None,
 ) -> dict:
     """
     Upcoming lock-up expiry supply pressure (max 10, inverse signal).
@@ -1430,6 +1431,10 @@ def score_lockup_pressure(
     Earnings growth cross: can buyers absorb the unlock supply? (requires financial_df)
       Large unlock (>= 5%) + profit growth >= 20% -> growing business attracts buyers, sell -2
       Large unlock (>= 5%) + profit growth < 0    -> declining earnings, no buyers to absorb supply, sell +2
+
+    Social heat cross: unlock into retail frenzy = A-share "lockup dump" pattern (requires social_dict)
+      Large unlock (>= 5%) + social heat top 10%  -> PE holders dump into retail FOMO = amplified sell +2
+      Large unlock (>= 5%) + social heat > 50%    -> no retail bid to absorb, insiders can't easily exit = sell -1
     """
     if lockup_df is None or lockup_df.empty or circulating_cap <= 0:
         # No lockup data: neutral buy score, minimal sell score
@@ -1522,6 +1527,20 @@ def score_lockup_pressure(
                 sell_score = min(10.0, sell_score + 2.0)
                 signal = signal + " (declining earnings — no buyers, amplified pressure)"
 
+    # --- Social heat cross: unlocking into retail frenzy = A-share lockup dump pattern ---
+    if social_dict is not None and ratio >= 5:
+        rank_pct = social_dict.get("rank_pct")
+        if rank_pct is not None:
+            rank_pct_f = float(rank_pct)
+            if rank_pct_f <= 10:
+                # Extreme retail attention: PE/founder holders see the perfect exit window
+                sell_score = min(10.0, sell_score + 2.0)
+                signal = signal + " + extreme social heat (unlock into retail FOMO — amplified)"
+            elif rank_pct_f > 50:
+                # Low retail interest: insiders have no easy buyer pool to exit into
+                sell_score = max(0.0, sell_score - 1.0)
+                signal = signal + " + low social heat (no retail bid — exit harder, mitigated)"
+
     sell_score = round(sell_score, 1)
     return {
         "score": round(max(0.0, buy_score), 1),
@@ -1540,6 +1559,7 @@ def score_lockup_pressure(
 def score_insider(
     insider_df: Optional[pd.DataFrame],
     price_df: Optional[pd.DataFrame] = None,
+    revision_df: Optional[pd.DataFrame] = None,
 ) -> dict:
     """
     Major shareholder net buy/sell in past 6 months (max 10).
@@ -1552,6 +1572,11 @@ def score_insider(
       Net buy + low position (< 0.3)   -> highest conviction buy (insiders invest at lows) -> buy +2
       Net sell + low position (< 0.3)  -> RED FLAG (selling underwater = structural problem) -> sell +3
       Net sell + high position (> 0.7) -> rational profit-taking confirmed -> sell +2
+
+    Earnings revision cross: insider vs. analyst information signal
+      Net buy + net upgrades >= 2  -> insider AND analyst both bullish = dual conviction signal -> buy +2
+      Net sell + net downgrades <= -2 -> insider AND analyst both bearish = dual exit signal -> sell +2
+      Net buy + net downgrades <= -2 -> management buying despite analyst cuts = insider conviction overrides -> sell -1
     """
     if insider_df is None or insider_df.empty:
         return _neutral(10)
@@ -1610,6 +1635,28 @@ def score_insider(
             # Insider selling near 52w high: rational profit-taking → amplify sell signal
             sell_score = min(8.0, sell_score + 2.0)
             signal = signal + " (at high price — profit-taking confirmed)"
+
+    # --- Earnings revision cross: insider intent vs. analyst consensus ---
+    if revision_df is not None and not revision_df.empty:
+        rating_cols = [c for c in revision_df.columns
+                       if any(k in c for k in ["评级", "rating", "建议", "recommendation"])]
+        if rating_cols:
+            col_str = revision_df[rating_cols[0]].astype(str).str.lower()
+            up_r   = int(col_str.str.contains("上调|upgrade|buy|strong buy").sum())
+            down_r = int(col_str.str.contains("下调|downgrade|sell|reduce").sum())
+            net_rev = up_r - down_r
+            if net_ratio > 0.3 and net_rev >= 2:
+                # Insider buying + analyst upgrades: both information sources bullish
+                score = min(10.0, score + 2.0)
+                signal = signal + f" + analyst upgrades (net {net_rev:+d}) — dual conviction"
+            elif net_ratio < -0.3 and net_rev <= -2:
+                # Insider selling + analyst downgrades: dual institutional exit
+                sell_score = min(8.0, sell_score + 2.0)
+                signal = signal + f" + analyst downgrades (net {net_rev:+d}) — dual exit signal"
+            elif net_ratio > 0.3 and net_rev <= -2:
+                # Insiders buying but analysts cutting: management has conviction analysts don't
+                sell_score = max(0.0, sell_score - 1.0)
+                signal = signal + f" (buying despite analyst cuts — management conviction overrides)"
 
     sell_score = round(sell_score, 1)
 
@@ -1966,6 +2013,7 @@ def score_earnings_revision(
     revision_df: Optional[pd.DataFrame],
     price_df: Optional[pd.DataFrame] = None,
     financial_df: Optional[pd.DataFrame] = None,
+    visits_df: Optional[pd.DataFrame] = None,
 ) -> dict:
     """
     Analyst EPS forecast revision direction (max 10).
@@ -1985,6 +2033,12 @@ def score_earnings_revision(
         (analyst optimism validated by actual results — highest-conviction upgrade)
       Upgrades (net >= 2) + trailing profit growth < 0%   -> sell +1.5
         (analysts upgrading despite declining earnings — likely relationship-driven, not signal)
+
+    Institutional visits cross: sell-side × buy-side dual confirmation (requires visits_df)
+      Upgrades (net >= 2) + visit_count >= 5  -> buy-side AND sell-side both bullish -> buy +1.5
+      Downgrades (net <= -2) + visit_count == 0 -> no buy-side interest + sell-side cutting -> sell +1.5
+      Upgrades (net >= 2) + visit_count == 0   -> analysts upgrading but buy-side absent -> sell +1
+        (possible relationship/IR-driven upgrade without real institutional conviction)
     """
     if revision_df is None or revision_df.empty:
         return {"score": 5.0, "sell_score": 0.0, "max": 10,
@@ -2073,6 +2127,32 @@ def score_earnings_revision(
                 sell_score = min(9.0, sell_score + 1.5)
                 signal = signal + f" + trailing decline {trailing_growth:.1f}% (upgrade not backed by results)"
 
+    # --- Institutional visits cross: sell-side × buy-side dual confirmation ---
+    visit_count = None
+    if visits_df is not None and not visits_df.empty:
+        date_cols_v = [c for c in visits_df.columns if any(k in c for k in ["日期", "调研日期", "接待日期"])]
+        visit_count = len(visits_df)
+        if date_cols_v:
+            try:
+                _vc = visits_df.copy()
+                _vc["_date"] = pd.to_datetime(_vc[date_cols_v[0]], errors="coerce")
+                cutoff = pd.Timestamp.now() - pd.Timedelta(days=90)
+                visit_count = int((_vc["_date"] >= cutoff).sum())
+            except Exception:
+                pass
+        if net >= 2 and visit_count >= 5:
+            # Sell-side upgrading + buy-side actively visiting: both institutional groups bullish
+            score = min(10.0, score + 1.5)
+            signal = signal + f" + {visit_count} institutional visits (sell-side + buy-side consensus)"
+        elif net <= -2 and visit_count == 0:
+            # Analysts cutting + zero buy-side interest: stock abandoned by all institutional players
+            sell_score = min(9.0, sell_score + 1.5)
+            signal = signal + " (downgrades + no institutional visits — fully abandoned)"
+        elif net >= 2 and visit_count == 0:
+            # Analysts upgrading but buy-side not visiting: possible IR-driven or relationship upgrade
+            sell_score = min(9.0, sell_score + 1.0)
+            signal = signal + " (upgrades without institutional visits — conviction questionable)"
+
     return {
         "score": round(max(0.0, min(10.0, score)), 1),
         "sell_score": round(min(9.0, sell_score), 1),
@@ -2082,6 +2162,7 @@ def score_earnings_revision(
             "down_revisions":  down,
             "net_revisions":   net,
             "trailing_growth": round(trailing_growth, 1) if trailing_growth is not None else None,
+            "visit_count_90d": visit_count,
             "position_52w":    round(position, 3) if position is not None else None,
             "signal":          signal,
             "sell_score":      round(min(9.0, sell_score), 1),
