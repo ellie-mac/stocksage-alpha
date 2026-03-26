@@ -95,7 +95,12 @@
 - **3月涨幅 ≥ 15% + 近20日量 < 近60日量的 85%（轻度量缩）→ 卖出分 +2**：轻微警告
 - **3月跌幅 ≥ 15% + 近20日量 < 近60日量的 70%（跌势缩量）→ 卖出分 -3**：卖压枯竭，抛盘减少，减轻卖出压力
 
-**关键原则**：价格趋势是方向，成交量是燃料，ROE 是引擎。没有量能支撑的上涨趋势难以持续；没有基本面支撑的上涨更难持续——三者共振才是最高质量的动量信号。
+**市场环境交叉（Daniel & Moskowitz 动量崩溃）**：
+- **强动量（3月涨幅 ≥ 15% 或 6月涨幅 ≥ 20%）+ 熊市环境（市场环境分 ≤ 3）→ 买入分 -3，卖出分 +2**：动量因子在熊市中系统性失效是实证最充分的发现之一——熊市中追涨往往是在追下跌途中的反弹，而非真正的趋势延续
+- **强动量 + 牛市环境（市场环境分 ≥ 7）→ 买入分 +1.5**：牛市趋势延续概率显著更高，机构在牛市中更愿意追动量标的
+- **强跌势（3月跌幅 ≥ 15% 或 6月跌幅 ≥ 20%）+ 牛市环境 → 卖出分 -1.5**：牛市中个股逆势大跌往往是均值回归机会，而非系统性熊市，降低卖出紧迫性
+
+**关键原则**：价格趋势是方向，成交量是燃料，ROE 是引擎，市场环境是背景底色。动量因子的最大陷阱是在熊市中失效——牛市中的强动量股是趋势延续，熊市中的强动量股常常是下跌途中的反弹，两者外表相似、本质不同，市场环境交叉是区分二者的关键。
 
 ---
 
@@ -294,7 +299,11 @@
 - **超涨（1月涨幅 ≥ 10%）+ 分析师净调升 ≥ 2（卖出分 -1.5）**：涨势有基本面支撑，降低超涨卖出压力
 - **超涨 + 分析师净调降 ≤ -2（卖出分 +1.5）**：涨势无基本面支撑，反弹是没有锚的，放大卖出信号
 
-**关键原则**：反转因子 IC 最高（0.070），但其弱点在于会把"下跌中的差公司"也打分很高。基本面质量交叉 + 盈利修正交叉共同解决这一核心缺陷：超跌的好公司 ≠ 超跌的差公司——前者是市场情绪错误，后者是正确定价。分析师修正是独立于价格的基本面信号，能最有效区分死猫弹和真反转。
+**极端跌幅交叉（均值回归概率随跌幅非线性上升）**：
+- **近1月跌幅 > 25%（极端踩踏，买入分 +1.5，卖出分 -2）**：单月跌幅超过 25% 在统计上极为罕见，往往是散户极度恐慌导致的过度超跌，均值回归概率在此区间显著提升；同时大幅削减卖出分——不应追空一个已经跌了 25% 的股票
+- **近1月跌幅 > 20%（深度超跌，买入分 +0.5，卖出分 -1）**：跌幅虽未达极端，但已深度超跌，均值回归倾向增强
+
+**关键原则**：反转因子 IC 最高（0.070），但其弱点在于会把"下跌中的差公司"也打分很高。基本面质量交叉 + 盈利修正交叉共同解决这一核心缺陷。极端跌幅交叉进一步精化：超跌越深，均值回归概率越高，但同时说明近期已无卖出价值——应减轻卖出冲动，而非加大。
 
 **背景**：A 股反转因子 IC 约 0.070，是所有因子中信号最强的之一，默认权重 2.0。
 
@@ -490,6 +499,10 @@
 
 **卖出分降低的条件**：
 - **股东人数增加 ≥ 10% + 52周位置 < 30%（低位分散 = 可能是新买入者在低位进场，卖出分 -2）**：低价吸引更多新投资者进入，不一定是机构出逃
+
+**盈利修正交叉（双机构确认）**：
+- **股东人数减少 ≥ 5% + 分析师净调升 ≥ 2（买入分 +2）**：筹码集中（主力锁仓）+ 分析师上调预期（卖方看多）= 两个完全独立的机构视角同时指向同一方向，是比单一信号高一个量级的确认信号
+- **股东人数增加 ≥ 10% + 分析师净调降 ≤ -2（卖出分 +2）**：筹码分散（主力出货）+ 分析师下调（卖方认错）= 双重机构撤退，是系统中最强的卖出/减仓组合之一
 
 **背景**：A 股筹码集中因子 IC 约 0.065，强信号，默认权重 2.0。
 
@@ -753,7 +766,15 @@
 - 所属最差概念 1 月跌幅 -8% ~ -15%（5 分）：概念走弱，题材退潮
 - **概念最强涨幅 ≥ +8% + 个股领涨幅超过概念 ≥ 20%（卖出 +2，龙头见顶风险）**：个股已经远超板块平均涨幅——"龙头"效应消退后通常面临回调补跌，追高风险极高
 
-**关键原则**：A 股的概念板块是资金轮动的核心逻辑之一。概念起势时补涨股是性价比最高的标的；概念退潮时即使个股基本面优秀也难逃下跌。补涨逻辑（落后板块）和龙头见顶逻辑（领涨过度）是 A 股独有的量价结构信号。
+**市场环境交叉（概念行情的持续性取决于市场背景）**：
+- **热点概念（最强涨幅 ≥ +10%）+ 熊市（市场环境分 ≤ 3）→ 买入分 -2，卖出分 +1.5**：熊市概念炒作几乎完全由游资主导，3–5 天窗口后迅速撤退，持续性极差
+- **热点概念 + 牛市（市场环境分 ≥ 7）→ 买入分 +1**：牛市板块共振有机构参与，延续性更强
+
+**ROE 质量交叉（主题行情的含金量）**：
+- **热点概念（最强涨幅 ≥ +8%）+ ROE ≥ 15%（高质量公司在热板块，买入分 +1.5）**：基本面优秀的公司被概念驱动资金发现，是有业绩锚定的主题行情，不只是讲故事
+- **热点概念 + ROE < 5%（无利润支撑的概念炒作，卖出分 +2）**：连盈利都很少的公司却在热板块中狂涨——纯粹的题材泡沫，随时崩盘
+
+**关键原则**：A 股的概念板块是资金轮动的核心逻辑之一。概念起势时补涨股是性价比最高的标的；概念退潮时即使个股基本面优秀也难逃下跌。市场环境交叉决定"要不要跟"；ROE 交叉决定"值不值得跟"——两者合并把"有没有概念"升级为"什么质地的概念"。
 
 **注意**：概念板块成员数据首次构建约需 30 秒（之后缓存 6 小时）。概念板块与行业板块相互补充，行业反映业务属性，概念反映市场叙事和资金热点。
 
@@ -876,7 +897,12 @@ Composite scores (0–100):
 - **3m gain ≥ 15% + vol_20d/vol_60d < 0.85 (mild contraction) → sell +2**: mild warning
 - **3m decline ≥ 15% + vol_20d/vol_60d < 0.70 (price down, volume drying up) → sell −3**: selling exhausted, fewer sellers left — reduce sell urgency
 
-**Key principle**: Price is direction, volume is fuel, ROE is the engine. A trend without volume support won't last; a trend without fundamental support won't either. All three aligning produces the highest-conviction momentum signal.
+**Market regime cross (Daniel & Moskowitz momentum crash)**:
+- **Strong uptrend (3m ≥ +15% or 6m ≥ +20%) + bear market (regime ≤ 3) → buy −3, sell +2**: momentum systematically fails in bear markets — one of the most empirically robust findings in factor investing; chasing uptrends in a bear market typically means buying into bear-market rallies, not genuine trend continuation
+- **Strong uptrend + bull market (regime ≥ 7) → buy +1.5**: trend continuation probability is materially higher in bull markets; institutional capital is more willing to chase momentum when the macro tide is rising
+- **Strong downtrend (3m ≤ −15% or 6m ≤ −20%) + bull market → sell −1.5**: an individual stock falling sharply in a bull market is more likely a mean-reversion opportunity than a structural decline — reduce sell urgency
+
+**Key principle**: Price is direction, volume is fuel, ROE is the engine, market regime is the background context. The biggest trap in momentum investing is bear-market application — bull-market momentum stocks represent trend continuation; bear-market momentum stocks are often bear rallies in disguise. The regime cross is the critical lens for distinguishing the two.
 
 ---
 
@@ -1072,7 +1098,11 @@ Composite scores (0–100):
 - **Overbought (1m ≥ +10%) + net upgrades ≥ 2 (sell −1.5)**: rally justified by improving fundamentals — ease overbought sell signal
 - **Overbought + net downgrades ≤ −2 (sell +1.5)**: rally has no fundamental backing — amplify the reversal sell signal
 
-**Key principle**: Reversal tells you "how much has it fallen"; volume cross tells you "has the falling stopped"; earnings revision cross tells you "are the fundamentals turning too?" All three layers together form the highest-conviction reversal signal. The reversal factor's main weakness is scoring fundamentally broken companies the same as genuinely oversold quality stocks — the fundamental quality cross (ROE/debt) and the earnings revision cross jointly address this flaw.
+**Decline magnitude cross (mean-reversion probability rises nonlinearly with depth of decline)**:
+- **1-month decline > 25% (extreme capitulation, buy +1.5, sell −2)**: a 25%+ single-month decline is statistically rare and typically reflects extreme retail panic overshooting fundamental value; mean-reversion probability at this depth is significantly elevated; simultaneously, selling something that has already dropped 25% is near-zero-value — sharply reduce sell urgency
+- **1-month decline > 20% (deep oversold, buy +0.5, sell −1)**: below the extreme threshold but still deeply oversold; mean-reversion tendency increases and short-side value diminishes
+
+**Key principle**: Reversal tells you "how much has it fallen"; volume cross tells you "has the falling stopped"; earnings revision cross tells you "are the fundamentals turning too?" The magnitude cross adds a fourth layer: "is the fall so deep that mean-reversion probability is statistically elevated?" All four combined form the most complete reversal signal in the system. The reversal factor's main weakness is treating fundamentally broken companies the same as genuinely oversold quality stocks — the quality cross and earnings revision cross address that flaw; the magnitude cross addresses the complementary question of statistical overshooting.
 
 **Background**: Reversal IC ~0.070 in A-shares — one of the strongest signals. Default weight 2.0.
 
@@ -1262,6 +1292,10 @@ Composite scores (0–100):
 
 **sell_score reduced**:
 - **Count up ≥ 10% + 52w position < 30% (dispersion at low price = new buyers entering at depressed prices, sell −2)**: low-price dispersion is often bottom-fishing by new investors, not institutional exit
+
+**Earnings revision cross (dual institutional confirmation)**:
+- **Count down ≥ 5% + net analyst upgrades ≥ 2 (buy +2)**: chip concentration (smart money locking in) + analyst upgrades (sell-side turning bullish) = two completely independent institutional perspectives aligning on the same direction; the probability of a false signal drops substantially when two non-overlapping information sets agree
+- **Count up ≥ 10% + net analyst downgrades ≤ −2 (sell +2)**: dispersion (smart money exiting) + analyst cuts (sell-side recognizing deterioration) = dual institutional retreat; one of the strongest combined sell signals in the system
 
 **Background**: Chip concentration IC ~0.065 in A-shares — strong signal. Default weight 2.0.
 
@@ -1529,7 +1563,11 @@ Composite scores (0–100):
 - **Hot concept (best return ≥ +10%) + bear market (regime ≤ 3) → buy −2, sell +1.5**: bear market concept pumps are almost exclusively driven by short-term traders with a 3–5 day window; holding for trend continuation in a bear market is a high-risk mistake
 - **Hot concept + bull market (regime ≥ 7) → buy +1**: institutional participation in bull-market concept rallies produces genuine follow-through; the signal is more reliable
 
-**Key principle**: A-share concept boards are a core driver of capital rotation. When a concept ignites, laggard stocks within the same concept offer the best risk-adjusted entry. When a concept fades, even fundamentally strong stocks in the group suffer. The catch-up signal (lagging the sector) and the dragon-head fade signal (leading the sector dramatically) are uniquely A-share momentum structures. Market regime modulation prevents being trapped in bear-market pump-and-dump schemes.
+**ROE quality cross (what kind of concept rally is this?)**:
+- **Hot concept (best return ≥ +8%) + ROE ≥ 15% (quality company in hot sector, buy +1.5)**: a fundamentally strong business being lifted by thematic flows — the rally has a fundamental anchor, not just narrative; the most sustainable form of concept-driven appreciation
+- **Hot concept + ROE < 5% (speculative play, sell +2)**: a near-zero-earnings company surging inside a hot concept sector = pure narrative without profit foundation; the highest collapse risk profile in theme investing
+
+**Key principle**: A-share concept boards are a core driver of capital rotation. When a concept ignites, laggard stocks within the same concept offer the best risk-adjusted entry. When a concept fades, even fundamentally strong stocks in the group suffer. The regime cross determines "should I participate?"; the ROE cross determines "is this worth participating in?" — together they upgrade the question from "is the concept hot?" to "is this the right stock in the right concept at the right time?"
 
 **Note**: The concept membership reverse-lookup map is built once at cold start (~30s) and cached for 6 hours. Concept boards complement industry boards: industry reflects business characteristics; concept reflects market narratives and capital flows.
 
