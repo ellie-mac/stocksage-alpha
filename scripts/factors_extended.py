@@ -201,6 +201,18 @@ def score_reversal(
             sell_score = min(10.0, sell_score + 2.0)
             signal = signal + " + weak fundamentals (falling knife risk)"
 
+    # --- Magnitude cross: extreme declines elevate mean-reversion probability ---
+    if ret_1m <= -25:
+        # Extreme capitulation: 25%+ 1m decline is statistically rare and creates peak oversold
+        score      = min(10.0, score + 1.5)
+        sell_score = max(0.0, sell_score - 2.0)
+        signal     = signal + " (extreme capitulation: >25% 1m — mean-reversion probability peaks)"
+    elif ret_1m <= -20:
+        # Deep decline: even without -25% threshold, strongly oversold
+        score      = min(10.0, score + 0.5)
+        sell_score = max(0.0, sell_score - 1.0)
+        signal     = signal + " (deep decline: >20% 1m — elevated reversal probability)"
+
     # --- Earnings revision cross: real reversal vs dead-cat bounce ---
     if revision_df is not None and not revision_df.empty:
         rating_cols = [c for c in revision_df.columns
@@ -1184,6 +1196,7 @@ def score_chip_distribution(
 def score_shareholder_change(
     shareholder_df: Optional[pd.DataFrame],
     price_df: Optional[pd.DataFrame] = None,
+    revision_df: Optional[pd.DataFrame] = None,
 ) -> dict:
     """
     Shareholder count quarterly change (max 15).
@@ -1197,6 +1210,12 @@ def score_shareholder_change(
       Concentration (change <= -5%) + low position (< 0.3)  -> smart money accumulating at lows -> buy +3
       Dispersion (change >= +10%) + high position (> 0.7)   -> top distribution confirmed -> sell +2
       Dispersion (change >= +10%) + low position (< 0.3)    -> retail bottom-fishing (less bearish) -> sell -2
+
+    Earnings revision cross (dual institutional confirmation):
+      Concentration (change <= -5%) + net analyst upgrades >= 2
+        -> two independent signals (chip concentration + sell-side upgrade) pointing the same way -> buy +2
+      Dispersion (change >= +10%) + net analyst downgrades <= -2
+        -> smart money exiting + analysts cutting simultaneously -> sell +2 (dual exit signal)
     """
     if shareholder_df is None or shareholder_df.empty:
         return _neutral(15)
@@ -1262,6 +1281,24 @@ def score_shareholder_change(
             # Less bearish — could be driven by new long-term investors, not distribution
             sell_score = max(0.0, sell_score - 2.0)
             signal = "dispersion at low price (bottom-fishing, less bearish)"
+
+    # --- Earnings revision cross: dual institutional confirmation ---
+    if revision_df is not None and not revision_df.empty:
+        rating_cols = [c for c in revision_df.columns
+                       if any(k in c for k in ["评级", "rating", "建议", "recommendation"])]
+        if rating_cols:
+            col_str = revision_df[rating_cols[0]].astype(str).str.lower()
+            up   = int(col_str.str.contains("上调|upgrade|buy|strong buy").sum())
+            down = int(col_str.str.contains("下调|downgrade|sell|reduce").sum())
+            net_rev = up - down
+            if change_pct <= -5 and net_rev >= 2:
+                # Chip concentration + analyst upgrades: two independent institutions pointing the same way
+                score = min(15.0, score + 2.0)
+                signal = signal + f" + analyst upgrades (net {net_rev:+d}) — dual confirmation"
+            elif change_pct >= 10 and net_rev <= -2:
+                # Dispersion + analyst cuts: smart money exits + sell-side consensus deteriorates
+                sell_score = min(15.0, sell_score + 2.0)
+                signal = signal + f" + analyst downgrades (net {net_rev:+d}) — dual exit signal"
 
     sell_score = round(sell_score, 1)
 
@@ -2429,6 +2466,7 @@ def score_concept_momentum(
     concept_data: Optional[list],
     price_df: Optional[pd.DataFrame] = None,
     market_regime_score: Optional[float] = None,
+    financial_df: Optional[pd.DataFrame] = None,
 ) -> dict:
     """
     Concept/theme board momentum score (max 10).
@@ -2446,6 +2484,10 @@ def score_concept_momentum(
         (熊市题材炒作持续性极差，快进快出的游资行为为主)
       Hot concept + bull market (regime ≥ 7) → buy +1
         (牛市板块共振具有延续性，跟进性价比更高)
+
+    ROE quality cross: distinguishes fundamentals-backed thematic rally from pure speculation.
+      Hot concept (best_ret ≥ +8%) + ROE >= 15% → buy +1.5 (quality company in hot sector)
+      Hot concept + ROE < 5%                    → sell +2  (speculative play, no earnings support)
     """
     if not concept_data:
         return _neutral(10)
@@ -2517,6 +2559,26 @@ def score_concept_momentum(
             score = min(10.0, score + 1.0)
             signal = signal + " (bull market — concept rally more sustainable)"
 
+    # --- ROE quality cross: is this a real thematic rally or pure speculation? ---
+    roe_concept = None
+    if financial_df is not None and not financial_df.empty:
+        for key in ["净资产收益率(%)", "加权净资产收益率(%)", "ROE(%)"]:
+            if key in financial_df.columns:
+                vals = pd.to_numeric(financial_df[key], errors="coerce").dropna()
+                if not vals.empty:
+                    roe_concept = float(vals.iloc[0])
+                break
+
+    if roe_concept is not None and best_ret >= 8:
+        if roe_concept >= 15:
+            # Hot sector + quality business: theme rally backed by real earnings power
+            score = min(10.0, score + 1.5)
+            signal = signal + f" + ROE {roe_concept:.0f}% (fundamentals-backed theme — sustainable)"
+        elif roe_concept < 5:
+            # Hot sector + near-zero earnings: pure speculative play with no fundamental anchor
+            sell_score = min(10.0, sell_score + 2.0)
+            signal = signal + f" + ROE {roe_concept:.0f}% (speculative theme — no earnings support)"
+
     return {
         "score":      round(score, 1),
         "sell_score": round(sell_score, 1),
@@ -2529,6 +2591,7 @@ def score_concept_momentum(
             "concepts_count":     len(concept_data),
             "stock_ret_1m":       round(stock_ret_1m, 2) if stock_ret_1m is not None else None,
             "market_regime_score": market_regime_score,
+            "roe_pct":            round(roe_concept, 1) if roe_concept is not None else None,
             "signal":             signal,
             "sell_signal":        sell_signal,
             "sell_score":         round(sell_score, 1),

@@ -545,6 +545,7 @@ def score_growth(
 def score_momentum(
     price_df: Optional[pd.DataFrame],
     financial_df: Optional[pd.DataFrame] = None,
+    market_regime_score: Optional[float] = None,
 ) -> dict:
     """
     Momentum factor score (max 25).
@@ -563,6 +564,14 @@ def score_momentum(
     Quality cross: momentum sustainability filter (requires financial_df)
       Strong uptrend (3m >= +20% or 6m >= +25%) + ROE >= 15% -> buy +2 (quality momentum, sustainable)
       Strong uptrend + ROE < 5%                              -> sell +2 (speculation risk, no fundamentals)
+
+    Market regime cross (Daniel & Moskowitz momentum crash):
+      Strong uptrend + bear market (regime <= 3) -> buy -3, sell +2
+        (momentum systematically fails in bear markets; chasing uptrends = catching falling knives)
+      Strong uptrend + bull market (regime >= 7) -> buy +1.5
+        (bull market trend continuation is more reliable)
+      Strong downtrend + bull market (regime >= 7) -> sell -1.5
+        (downtrend in bull market = likely mean-reversion candidate, not a structural bear)
     """
     ret_3m = ret_6m = None
 
@@ -665,6 +674,25 @@ def score_momentum(
                 sell_total = round(min(25.0, sell_total + 2.0), 1)
                 quality_signal = "low-quality momentum (low ROE — speculation risk)"
 
+    # --- Market regime cross: momentum crash risk (Daniel & Moskowitz) ---
+    regime_signal = None
+    if market_regime_score is not None:
+        strong_up_r   = (ret_3m is not None and ret_3m >= 15) or (ret_6m is not None and ret_6m >= 20)
+        strong_down_r = (ret_3m is not None and ret_3m <= -15) or (ret_6m is not None and ret_6m <= -20)
+        if strong_up_r and market_regime_score <= 3:
+            # Momentum crashes in bear markets: systematic factor reversal documented by Daniel & Moskowitz
+            total      = round(max(0.0, total - 3.0), 1)
+            sell_total = round(min(25.0, sell_total + 2.0), 1)
+            regime_signal = "bear market momentum — crash risk (buy -3, sell +2)"
+        elif strong_up_r and market_regime_score >= 7:
+            # Bull market trend continuation: higher probability of follow-through
+            total = round(min(25.0, total + 1.5), 1)
+            regime_signal = "bull market momentum — high continuation probability (buy +1.5)"
+        elif strong_down_r and market_regime_score >= 7:
+            # Downtrend in bull market: mean-reversion likely, reduce sell urgency
+            sell_total = round(max(0.0, sell_total - 1.5), 1)
+            regime_signal = "bull market downtrend — mean-reversion candidate (sell -1.5)"
+
     return {
         "score": total,
         "sell_score": sell_total,
@@ -678,6 +706,8 @@ def score_momentum(
             "vol_signal": vol_signal,
             "roe_pct": round(roe, 1) if roe is not None else None,
             "quality_signal": quality_signal,
+            "market_regime_score": market_regime_score,
+            "regime_signal": regime_signal,
             "sell_score": sell_total,
         },
     }

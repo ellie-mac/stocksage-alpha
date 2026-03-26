@@ -182,7 +182,7 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
     _pe_pct = value_factor["details"].get("pe_percentile")
     _pb_pct = value_factor["details"].get("pb_percentile")
     growth_factor   = score_growth(financial_df, _pe_pct)
-    momentum_factor = score_momentum(price_df, financial_df)
+    momentum_factor = score_momentum(price_df, financial_df, regime_score)
     quality_factor  = score_quality(financial_df, price_df, _pe_pct, _pb_pct)
     nb_factor       = score_northbound(fund_flow_df)
     vol_factor      = score_volume_breakout(price_df)
@@ -204,7 +204,7 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
     chip_factor  = score_chip_distribution(price_df, fund_flow_df)
 
     # Extended B: additional API data
-    sh_factor    = score_shareholder_change(shareholder_df, price_df)
+    sh_factor    = score_shareholder_change(shareholder_df, price_df, revision_df)
     lhb_factor   = score_lhb(lhb_df, price_df)
     lk_factor    = score_lockup_pressure(lockup_df, circ_cap, price_df, financial_df)
     ins_factor   = score_insider(insider_df, price_df)
@@ -217,7 +217,7 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
     lim_factor    = score_limit_hits(price_df, financial_df, social_dict)
     inr_factor    = score_price_inertia(price_df)
     soc_factor    = score_social_heat(social_dict, price_df, financial_df)
-    con_factor    = score_concept_momentum(concept_data, price_df, regime_score)
+    con_factor    = score_concept_momentum(concept_data, price_df, regime_score, financial_df)
 
     extra = {
         "div_yield":           div_factor,

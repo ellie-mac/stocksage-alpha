@@ -245,7 +245,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str) -> Optional[d
             scores["ma_alignment"]             = _safe(score_ma_alignment, price_df, revision_df)
             scores["sell_score_ma_alignment"]  = _safe_sell(score_ma_alignment, price_df, revision_df)
 
-            scores["shareholder_change"]   = _safe(score_shareholder_change, shareholder_df, price_df)
+            scores["shareholder_change"]   = _safe(score_shareholder_change, shareholder_df, price_df, revision_df)
             scores["lhb"]                  = _safe(score_lhb, lhb_df, price_df)
             scores["lockup_pressure"]      = _safe(score_lockup_pressure, lockup_df, circ_cap, price_df, financial_df)
             scores["insider"]              = _safe(score_insider, insider_df, price_df)
@@ -258,16 +258,18 @@ def compute_stock_scores(code: str, forward_days: int, group: str) -> Optional[d
             concept_data = fetcher.get_concept_momentum(code)
             _regime_score = scores.get("market_regime")
             _regime_float = float(_regime_score) if _regime_score is not None and not np.isnan(_regime_score) else None
-            scores["concept_momentum"]     = _safe(score_concept_momentum, concept_data, price_df, _regime_float)
+            scores["concept_momentum"]     = _safe(score_concept_momentum, concept_data, price_df, _regime_float, financial_df)
 
             # Re-compute regime- and valuation-dependent factors now that both are available
             scores["low_volatility"]       = _safe(score_low_volatility, price_df, _regime_float)
             scores["sell_score_low_volatility"] = _safe_sell(score_low_volatility, price_df, _regime_float)
             scores["growth"]               = _safe(score_growth, financial_df, _pe_pct)
             scores["sell_score_growth"]    = _safe_sell(score_growth, financial_df, _pe_pct)
+            scores["momentum"]             = _safe(score_momentum, price_df, financial_df, _regime_float)
+            scores["sell_score_momentum"]  = _safe_sell(score_momentum, price_df, financial_df, _regime_float)
 
             # Sell scores for Ext-B
-            scores["sell_score_shareholder_change"]   = _safe_sell(score_shareholder_change, shareholder_df, price_df)
+            scores["sell_score_shareholder_change"]   = _safe_sell(score_shareholder_change, shareholder_df, price_df, revision_df)
             scores["sell_score_lhb"]                  = _safe_sell(score_lhb, lhb_df, price_df)
             scores["sell_score_lockup_pressure"]      = _safe_sell(score_lockup_pressure, lockup_df, circ_cap, price_df, financial_df)
             scores["sell_score_insider"]              = _safe_sell(score_insider, insider_df, price_df)
@@ -276,7 +278,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str) -> Optional[d
             scores["sell_score_earnings_revision"]    = _safe_sell(score_earnings_revision, revision_df, price_df, financial_df)
             scores["sell_score_social_heat"]          = _safe_sell(score_social_heat, social_dict, price_df, financial_df)
             scores["sell_score_market_regime"]        = _safe_sell(score_market_regime, market_regime_df)
-            scores["sell_score_concept_momentum"]     = _safe_sell(score_concept_momentum, concept_data, price_df, _regime_float)
+            scores["sell_score_concept_momentum"]     = _safe_sell(score_concept_momentum, concept_data, price_df, _regime_float, financial_df)
 
             # Re-compute limit_hits with social_dict now available
             scores["limit_hits"]           = _safe(score_limit_hits, price_df, financial_df, social_dict)
