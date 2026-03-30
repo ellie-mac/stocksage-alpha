@@ -101,7 +101,11 @@ def get_stock_info(code: str) -> Optional[dict]:
 
 
 def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
-    """Fetch daily OHLCV history (qfq adjusted). Cached for 1 hour."""
+    """Fetch daily OHLCV history (qfq adjusted). Cached for 1 hour.
+
+    Primary source: East Money (stock_zh_a_hist).
+    Fallback: stock_zh_a_daily (163/Netease source) when primary is unavailable.
+    """
     cache_key = f"price_{code}_{days}"
     cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY)
     if cached is not None:
@@ -125,6 +129,33 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         })
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").reset_index(drop=True)
+        cache.set_df(cache_key, df)
+        return df
+    except Exception:
+        pass
+
+    # Fallback: 163/Netease source via stock_zh_a_daily
+    try:
+        prefix = "sh" if code.startswith("6") else "sz"
+        df = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust="qfq")
+        if df is None or df.empty:
+            return None
+        df.columns = [c.strip() for c in df.columns]
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date").reset_index(drop=True)
+        # Trim to requested window
+        cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
+        df = df[df["date"] >= cutoff].reset_index(drop=True)
+        if df.empty:
+            return None
+        # Compute change_pct and change_amt from close if not present
+        if "change_pct" not in df.columns:
+            df["change_pct"] = df["close"].pct_change() * 100
+        if "change_amt" not in df.columns:
+            df["change_amt"] = df["close"].diff()
+        # turnover from stock_zh_a_daily is a decimal ratio; convert to percentage
+        if "turnover" in df.columns:
+            df["turnover"] = df["turnover"] * 100
         cache.set_df(cache_key, df)
         return df
     except Exception:
