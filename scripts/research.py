@@ -370,6 +370,8 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
         "signals_summary": _build_signals_summary({
             "value": value_factor, "growth": growth_factor,
             "momentum": momentum_factor, "quality": quality_factor,
+            "northbound": nb_factor, "volume": vol_factor,
+            "position_52w": pos_factor,
             **extra,
         }),
     }

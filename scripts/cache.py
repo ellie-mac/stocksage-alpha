@@ -32,6 +32,11 @@ def get(key: str, ttl_seconds: int) -> Optional[Any]:
             return None
         return entry["data"]
     except Exception:
+        # Corrupted or unreadable file — delete it so subsequent calls re-fetch cleanly
+        try:
+            os.remove(path)
+        except OSError:
+            pass
         return None
 
 
@@ -43,7 +48,13 @@ def set(key: str, data: Any) -> None:
         else:
             payload = data
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"ts": time.time(), "data": payload}, f, ensure_ascii=False)
+            # allow_nan=False ensures NaN is rejected at write time rather than
+            # producing invalid JSON literal `NaN` that non-Python parsers reject.
+            json.dump({"ts": time.time(), "data": payload}, f,
+                      ensure_ascii=False, allow_nan=False)
+    except (ValueError, TypeError):
+        # NaN / non-serializable value — skip caching silently
+        pass
     except Exception:
         pass
 

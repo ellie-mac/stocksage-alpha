@@ -121,16 +121,6 @@ def _safe_sell(fn, *args, **kwargs) -> float:
         return np.nan
 
 
-def make_factor_fns(forward_days: int, group: str = "AB") -> dict:
-    """
-    Build a registry of factor functions.
-    Each entry: name -> callable(code) -> float score
-    We pre-fetch all heavy data once per stock, then evaluate each factor.
-    """
-    # We collect per-stock data in compute_stock_scores; this dict is just metadata.
-    return {}   # see compute_stock_scores below
-
-
 # ---------------------------------------------------------------------------
 # Per-stock score computation
 # ---------------------------------------------------------------------------
