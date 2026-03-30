@@ -301,7 +301,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
             # Sell scores for Ext-B
             scores["sell_score_shareholder_change"]   = _safe_sell(score_shareholder_change, shareholder_df, price_df, revision_df)
             scores["sell_score_lhb"]                  = _safe_sell(score_lhb, lhb_df, price_df, revision_df=revision_df)
-            scores["sell_score_lockup_pressure"]      = _safe_sell(score_lockup_pressure, lockup_df, circ_cap, price_df, financial_df, social_dict, revision_df=revision_df)
+            scores["sell_score_lockup_pressure"]      = _safe_sell(score_lockup_pressure, lockup_df, circ_cap, price_df, financial_df, social_dict, market_ret_1m=market_ret, revision_df=revision_df)
             scores["sell_score_insider"]              = _safe_sell(score_insider, insider_df, price_df, revision_df)
             scores["sell_score_institutional_visits"] = _safe_sell(score_institutional_visits, visits_df, revision_df)
             scores["sell_score_northbound_actual"]    = _safe_sell(score_northbound_actual, nb_df, price_df, revision_df, None, market_ret, social_dict=social_dict)
@@ -331,8 +331,8 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
                 scores["value"]                     = _safe(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret)
                 scores["sell_score_value"]          = _safe_sell(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret)
                 # Re-compute div_yield with industry context
-                scores["div_yield"]                 = _safe(score_dividend_yield, quote.get("div_yield", 0), financial_df, None, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
-                scores["sell_score_div_yield"]      = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df, None, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
+                scores["div_yield"]                 = _safe(score_dividend_yield, quote.get("div_yield", 0), financial_df, _regime_float, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
+                scores["sell_score_div_yield"]      = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df, _regime_float, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
             except Exception:
                 scores["industry_momentum"] = np.nan
                 scores["sell_score_industry_momentum"] = np.nan
