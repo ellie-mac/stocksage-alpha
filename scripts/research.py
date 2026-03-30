@@ -148,25 +148,32 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
 
     industry = info.get("industry", "Unknown")
 
-    # Industry momentum (needs industry name from info)
+    # Industry momentum + intra-industry valuation stats — run concurrently
     industry_ret = None
-    if industry and industry != "Unknown":
-        try:
-            industry_ret = get_industry_momentum(industry)
-        except Exception:
-            pass
-
-    # Build intra-industry valuation context if the industry map is cached
     industry_stats = None
     if industry and industry != "Unknown":
-        try:
-            from industry import build_industry_map, get_industry_pe_stats
-            industry_map = build_industry_map()
-            if industry_map:
-                spot_df = _get_spot_df()
-                industry_stats = get_industry_pe_stats(industry, spot_df, industry_map)
-        except Exception:
-            pass
+        def _fetch_industry_ret():
+            try:
+                return get_industry_momentum(industry)
+            except Exception:
+                return None
+
+        def _fetch_industry_stats():
+            try:
+                from industry import build_industry_map, get_industry_pe_stats
+                industry_map = build_industry_map()
+                if industry_map:
+                    spot_df = _get_spot_df()
+                    return get_industry_pe_stats(industry, spot_df, industry_map)
+            except Exception:
+                pass
+            return None
+
+        with ThreadPoolExecutor(max_workers=2) as ex2:
+            f_ir = ex2.submit(_fetch_industry_ret)
+            f_is = ex2.submit(_fetch_industry_stats)
+        industry_ret   = f_ir.result()
+        industry_stats = f_is.result()
 
     circ_cap = quote.get("circulating_cap", 0) or 0
 
@@ -354,11 +361,51 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
             "market_regime":    mkt_factor,
             "concept_momentum": con_factor,
         },
-        "weights_used": {f.name: getattr(weights, f.name) for f in dc_fields(weights)},
+        "weights_used": {f.name: getattr(weights, f.name)
+                         for f in dc_fields(weights) if getattr(weights, f.name) != 0},
         "total_score": total_score,
         "score_interpretation": _interpret_score(total_score),
         "total_sell_score": total_sell_score,
         "sell_score_interpretation": _interpret_sell_score(total_sell_score),
+        "signals_summary": _build_signals_summary({
+            "value": value_factor, "growth": growth_factor,
+            "momentum": momentum_factor, "quality": quality_factor,
+            **extra,
+        }),
+    }
+
+
+def _build_signals_summary(factors: dict) -> dict:
+    """
+    Quick-scan summary: top bullish and top bearish factor signals.
+    A factor is 'bullish' when its buy score >= 70% of its declared max,
+    'bearish' when its sell_score >= 70% of max.
+    """
+    bullish: list[dict] = []
+    bearish: list[dict] = []
+    n_valid = 0
+    for name, f in factors.items():
+        if not isinstance(f, dict):
+            continue
+        score = f.get("score") or 0
+        sell  = f.get("sell_score") or 0
+        mx    = f.get("max") or 10
+        signal = f.get("signal", "")
+        n_valid += 1
+        if score / mx >= 0.70:
+            bullish.append({"factor": name, "score": score, "signal": signal})
+        if sell / mx >= 0.70:
+            bearish.append({"factor": name, "sell_score": sell, "signal": signal})
+
+    bullish.sort(key=lambda x: -x["score"])
+    bearish.sort(key=lambda x: -x["sell_score"])
+    consensus_pct = round(len(bullish) / n_valid * 100, 0) if n_valid else 0
+    return {
+        "top_bullish":          bullish[:5],
+        "top_bearish":          bearish[:5],
+        "bullish_count":        len(bullish),
+        "bearish_count":        len(bearish),
+        "factor_consensus_pct": consensus_pct,
     }
 
 

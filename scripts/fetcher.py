@@ -164,10 +164,10 @@ def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
     """
     Fetch per-stock order-flow breakdown (large / medium / small orders).
     Used as an institutional money-flow proxy.
-    Cached for 1 hour.
+    Cached for 5 minutes — fund flow changes rapidly intraday.
     """
     cache_key = f"fundflow_{code}_{days}"
-    cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY)
+    cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY // 12)
     if cached is not None:
         return cached
     try:
@@ -237,7 +237,6 @@ def get_lhb_flow(code: str, days: int = 90) -> Optional[pd.DataFrame]:
     if cached is not None:
         return cached
     try:
-        from datetime import datetime, timedelta
         end   = datetime.now().strftime("%Y%m%d")
         start = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
         df = ak.stock_lhb_detail_em(symbol=code, start_date=start, end_date=end)
@@ -316,7 +315,6 @@ def get_industry_momentum(industry_name: str) -> Optional[float]:
     if cached is not None:
         return float(cached)
     try:
-        from datetime import datetime, timedelta
         end   = datetime.now().strftime("%Y%m%d")
         start = (datetime.now() - timedelta(days=35)).strftime("%Y%m%d")
         df = ak.stock_board_industry_hist_em(
@@ -346,7 +344,6 @@ def get_market_return_1m() -> Optional[float]:
     if cached is not None:
         return float(cached)
     try:
-        from datetime import datetime, timedelta
         end   = datetime.now().strftime("%Y%m%d")
         start = (datetime.now() - timedelta(days=35)).strftime("%Y%m%d")
         # Use 000300 (CSI 300) as market proxy
