@@ -326,7 +326,6 @@ def screen_stocks(
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
     # Build industry PE lookup from full pre-filter market
-    df_for_industry = df.rename(columns={})  # already renamed
     industry_pe_pct = _build_industry_pe_lookup(df)
 
     # Basic hygiene

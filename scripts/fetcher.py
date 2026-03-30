@@ -355,9 +355,7 @@ def get_market_return_1m() -> Optional[float]:
     if cached is not None:
         return float(cached)
     try:
-        end   = datetime.now().strftime("%Y%m%d")
-        start = (datetime.now() - timedelta(days=35)).strftime("%Y%m%d")
-        # Use 000300 (CSI 300) as market proxy
+        # Use 000300 (CSI 300) as market proxy; fetch full history and take last 25 trading days
         df = ak.stock_zh_index_daily_em(symbol="sh000300")
         if df is None or df.empty:
             return None

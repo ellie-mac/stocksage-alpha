@@ -295,7 +295,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
             scores["sell_score_insider"]              = _safe_sell(score_insider, insider_df, price_df, revision_df)
             scores["sell_score_institutional_visits"] = _safe_sell(score_institutional_visits, visits_df, revision_df)
             scores["sell_score_northbound_actual"]    = _safe_sell(score_northbound_actual, nb_df, price_df, revision_df, None, market_ret, social_dict=social_dict)
-            scores["sell_score_earnings_revision"]    = _safe_sell(score_earnings_revision, revision_df, price_df, financial_df, visits_df, social_dict=social_dict)
+            scores["sell_score_earnings_revision"]    = _safe_sell(score_earnings_revision, revision_df, price_df, financial_df, visits_df, best_concept_ret=_best_concept_ret, social_dict=social_dict)
             scores["sell_score_social_heat"]          = _safe_sell(score_social_heat, social_dict, price_df, financial_df, revision_df=revision_df)
             scores["sell_score_market_regime"]        = _safe_sell(score_market_regime, market_regime_df)
             scores["sell_score_concept_momentum"]     = _safe_sell(score_concept_momentum, concept_data, price_df, _regime_float, financial_df, revision_df=revision_df)
