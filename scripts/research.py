@@ -392,7 +392,7 @@ def _build_signals_summary(factors: dict) -> dict:
         score = f.get("score") or 0
         sell  = f.get("sell_score") or 0
         mx    = f.get("max") or 10
-        signal = f.get("signal", "")
+        signal = (f.get("details") or {}).get("signal") or f.get("signal", "")
         n_valid += 1
         if score / mx >= 0.70:
             bullish.append({"factor": name, "score": score, "signal": signal})
