@@ -469,28 +469,30 @@ def run_analysis(
     }
 
 
-def _recommend_weights(ic_table: dict) -> dict:
+def _recommend_weights(stats_table: dict, ic_field: str = "ic") -> dict:
     """
     Suggest FactorWeights multipliers based on IC quality.
-    Strong positive IC -> increase weight; inverted -> set to 0; noise -> decrease.
+    Works for both single-period (ic_field="ic") and rolling (ic_field="mean_ic").
+
+    quality strings may include a p-value suffix (e.g. "strong (p<0.01)"),
+    so comparisons use startswith rather than exact equality.
     """
     recs: dict[str, float] = {}
-    for factor, stats in ic_table.items():
-        ic = stats.get("ic")
+    for factor, stats in stats_table.items():
+        ic = stats.get(ic_field)
         if ic is None:
             recs[factor] = 0.1  # unknown — keep minimal
             continue
-        quality = stats.get("quality", "noise")
+        quality   = stats.get("quality", "noise")
         direction = stats.get("direction", "")
 
         if "inverted" in direction:
-            # Factor predicts opposite of returns — either invert or suppress
-            recs[factor] = 0.0 if quality in ("strong", "moderate") else 0.1
-        elif quality == "strong":
+            recs[factor] = 0.0 if quality.startswith(("strong", "moderate")) else 0.1
+        elif quality.startswith("strong"):
             recs[factor] = 2.0
-        elif quality == "moderate":
+        elif quality.startswith("moderate"):
             recs[factor] = 1.0
-        elif quality == "weak":
+        elif quality.startswith("weak"):
             recs[factor] = 0.5
         else:
             recs[factor] = 0.2  # noise — keep but minimal weight
@@ -615,7 +617,7 @@ def _run_rolling(
     # Sort by abs(mean_ic) descending
     agg = dict(sorted(agg.items(), key=lambda x: abs(x[1].get("mean_ic") or 0), reverse=True))
 
-    weight_recs = _recommend_weights_rolling(agg)
+    weight_recs = _recommend_weights(agg, ic_field="mean_ic")
 
     return {
         "meta": {
@@ -629,30 +631,6 @@ def _run_rolling(
         "weight_recommendations": weight_recs,
         "period_detail":          period_meta,
     }
-
-
-def _recommend_weights_rolling(agg_table: dict) -> dict:
-    """Weight recommendations based on rolling mean_IC and ICIR."""
-    recs: dict[str, float] = {}
-    for factor, stats in agg_table.items():
-        mean_ic = stats.get("mean_ic")
-        if mean_ic is None:
-            recs[factor] = 0.1
-            continue
-        quality   = stats.get("quality", "noise")
-        direction = stats.get("direction", "")
-
-        if "inverted" in direction:
-            recs[factor] = 0.0 if quality in ("strong", "moderate") else 0.1
-        elif quality == "strong":
-            recs[factor] = 2.0
-        elif quality == "moderate":
-            recs[factor] = 1.0
-        elif quality == "weak":
-            recs[factor] = 0.5
-        else:
-            recs[factor] = 0.2
-    return recs
 
 
 # ---------------------------------------------------------------------------

@@ -2,11 +2,15 @@
 Data fetching module — wraps akshare with error handling and caching.
 """
 
+import threading
+
 import akshare as ak
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional
 import cache
+
+_spot_lock = threading.Lock()
 
 
 def normalize_code(code: str) -> str:
@@ -28,13 +32,20 @@ def _get_spot_df() -> pd.DataFrame:
     Fetch full A-share real-time quote DataFrame.
     Cached for TTL_REALTIME seconds to avoid redundant full-market pulls
     (e.g. when both get_realtime_quote and search_stock_by_name are called).
+    Uses a double-checked lock so concurrent threads don't each trigger
+    a separate akshare call on a simultaneous cache miss.
     """
     cached = cache.get("spot_all", cache.TTL_REALTIME)
     if cached is not None:
         return pd.DataFrame(cached)
-    df = ak.stock_zh_a_spot_em()
-    cache.set("spot_all", df.to_dict("records"))
-    return df
+    with _spot_lock:
+        # Re-check inside the lock; another thread may have populated it
+        cached = cache.get("spot_all", cache.TTL_REALTIME)
+        if cached is not None:
+            return pd.DataFrame(cached)
+        df = ak.stock_zh_a_spot_em()
+        cache.set("spot_all", df.to_dict("records"))
+        return df
 
 
 def get_realtime_quote(code: str) -> Optional[dict]:
