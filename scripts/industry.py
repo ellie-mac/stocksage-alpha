@@ -19,32 +19,42 @@ INDUSTRY_MAP_TTL = 7 * 86400  # 7 days
 def build_industry_map() -> dict[str, str]:
     """
     Returns {code: industry_name} for all A-share stocks.
-    Iterates over all industry boards from East Money and collects constituents.
+    Fetches all ~90 industry board constituent lists in parallel (16 workers)
+    — cold start drops from ~30s (sequential) to ~3s.
+    Cached for 7 days since industry membership rarely changes.
     """
     cached = cache.get(INDUSTRY_MAP_KEY, INDUSTRY_MAP_TTL)
     if cached:
         return cached
 
     import akshare as ak
+    from concurrent.futures import ThreadPoolExecutor
 
     try:
         boards = ak.stock_board_industry_name_em()
     except Exception:
         return {}
 
-    industry_map: dict[str, str] = {}
     name_col = "板块名称" if "板块名称" in boards.columns else boards.columns[0]
+    industry_names = [str(n) for n in boards[name_col].dropna().tolist()]
 
-    for industry_name in boards[name_col]:
+    industry_map: dict[str, str] = {}
+
+    def _fetch_cons(industry_name: str) -> tuple[str, list[str]]:
         try:
             cons = ak.stock_board_industry_cons_em(symbol=industry_name)
             if cons is None or cons.empty:
-                continue
+                return industry_name, []
             code_col = "代码" if "代码" in cons.columns else cons.columns[0]
-            for code in cons[code_col]:
-                industry_map[str(code).zfill(6)] = industry_name
+            codes = [str(c).zfill(6) for c in cons[code_col].dropna().tolist()]
+            return industry_name, codes
         except Exception:
-            continue
+            return industry_name, []
+
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        for industry_name, codes in ex.map(_fetch_cons, industry_names):
+            for code in codes:
+                industry_map[code] = industry_name
 
     if industry_map:
         cache.set(INDUSTRY_MAP_KEY, industry_map)

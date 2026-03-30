@@ -1010,7 +1010,6 @@ def score_momentum(
             "industry_signal": ind_signal,
             "revision_signal": revision_signal_m,
             "position_signal": position_signal,
-            "sell_score": sell_total,
         },
     }
 
