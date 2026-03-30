@@ -528,7 +528,11 @@ def score_asset_growth(
     industry_signal = None
     if industry_ret_1m is not None and market_ret_1m is not None:
         excess = industry_ret_1m - market_ret_1m
-        if growth >= 20 and excess <= -3.0:
+        if growth <= 5 and excess >= 3.0:
+            # Disciplined expansion + hot sector: the best-quality growth profile
+            score = min(10.0, score + 1.0)
+            industry_signal = f"保守扩张+行业顺风(超额{excess:.1f}%) — 最优质成长模式"
+        elif growth >= 20 and excess <= -3.0:
             # Aggressive expansion against falling sector: management misjudged the cycle
             sell_score = min(10.0, sell_score + 1.5)
             industry_signal = f"激进扩张+行业弱(超额{excess:.1f}%) — 逆行业大肆扩张，判断失误"
@@ -2562,7 +2566,14 @@ def score_institutional_visits(
             sell_score = min(10.0, sell_score + 1.0)
             signal = signal + " (at high price — 高位调研可能是卖前尽调)"
 
+    # --- Market regime cross: bear market visits signal genuine contrarian discovery ---
     regime_signal = None
+    if market_regime_score is not None and count >= 5:
+        if market_regime_score <= 3:
+            # Institutions actively visiting in bear market: going against the grain
+            # = internal discovery of undervalued stock, highly contrarian signal
+            score = min(10.0, score + 1.5)
+            regime_signal = f"熊市主动调研({count}次) — 逆向发现被低估标的，内部人信号"
 
     # --- Industry excess return cross: context determines if visit is discovery or momentum-chasing ---
     industry_signal = None
@@ -3929,6 +3940,10 @@ def score_concept_momentum(
             # Stock massively lags its hot concept — catch-up opportunity
             score = min(10.0, score + 2.0)
             signal = signal + f" (stock lags concept by {lag:.1f}% — catch-up potential)"
+        elif stock_ret_1m - best_ret >= 20:
+            # Stock has massively outrun its concept board — dragon-head fade risk
+            sell_score = min(10.0, sell_score + 2.0)
+            signal = signal + f" (stock leads concept by {stock_ret_1m - best_ret:.1f}% — dragon-head fade risk)"
 
     # --- Market regime cross: concept rally sustainability ---
     if market_regime_score is not None and best_ret >= 10:
