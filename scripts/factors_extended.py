@@ -1466,9 +1466,13 @@ def score_turnover_percentile(
             sell_score = min(9.0, sell_score + 1.5)
             signal = signal + " (active distribution: sustained decline with elevated volume)"
 
-    # --- Market regime cross: simple regime scaling without price-direction conditions ---
+    # --- Market regime cross: high turnover meaning depends on market environment ---
     if market_regime_score is not None:
-        if market_regime_score <= 3 and ratio >= 1.5:
+        if market_regime_score >= 7 and ratio >= 1.5 and today_chg >= 0.5:
+            # Bull market + high turnover + price up: broad participation, trend continuation
+            score = min(10.0, score + 1.0)
+            signal = signal + " (bull market — broad participation confirmed)"
+        elif market_regime_score <= 3 and ratio >= 1.5:
             # Bear market + elevated turnover: more likely distribution than accumulation
             sell_score = min(9.0, sell_score + 1.0)
             signal = signal + " (bear market — high turnover likely distribution)"
