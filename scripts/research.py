@@ -106,8 +106,9 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
     if not quote or "error" in quote:
         return {"error": f"No data for stock code {code}."}
 
-    # ── Stage 1: core slow data (always fetched) ───────────────────────────
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    # ── Fetch all data concurrently (core + extended in one pool) ──────────
+    with ThreadPoolExecutor(max_workers=17) as ex:
+        # Core
         f_info      = ex.submit(get_stock_info, code)
         f_price     = ex.submit(get_price_history, code, 365)
         f_valuation = ex.submit(get_valuation_history, code)
@@ -116,19 +117,7 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
         f_margin    = ex.submit(get_margin_data, code)
         f_mktret    = ex.submit(get_market_return_1m)
         f_shareh    = ex.submit(get_shareholder_count, code)
-
-    info         = f_info.result() or {}
-    price_df     = f_price.result()
-    val_history  = f_valuation.result()
-    financial_df = f_financial.result()
-    fund_flow_df = f_fundflow.result()
-    margin_df    = f_margin.result()
-    market_ret   = f_mktret.result()
-    shareholder_df = f_shareh.result()
-
-    # ── Stage 2: optional extended data (best-effort, non-blocking) ────────
-    industry = info.get("industry", "Unknown")
-    with ThreadPoolExecutor(max_workers=8) as ex:
+        # Extended (best-effort)
         f_lhb      = ex.submit(get_lhb_flow, code)
         f_lockup   = ex.submit(get_lockup_pressure, code)
         f_insider  = ex.submit(get_insider_transactions, code)
@@ -139,15 +128,25 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
         f_market   = ex.submit(get_market_regime_data)
         f_concept  = ex.submit(get_concept_momentum, code)
 
-    lhb_df      = f_lhb.result()
-    lockup_df   = f_lockup.result()
-    insider_df  = f_insider.result()
-    visits_df   = f_visits.result()
-    nb_df       = f_nb.result()
-    revision_df = f_revision.result()
-    social_dict = f_social.result()
-    market_df   = f_market.result()
-    concept_data = f_concept.result()
+    info           = f_info.result() or {}
+    price_df       = f_price.result()
+    val_history    = f_valuation.result()
+    financial_df   = f_financial.result()
+    fund_flow_df   = f_fundflow.result()
+    margin_df      = f_margin.result()
+    market_ret     = f_mktret.result()
+    shareholder_df = f_shareh.result()
+    lhb_df         = f_lhb.result()
+    lockup_df      = f_lockup.result()
+    insider_df     = f_insider.result()
+    visits_df      = f_visits.result()
+    nb_df          = f_nb.result()
+    revision_df    = f_revision.result()
+    social_dict    = f_social.result()
+    market_df      = f_market.result()
+    concept_data   = f_concept.result()
+
+    industry = info.get("industry", "Unknown")
 
     # Industry momentum (needs industry name from info)
     industry_ret = None

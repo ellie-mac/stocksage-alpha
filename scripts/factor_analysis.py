@@ -75,13 +75,13 @@ TEST_UNIVERSE = [
     # Technology / semiconductors
     "688981", "002230", "000725", "688036", "300059", "002241",
     # Industry / manufacturing
-    "000333", "600031", "601899", "002594", "600585", "603816",
+    "000333", "600031", "601899", "600585", "603816",
     # Energy / utilities
     "600900", "601985", "600028", "601857", "600019", "601088",
     # Real estate
     "000002", "600048", "001979", "600606", "000069",
     # Retail / e-commerce
-    "002304", "600690", "002304", "601888", "000895",
+    "002304", "600690", "601888", "000895",
     # Auto
     "600104", "000625", "601238", "002594",
     # New energy
@@ -365,20 +365,28 @@ def spearman_ic(factor_scores: pd.Series, forward_returns: pd.Series) -> tuple[f
         return ic, np.nan
 
 
-def ic_summary(ic: float, n: int) -> dict:
-    """Compute ICIR and t-stat from a single cross-sectional IC."""
-    # For a single cross-section we can't compute ICIR; mark as N/A
+def ic_summary(ic: float, n: int, pval: float = np.nan) -> dict:
+    """Compute t-stat and quality label from a single cross-sectional IC.
+
+    pval: p-value from spearman_ic(); used to append significance marker to quality.
+    """
     t_stat = ic * np.sqrt(n - 2) / np.sqrt(1 - ic ** 2) if abs(ic) < 1 else np.nan
-    quality = (
+    mag = (
         "strong"   if abs(ic) >= 0.08 else
         "moderate" if abs(ic) >= 0.05 else
         "weak"     if abs(ic) >= 0.02 else
         "noise"
     )
+    if not np.isnan(pval):
+        sig = "p<0.01" if pval < 0.01 else "p<0.05" if pval < 0.05 else "p≥0.05"
+        quality = f"{mag} ({sig})"
+    else:
+        quality = mag
     direction = "positive ✓" if ic > 0 else "inverted ✗"
     return {
         "ic":        round(ic, 4) if not np.isnan(ic) else None,
         "t_stat":    round(t_stat, 2) if not np.isnan(t_stat) else None,
+        "p_value":   round(pval, 4) if not np.isnan(pval) else None,
         "n_stocks":  n,
         "quality":   quality,
         "direction": direction,
@@ -446,9 +454,7 @@ def run_analysis(
                                   "quality": "insufficient data", "direction": "N/A"}
             continue
         ic, pval = spearman_ic(scores, forward_ret)
-        summary  = ic_summary(ic, n)
-        summary["p_value"] = round(pval, 4) if not np.isnan(pval) else None
-        ic_results[factor] = summary
+        ic_results[factor] = ic_summary(ic, n, pval)
 
     # Sort by abs(IC) descending
     ic_results = dict(sorted(ic_results.items(),
@@ -528,13 +534,14 @@ def _run_rolling(
     period_ics: dict[str, list[float]] = {}
     period_meta: list[dict] = []
 
-    for period_idx in range(n_periods):
-        price_offset = period_idx * step
-        print(f"  Period {period_idx + 1}/{n_periods}  (price_offset={price_offset}d back)")
+    # Reuse a single thread pool across all periods to avoid repeated creation overhead
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        for period_idx in range(n_periods):
+            price_offset = period_idx * step
+            print(f"  Period {period_idx + 1}/{n_periods}  (price_offset={price_offset}d back)")
 
-        results: list[dict] = []
-        errors = 0
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            results: list[dict] = []
+            errors = 0
             futures = {
                 ex.submit(compute_stock_scores, code, forward_days, group, price_offset): code
                 for code in codes
@@ -549,38 +556,38 @@ def _run_rolling(
                 except Exception:
                     errors += 1
 
-        if len(results) < 10:
-            print(f"    Skipped (only {len(results)} stocks succeeded)\n")
-            continue
+            if len(results) < 10:
+                print(f"    Skipped (only {len(results)} stocks succeeded)\n")
+                continue
 
-        df = pd.DataFrame(results)
-        forward_ret = df["forward_ret"]
-        factor_cols = [c for c in df.columns if c not in ("code", "forward_ret")]
+            df = pd.DataFrame(results)
+            forward_ret = df["forward_ret"]
+            factor_cols = [c for c in df.columns if c not in ("code", "forward_ret")]
 
-        period_ic: dict[str, float] = {}
-        for factor in factor_cols:
-            scores = df[factor]
-            valid  = scores.notna() & forward_ret.notna()
-            if valid.sum() < 10:
-                period_ic[factor] = np.nan
-            else:
-                ic, _ = spearman_ic(scores, forward_ret)
-                period_ic[factor] = ic
+            period_ic: dict[str, float] = {}
+            for factor in factor_cols:
+                scores = df[factor]
+                valid  = scores.notna() & forward_ret.notna()
+                if valid.sum() < 10:
+                    period_ic[factor] = np.nan
+                else:
+                    ic, _ = spearman_ic(scores, forward_ret)
+                    period_ic[factor] = ic
 
-        period_meta.append({
-            "period":       period_idx + 1,
-            "price_offset": price_offset,
-            "n_stocks":     len(results),
-            "errors":       errors,
-            "mean_fwd_ret": round(float(forward_ret.mean()), 2),
-            "ic":           {f: (round(v, 4) if not np.isnan(v) else None)
-                             for f, v in period_ic.items()},
-        })
+            period_meta.append({
+                "period":       period_idx + 1,
+                "price_offset": price_offset,
+                "n_stocks":     len(results),
+                "errors":       errors,
+                "mean_fwd_ret": round(float(forward_ret.mean()), 2),
+                "ic":           {f: (round(v, 4) if not np.isnan(v) else None)
+                                 for f, v in period_ic.items()},
+            })
 
-        for factor, ic_val in period_ic.items():
-            period_ics.setdefault(factor, []).append(ic_val)
+            for factor, ic_val in period_ic.items():
+                period_ics.setdefault(factor, []).append(ic_val)
 
-        print(f"    OK: {len(results)} stocks, {errors} failed\n")
+            print(f"    OK: {len(results)} stocks, {errors} failed\n")
 
     if not period_meta:
         return {"error": "All periods failed"}
@@ -708,17 +715,18 @@ if __name__ == "__main__":
                 print(f"  {factor:<28}  →  weight = {w:.1f}")
     else:
         # ── Single-period output ───────────────────────────────────────────
-        print("\n" + "="*60)
+        print("\n" + "="*70)
         print("IC ANALYSIS RESULTS")
-        print("="*60)
+        print("="*70)
         if "ic_table" in result:
-            print(f"\n{'Factor':<25} {'IC':>8} {'t-stat':>8} {'N':>5} {'Quality':<12} {'Direction'}")
-            print("-" * 75)
+            print(f"\n{'Factor':<28} {'IC':>8} {'t-stat':>8} {'p-val':>7} {'N':>5} {'Quality':<22} {'Direction'}")
+            print("-" * 90)
             for factor, stats in result["ic_table"].items():
-                ic     = f"{stats['ic']:.4f}" if stats["ic"] is not None else "  N/A "
-                tstat  = f"{stats['t_stat']:.2f}" if stats["t_stat"] is not None else "  N/A"
-                print(f"{factor:<25} {ic:>8} {tstat:>8} {stats['n_stocks']:>5} "
-                      f"{stats['quality']:<12} {stats['direction']}")
+                ic    = f"{stats['ic']:.4f}"    if stats["ic"]      is not None else "  N/A "
+                tstat = f"{stats['t_stat']:.2f}" if stats["t_stat"]  is not None else "  N/A"
+                pval  = f"{stats['p_value']:.4f}" if stats.get("p_value") is not None else "  N/A"
+                print(f"{factor:<28} {ic:>8} {tstat:>8} {pval:>7} {stats['n_stocks']:>5} "
+                      f"{stats['quality']:<22} {stats['direction']}")
 
             print("\n" + "="*60)
             print("WEIGHT RECOMMENDATIONS")
