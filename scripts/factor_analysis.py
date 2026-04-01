@@ -60,6 +60,7 @@ from factors_extended import (
     score_amihud_illiquidity, score_medium_term_momentum, score_obv_trend,
     score_market_beta, score_atr_normalized, score_ma60_deviation,
     score_max_return, score_return_skewness, score_upday_ratio,
+    score_volume_expansion, score_nearness_to_high,
     # Group B
     score_shareholder_change, score_lhb, score_lockup_pressure,
     score_insider, score_institutional_visits, score_industry_momentum,
@@ -226,6 +227,8 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["max_return"]               = _safe(score_max_return, price_df)
         scores["return_skewness"]          = _safe(score_return_skewness, price_df)
         scores["upday_ratio"]              = _safe(score_upday_ratio, price_df)
+        scores["volume_expansion"]         = _safe(score_volume_expansion, price_df)
+        scores["nearness_to_high"]         = _safe(score_nearness_to_high, price_df)
 
         # Sell scores for Ext-A
         scores["sell_score_div_yield"]          = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df)
@@ -264,6 +267,8 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["sell_score_max_return"]            = _safe_sell(score_max_return, price_df)
         scores["sell_score_return_skewness"]       = _safe_sell(score_return_skewness, price_df)
         scores["sell_score_upday_ratio"]           = _safe_sell(score_upday_ratio, price_df)
+        scores["sell_score_volume_expansion"]      = _safe_sell(score_volume_expansion, price_df)
+        scores["sell_score_nearness_to_high"]      = _safe_sell(score_nearness_to_high, price_df)
 
         # ── Ext-B (only if group includes B) ─────────────────────────────
         if "B" in group.upper():

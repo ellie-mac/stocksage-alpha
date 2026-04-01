@@ -32,6 +32,7 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "volume":              1.0,   # IC=+0.090, ICIR=0.432
     "piotroski":           1.0,   # IC=+0.067, ICIR=1.006 — highest ICIR of all
     "ma60_deviation":      1.0,   # IC=+0.098, ICIR=0.668 — mean-reversion: stocks below MA60 outperform
+    "nearness_to_high":    0.5,   # IC=+0.106, ICIR=0.378 — proximity to 20d high, breakout momentum
     "main_inflow":         0.5,   # IC=+0.060, ICIR=0.239 — institutional flow, low ICIR
     "bb_squeeze":          0.5,   # IC=+0.064, ICIR=0.399 — volatility squeeze signal
     "roe_trend":           0.5,   # IC=+0.053, ICIR=0.362 — ROE direction
@@ -62,25 +63,28 @@ FACTOR_WEIGHTS_NORMAL = FACTOR_WEIGHTS
 #   - volume and price_inertia upweighted (momentum + liquidity work in rallies)
 # ---------------------------------------------------------------------------
 FACTOR_WEIGHTS_BULL: dict[str, float] = {
-    "price_inertia":      2.0,   # momentum continues in bull markets
-    "momentum_concavity": 2.0,   # momentum acceleration especially powerful in bull
-    "volume":             2.0,   # high-volume stocks lead rallies
-    "divergence":         1.0,   # kept at 1.0 (avoid over-weighting)
-    "asset_growth":       1.5,   # balance-sheet growth rewarded in risk-on
-    "main_inflow":        1.0,   # institutional flow especially relevant in bull
+    # ── Momentum core (maximally upweighted in bull) ───────────────────
+    "price_inertia":      3.0,   # trend-following is king in bull markets
+    "momentum_concavity": 3.0,   # accelerating momentum = the strongest bull signal
+    "nearness_to_high":   2.5,   # stocks near 20d high lead bull breakouts
+    # volume_expansion excluded (IC=+0.021, noise)
+    "volume":             2.0,   # high-turnover stocks attract most bull flows
+    "divergence":         1.5,   # multi-indicator confluence still useful
+    "bb_squeeze":         1.5,   # volatility breakouts thrive in bull
+    "main_inflow":        1.5,   # institutional flow drives bull market leads
+    # ── Growth / quality (moderate) ────────────────────────────────────
+    "asset_growth":       2.0,   # balance-sheet growth rewarded in risk-on
     "cash_flow_quality":  1.0,   # quality screen avoids blow-ups even in bull
-    "bb_squeeze":         1.0,   # breakout setups thrive in bull momentum
-    "quality":            0.5,
     "roe_trend":          0.5,
-    "low_volatility":     0.3,   # drastically reduced — low-vol lags rallies
-    "idiosyncratic_vol":  0.3,   # similarly reduced — speculative names lead in bull
-    "atr_normalized":     0.3,   # reduced — low-ATR stocks lag speculative bull rallies
+    "quality":            0.5,
     "piotroski":          0.5,
-    # "growth" not inverted — growth stocks LEAD in bull markets
-    # "limit_hits" not inverted — momentum stocks continue
-    # "medium_term_momentum" not inverted — prior momentum persists in bull
-    # "obv_trend" not inverted — accumulation signals valid in bull
-    # "ma60_deviation" omitted in bull — stocks extended above MA60 can keep running
+    # ── Low-vol cluster: near-zero — actively hurts in rallies ─────────
+    "low_volatility":     0.1,
+    "idiosyncratic_vol":  0.1,
+    "atr_normalized":     0.1,
+    # ── No inversions in bull — prior losers and high-vol names lead ───
+    # growth, limit_hits, medium_term_momentum, obv_trend NOT inverted
+    # ma60_deviation omitted — extended stocks keep running in bull
 }
 
 # ---------------------------------------------------------------------------
@@ -103,8 +107,9 @@ FACTOR_WEIGHTS_CAUTION: dict[str, float] = {
     "price_inertia":      1.0,   # inertia less reliable when trend breaks
     "asset_growth":       0.5,
 
-    # ── Volume reduced ─────────────────────────────────────────────────
+    # ── Volume / momentum reduced in caution ──────────────────────────
     "volume":             0.5,
+    "nearness_to_high":   0.2,   # momentum signal, minimal in corrections
 
     # ── Inverted (kept / amplified in caution) ────────────────────────
     "limit_hits":              -0.5,
@@ -201,6 +206,7 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "size_factor":             "no data: circ_cap unreliable in IC analysis (always returns current value)",
     "turnover_acceleration":   "noise: IC≈0 — turnover rate change uncorrelated with forward returns",
     "market_beta":             "noise: IC=+0.016, ICIR=0.049 — beta alone adds no signal beyond low_volatility/atr_normalized",
+    "volume_expansion":        "noise: IC=+0.021, ICIR=0.095 — 10d/60d volume ratio uncorrelated with forward returns",
     "upday_ratio":             "noise: IC=-0.029, ICIR=-0.155 — up-day consistency uncorrelated with forward returns",
     "max_return":              "redundant: IC=+0.216 ICIR=0.947 strong individually but collinear with low_volatility/atr_normalized/idiosyncratic_vol — over-tilts portfolio to low-vol, hurts win rate in up markets",
     "return_skewness":         "redundant: IC=+0.105 ICIR=0.872 strong individually but collinear with low-vol cluster — same exclusion rationale as max_return",

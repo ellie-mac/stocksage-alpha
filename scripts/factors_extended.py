@@ -5981,3 +5981,141 @@ def score_upday_ratio(
 
     except Exception:
         return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# Batch 6 — Momentum-quality & breakout factors (2026-04-01)
+# ---------------------------------------------------------------------------
+
+def score_volume_expansion(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """成交量扩张因子 — volume trend as accumulation/distribution signal.
+
+    Ratio of recent 10-day average volume to 60-day average volume.
+    Rising volume alongside price = institutional accumulation (bullish).
+    Shrinking volume = distribution or loss of interest.
+
+    Unlike `volume` (absolute turnover level), this captures directional change.
+    Especially powerful in bull markets combined with price momentum.
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 65:
+        return _neutral(MAX)
+
+    vol_col = None
+    for c in ["volume", "成交量", "vol", "turnover", "换手率", "turnover_rate"]:
+        if c in price_df.columns:
+            vol_col = c
+            break
+    if vol_col is None:
+        return _neutral(MAX)
+
+    try:
+        vol = pd.to_numeric(price_df[vol_col], errors="coerce").dropna()
+        if len(vol) < 65:
+            return _neutral(MAX)
+
+        avg_10 = float(vol.tail(10).mean())
+        avg_60 = float(vol.tail(60).mean())
+        if avg_60 <= 0:
+            return _neutral(MAX)
+
+        ratio = avg_10 / avg_60
+
+        # score = (ratio - 1.0) * 6.67 + 5, clipped [0, 10]
+        # ratio=0.25→0, ratio=1.0→5, ratio=1.75→10
+        score      = float(np.clip((ratio - 1.0) * 6.67 + 5.0, 0.0, 10.0))
+        sell_score = float(np.clip((1.0 - ratio) * 6.67 + 5.0, 0.0, 10.0))
+
+        if ratio >= 1.8:
+            signal = f"volume surging ({ratio:.2f}×) — strong accumulation"
+        elif ratio >= 1.3:
+            signal = f"volume expanding ({ratio:.2f}×) — buying interest growing"
+        elif ratio >= 0.8:
+            signal = f"volume flat ({ratio:.2f}×) — neutral"
+        elif ratio >= 0.5:
+            signal = f"volume contracting ({ratio:.2f}×) — interest fading"
+        else:
+            signal = f"volume drying up ({ratio:.2f}×) — distribution"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":    signal,
+                "vol_ratio": round(ratio, 3),
+                "avg_10d":   round(avg_10, 0),
+                "avg_60d":   round(avg_60, 0),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+def score_nearness_to_high(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """近期高点接近度 — proximity to 20-day high as breakout momentum signal.
+
+    Ratio of current close to highest close in past 20 trading days.
+    Near-high = strong short-term momentum, less overhead resistance.
+    In A-shares, retail FOMO and index flows push breakout stocks further.
+
+    Distinct from position_52w (excluded as noise) — 20-day horizon is
+    tighter and captures recent momentum structure, not value positioning.
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        if len(close) < 22:
+            return _neutral(MAX)
+
+        current = float(close.iloc[-1])
+        high_20 = float(close.tail(20).max())
+        if high_20 <= 0:
+            return _neutral(MAX)
+
+        ratio = current / high_20
+
+        # score = (ratio - 0.75) / 0.25 * 10, clipped [0, 10]
+        # ratio=0.75→0, ratio=1.0→10
+        score      = float(np.clip((ratio - 0.75) / 0.25 * 10.0, 0.0, 10.0))
+        sell_score = float(np.clip((1.0 - ratio) / 0.25 * 10.0, 0.0, 10.0))
+
+        pct_below = (1 - ratio) * 100
+        if ratio >= 0.98:
+            signal = f"at 20d high ({pct_below:.1f}% below) — breakout zone"
+        elif ratio >= 0.95:
+            signal = f"near 20d high ({pct_below:.1f}% below) — strong momentum"
+        elif ratio >= 0.90:
+            signal = f"moderate pullback ({pct_below:.1f}% below 20d high)"
+        elif ratio >= 0.80:
+            signal = f"significant pullback ({pct_below:.1f}% below 20d high)"
+        else:
+            signal = f"far from high ({pct_below:.1f}% below) — weak momentum"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":         signal,
+                "ratio_to_high":  round(ratio, 4),
+                "current_close":  round(current, 2),
+                "high_20d":       round(high_20, 2),
+                "pct_below_high": round(pct_below, 2),
+                "sell_score":     round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
