@@ -1,6 +1,6 @@
 # stocksage-alpha
 
-**A-share multi-factor alpha engine** — a 47-factor scoring system for systematic stock selection in Chinese equity markets.
+**A-share multi-factor alpha engine** — a 50-factor scoring system for systematic stock selection in Chinese equity markets.
 
 ## Overview
 
@@ -17,6 +17,7 @@ The system is designed around A-share market microstructure: limit-up/limit-down
 | **Extended B** | 21–28 | Institutional behavior, analyst revisions, northbound |
 | **Extended C** | 29–33 | Behavioral & market-context factors |
 | **Extended A2** | 34–47 | IC-validated additions: low-vol family (idiosyncratic vol, ATR, MAX effect, return skewness), cash flow quality, momentum concavity, mean-reversion signals (medium-term momentum, OBV trend, MA60 deviation), divergence, BB squeeze, ROE trend, main inflow, Amihud illiquidity |
+| **Extended A3** | 48–50 | Batch 8: intraday vs overnight return split (IC=−0.103, contrarian), market relative strength (noise, excluded), price efficiency/Kaufman ER (weak, excluded) |
 
 See [FACTORS.md](FACTORS.md) for full documentation of all 47 factors including scoring logic, cross-rules, and key principles — in both Chinese and English.
 

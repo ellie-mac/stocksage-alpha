@@ -6356,3 +6356,220 @@ def score_gap_frequency(
 
     except Exception:
         return _neutral(MAX)
+
+
+# ============================================================================
+# BATCH 8 — Three new technical factors
+# ============================================================================
+
+def score_market_relative_strength(
+    price_df: Optional[pd.DataFrame],
+    market_price_df: Optional[pd.DataFrame] = None,
+) -> dict:
+    """相对强弱因子 — stock 20d return minus CSI300 20d return.
+
+    Stocks that outperform the market on a rolling 20d basis tend to
+    continue outperforming (relative momentum). Distinct from absolute
+    momentum (price_inertia) — controls for market-wide moves.
+
+    Score: linear map excess_return in [-15%, +15%] -> [0, 10].
+    Center at 0% excess = score 5.
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        if len(close) < 22:
+            return _neutral(MAX)
+
+        stock_ret = float(close.iloc[-1] / close.iloc[-21] - 1) * 100  # pct
+
+        mkt_ret = 0.0
+        if market_price_df is not None and "close" in market_price_df.columns:
+            mkt_close = pd.to_numeric(market_price_df["close"], errors="coerce").dropna()
+            if len(mkt_close) >= 21:
+                mkt_ret = float(mkt_close.iloc[-1] / mkt_close.iloc[-21] - 1) * 100
+
+        excess = stock_ret - mkt_ret
+
+        # Map excess in [-15%, +15%] -> [0, 10]; center 0% -> 5
+        score      = float(np.clip((excess + 15.0) / 30.0 * 10.0, 0.0, 10.0))
+        sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+
+        if excess >= 10:
+            signal = f"strong market leader (+{excess:.1f}%)"
+        elif excess >= 3:
+            signal = f"market outperformer (+{excess:.1f}%)"
+        elif excess >= -3:
+            signal = f"in line with market ({excess:+.1f}%)"
+        elif excess >= -10:
+            signal = f"market underperformer ({excess:.1f}%)"
+        else:
+            signal = f"sharp underperformer ({excess:.1f}%) — potential laggard"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":     signal,
+                "stock_ret":  round(stock_ret, 2),
+                "mkt_ret":    round(mkt_ret, 2),
+                "excess_ret": round(excess, 2),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+def score_price_efficiency(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """价格效率因子 (Kaufman效率比率) — directional efficiency of price movement.
+
+    Kaufman Efficiency Ratio (ER) = |net_price_change| / sum(|daily_changes|)
+    over a rolling 20-day window.
+
+    ER = 1.0: price moved perfectly directionally (straight line).
+    ER -> 0:  price is fully random / choppy (path cancels out).
+
+    High ER: clean trending move (institutional accumulation).
+    Low ER: noisy / whipsawing (retail-dominated or indecisive).
+
+    Score: ER in [0, 1] -> [0, 10].
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna().tail(21)
+        if len(close) < 10:
+            return _neutral(MAX)
+
+        daily_changes = close.diff().dropna().abs()
+        net_change    = abs(float(close.iloc[-1] - close.iloc[0]))
+        total_path    = float(daily_changes.sum())
+
+        if total_path < 1e-8:
+            return _neutral(MAX)
+
+        er = net_change / total_path  # Kaufman ER in [0, 1]
+
+        score      = float(np.clip(er * 10.0, 0.0, 10.0))
+        sell_score = float(np.clip((1.0 - er) * 10.0, 0.0, 10.0))
+
+        if er >= 0.7:
+            signal = f"very efficient trend (ER={er:.2f}) — clean directional move"
+        elif er >= 0.5:
+            signal = f"efficient (ER={er:.2f}) — mostly directional"
+        elif er >= 0.3:
+            signal = f"moderate efficiency (ER={er:.2f}) — some noise"
+        elif er >= 0.15:
+            signal = f"low efficiency (ER={er:.2f}) — choppy/sideways"
+        else:
+            signal = f"very low efficiency (ER={er:.2f}) — random / indecisive"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":     signal,
+                "er":         round(er, 3),
+                "net_change": round(net_change, 3),
+                "total_path": round(total_path, 3),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+def score_intraday_vs_overnight(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """日内vs隔夜收益分拆因子 — institutional (intraday) vs retail (overnight) signal.
+
+    Decomposes total return into:
+      - Intraday:   (close - open) / open       -> institutional activity proxy
+      - Overnight:  (open - prev_close) / prev_close -> retail/news reaction proxy
+
+    Net signal = avg_intraday - avg_overnight over 20 days.
+
+    Positive net: institutions buying intraday while retail gaps fade -> bullish.
+    Negative net: retail gaps up then institutions distribute -> bearish distribution.
+
+    Score: net in [-1.5%, +1.5%] -> [0, 10]; center 0% -> 5.
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+
+    open_col = None
+    for c in ["open", "\u5f00\u76d8", "open_price"]:
+        if c in price_df.columns:
+            open_col = c
+            break
+    if open_col is None or "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce")
+        opn   = pd.to_numeric(price_df[open_col], errors="coerce")
+
+        df = pd.DataFrame({"close": close, "open": opn}).dropna().tail(21)
+        if len(df) < 10:
+            return _neutral(MAX)
+
+        prev_close = df["close"].shift(1).dropna()
+        curr_open  = df["open"].iloc[1:].reset_index(drop=True)
+        curr_close = df["close"].iloc[1:].reset_index(drop=True)
+        prev_close = prev_close.reset_index(drop=True)
+
+        intraday_ret  = (curr_close - curr_open) / curr_open.replace(0, np.nan)
+        overnight_ret = (curr_open - prev_close) / prev_close.replace(0, np.nan)
+
+        avg_intraday  = float(intraday_ret.dropna().mean()) * 100   # pct
+        avg_overnight = float(overnight_ret.dropna().mean()) * 100  # pct
+        net           = avg_intraday - avg_overnight  # pct
+
+        # Map net in [-1.5%, +1.5%] -> [0, 10]
+        score      = float(np.clip((net + 1.5) / 3.0 * 10.0, 0.0, 10.0))
+        sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+
+        if net >= 0.5:
+            signal = f"institutional accumulation (net={net:+.2f}%): intraday buying > overnight gap"
+        elif net >= 0.1:
+            signal = f"mild institutional bias (net={net:+.2f}%)"
+        elif net >= -0.1:
+            signal = f"balanced intraday/overnight (net={net:+.2f}%) — neutral"
+        elif net >= -0.5:
+            signal = f"mild distribution signal (net={net:+.2f}%)"
+        else:
+            signal = f"distribution pattern (net={net:+.2f}%): retail gaps, institutions sell"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":        signal,
+                "avg_intraday":  round(avg_intraday, 3),
+                "avg_overnight": round(avg_overnight, 3),
+                "net":           round(net, 3),
+                "sell_score":    round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)

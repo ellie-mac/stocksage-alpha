@@ -2,7 +2,7 @@
 Factor configuration — IC-based weights, excluded factor registry,
 and regime-adaptive weight sets.
 
-Based on rolling 6-period IC analysis (20d forward, Group A, 50 stocks, 2026-03-31).
+Based on rolling 6-period IC analysis (20d forward, Group A, 50 stocks, 2026-04-01).
 Re-run factor_analysis.py --rolling 6 periodically to refresh.
 
 To re-activate an excluded factor: move it from EXCLUDED_FACTORS back to FACTOR_WEIGHTS.
@@ -48,6 +48,7 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "medium_term_momentum":  -1.0,   # IC=-0.108, ICIR=-0.352 — 中期动量在A股均值回归
     "amihud_illiquidity":    -0.5,   # IC=-0.062, ICIR=-0.275 — 非流动性溢价短期无效
     "price_volume_corr":     -0.5,   # IC=-0.066, ICIR=-0.624 — 量价配合=散户追涨=反转信号 (inverted)
+    "intraday_vs_overnight": -0.5,   # IC=-0.103, ICIR=-0.461 — A股日内追涨=散户=反转; 非隔夜跳空=弱势 (inverted)
 }
 
 # Alias so code can refer to it by regime name
@@ -213,9 +214,11 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "size_factor":             "no data: circ_cap unreliable in IC analysis (always returns current value)",
     "turnover_acceleration":   "noise: IC≈0 — turnover rate change uncorrelated with forward returns",
     "market_beta":             "noise: IC=+0.016, ICIR=0.049 — beta alone adds no signal beyond low_volatility/atr_normalized",
-    "volume_expansion":        "noise: IC=+0.021, ICIR=0.095 — 10d/60d volume ratio uncorrelated with forward returns",
-    "trend_linearity":         "noise: IC=-0.062, ICIR=-0.210 — R² trend fit weakly negative but ICIR too low to be reliable",
-    "upday_ratio":             "noise: IC=-0.029, ICIR=-0.155 — up-day consistency uncorrelated with forward returns",
-    "max_return":              "redundant: IC=+0.216 ICIR=0.947 strong individually but collinear with low_volatility/atr_normalized/idiosyncratic_vol — over-tilts portfolio to low-vol, hurts win rate in up markets",
-    "return_skewness":         "redundant: IC=+0.105 ICIR=0.872 strong individually but collinear with low-vol cluster — same exclusion rationale as max_return",
+    "volume_expansion":           "noise: IC=+0.021, ICIR=0.095 — 10d/60d volume ratio uncorrelated with forward returns",
+    "trend_linearity":            "noise: IC=-0.062, ICIR=-0.210 — R² trend fit weakly negative but ICIR too low to be reliable",
+    "upday_ratio":                "noise: IC=-0.029, ICIR=-0.155 — up-day consistency uncorrelated with forward returns",
+    "max_return":                 "redundant: IC=+0.216 ICIR=0.947 strong individually but collinear with low_volatility/atr_normalized/idiosyncratic_vol — over-tilts portfolio to low-vol, hurts win rate in up markets",
+    "return_skewness":            "redundant: IC=+0.105 ICIR=0.872 strong individually but collinear with low-vol cluster — same exclusion rationale as max_return",
+    "market_relative_strength":   "noise: IC=+0.0006, ICIR=0.003 — 20d relative return vs CSI300 adds nothing beyond price_inertia",
+    "price_efficiency":           "weak: IC=+0.034, ICIR=0.249 — Kaufman ER insufficient signal for A-shares",
 }

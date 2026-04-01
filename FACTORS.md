@@ -1772,6 +1772,21 @@ Score is *inverted*: high MAX → low score (lottery overpricing → expect unde
 IC=+0.105, ICIR=0.872 — strong and consistent signal.
 Score is *inverted*: positive skewness → low score.
 
+#### 48. Intraday vs Overnight Return Split / 日内vs隔夜收益分拆 (intraday_vs_overnight)
+**Measures**: Decomposes daily returns into intraday ((close-open)/open) and overnight ((open-prev_close)/prev_close) components over 20 days. Net signal = avg_intraday − avg_overnight.
+IC=−0.103, ICIR=−0.461 — moderate inverted signal. Weight=−0.5 in NORMAL/CAUTION regimes.
+Score is *inverted*: high intraday vs overnight → low score.
+
+**A-share interpretation**: Stocks with strong intraday returns relative to overnight gaps tend to underperform — in A-shares, intraday price strength without overnight gaps signals retail day-trader activity (pump-and-dump dynamics) rather than genuine institutional accumulation. Stocks that gap overnight have real news catalysts or genuine institutional pre-positioning. High intraday/overnight ratio = potential exhaustion signal.
+
+**Excluded (noise):**
+
+#### 49. Market Relative Strength / 个股相对指数强弱 (market_relative_strength)
+IC=+0.0006, ICIR=0.003 — pure noise. The 20-day excess return of a stock vs CSI300 adds no signal beyond price_inertia after controlling for market moves. Excluded.
+
+#### 50. Price Efficiency (Kaufman ER) / 价格效率比率 (price_efficiency)
+IC=+0.034, ICIR=0.249 — weak signal below the noise threshold. Kaufman Efficiency Ratio (|net_price_change| / Σ|daily_changes|) over 20 days measures trend linearity, but this signal does not survive in A-shares where price efficiency may be regime-dependent. Excluded.
+
 **High buy_score** (inverted): Negative or near-zero skewness — returns are symmetric or slightly left-skewed, indicating no lottery-premium overpricing.
 **High sell_score** (inverted): Strongly positive skewness — stock exhibits lottery-like return patterns, attracting overpricing by retail investors seeking asymmetric payoffs.
 

@@ -12,532 +12,532 @@
       "icir": -37.091,
       "n_periods": 2,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "low_volatility": {
       "mean_ic": 0.2685,
       "icir": 0.638,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "idiosyncratic_vol": {
       "mean_ic": 0.267,
       "icir": 0.681,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_idiosyncratic_vol": {
       "mean_ic": -0.267,
       "icir": -0.681,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "gap_frequency": {
       "mean_ic": 0.2497,
       "icir": 0.717,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_gap_frequency": {
       "mean_ic": -0.2497,
       "icir": -0.717,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "atr_normalized": {
       "mean_ic": 0.2473,
       "icir": 0.777,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_atr_normalized": {
       "mean_ic": -0.2473,
       "icir": -0.777,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_low_volatility": {
       "mean_ic": 0.225,
       "icir": 1.187,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "max_return": {
       "mean_ic": 0.2158,
       "icir": 0.947,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_max_return": {
       "mean_ic": -0.2158,
       "icir": -0.947,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "cash_flow_quality": {
       "mean_ic": 0.1458,
       "icir": 0.709,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_cash_flow_quality": {
       "mean_ic": -0.1458,
       "icir": -0.709,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_volume": {
       "mean_ic": -0.142,
       "icir": -0.662,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_turnover_percentile": {
       "mean_ic": -0.134,
       "icir": -0.855,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "limit_hits": {
       "mean_ic": -0.1206,
       "icir": -0.801,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "medium_term_momentum": {
       "mean_ic": -0.1203,
       "icir": -0.395,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_medium_term_momentum": {
       "mean_ic": 0.1203,
       "icir": 0.395,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "divergence": {
       "mean_ic": 0.1132,
       "icir": 0.667,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_divergence": {
       "mean_ic": -0.1132,
       "icir": -0.667,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_reversal": {
       "mean_ic": -0.1087,
       "icir": -0.593,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "asset_growth": {
       "mean_ic": 0.1082,
       "icir": 0.473,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "nearness_to_high": {
       "mean_ic": 0.1059,
       "icir": 0.378,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_nearness_to_high": {
       "mean_ic": -0.1059,
       "icir": -0.378,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "return_skewness": {
       "mean_ic": 0.1046,
       "icir": 0.867,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_return_skewness": {
       "mean_ic": -0.1046,
       "icir": -0.867,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "ma60_deviation": {
       "mean_ic": 0.0997,
       "icir": 0.671,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_ma60_deviation": {
       "mean_ic": -0.0997,
       "icir": -0.671,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_position_52w": {
       "mean_ic": -0.0971,
       "icir": -0.944,
       "n_periods": 6,
       "quality": "strong",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "price_inertia": {
       "mean_ic": 0.084,
       "icir": 0.436,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "obv_trend": {
       "mean_ic": -0.0819,
       "icir": -0.394,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_obv_trend": {
       "mean_ic": 0.0819,
       "icir": 0.394,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_chip_distribution": {
       "mean_ic": -0.0811,
       "icir": -0.498,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_main_inflow": {
       "mean_ic": -0.0762,
       "icir": -0.305,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "market_beta": {
       "mean_ic": 0.0751,
       "icir": 0.329,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_market_beta": {
       "mean_ic": -0.0751,
       "icir": -0.329,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_momentum": {
       "mean_ic": -0.0722,
       "icir": -0.496,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "piotroski": {
       "mean_ic": 0.0714,
       "icir": 0.717,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "main_inflow": {
       "mean_ic": 0.0696,
       "icir": 0.29,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "price_volume_corr": {
       "mean_ic": -0.0662,
       "icir": -0.624,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_price_volume_corr": {
       "mean_ic": 0.0662,
       "icir": 0.624,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "trend_linearity": {
       "mean_ic": -0.0617,
       "icir": -0.21,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_trend_linearity": {
       "mean_ic": 0.0617,
       "icir": 0.21,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_piotroski": {
       "mean_ic": -0.0609,
       "icir": -0.476,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "growth": {
       "mean_ic": -0.0602,
       "icir": -0.465,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "ma_alignment": {
       "mean_ic": -0.059,
       "icir": -0.287,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "chip_distribution": {
       "mean_ic": 0.0576,
       "icir": 0.408,
       "n_periods": 6,
       "quality": "moderate",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "momentum": {
       "mean_ic": -0.0534,
       "icir": -0.246,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "amihud_illiquidity": {
       "mean_ic": -0.0466,
       "icir": -0.205,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_amihud_illiquidity": {
       "mean_ic": 0.0466,
       "icir": 0.205,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_ma_alignment": {
       "mean_ic": 0.0361,
       "icir": 0.209,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "turnover_acceleration": {
       "mean_ic": -0.0331,
       "icir": -0.142,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_turnover_acceleration": {
       "mean_ic": 0.0331,
       "icir": 0.142,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "roe_trend": {
       "mean_ic": 0.0316,
       "icir": 0.202,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_roe_trend": {
       "mean_ic": -0.0316,
       "icir": -0.202,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_quality": {
       "mean_ic": 0.0311,
       "icir": 0.215,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_northbound": {
       "mean_ic": -0.0304,
       "icir": -0.229,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_asset_growth": {
       "mean_ic": -0.0297,
       "icir": -0.113,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "upday_ratio": {
       "mean_ic": -0.0291,
       "icir": -0.155,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_upday_ratio": {
       "mean_ic": 0.0291,
       "icir": 0.155,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "turnover_percentile": {
       "mean_ic": 0.0261,
       "icir": 0.101,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_price_inertia": {
       "mean_ic": -0.0258,
       "icir": -0.266,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "bb_squeeze": {
       "mean_ic": 0.0237,
       "icir": 0.11,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_bb_squeeze": {
       "mean_ic": -0.0237,
       "icir": -0.11,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "position_52w": {
       "mean_ic": -0.0227,
       "icir": -0.134,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "volume_expansion": {
       "mean_ic": 0.0211,
       "icir": 0.095,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_volume_expansion": {
       "mean_ic": -0.0211,
       "icir": -0.095,
       "n_periods": 6,
       "quality": "weak",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "volume": {
       "mean_ic": 0.0188,
       "icir": 0.104,
       "n_periods": 6,
       "quality": "noise",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "quality": {
       "mean_ic": 0.0186,
       "icir": 0.165,
       "n_periods": 6,
       "quality": "noise",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "northbound": {
       "mean_ic": 0.0148,
       "icir": 0.101,
       "n_periods": 6,
       "quality": "noise",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "reversal": {
       "mean_ic": 0.0124,
       "icir": 0.054,
       "n_periods": 6,
       "quality": "noise",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "bollinger_position": {
       "mean_ic": -0.0088,
       "icir": -0.046,
       "n_periods": 6,
       "quality": "noise",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_bollinger_position": {
       "mean_ic": 0.0088,
       "icir": 0.046,
       "n_periods": 6,
       "quality": "noise",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "momentum_concavity": {
       "mean_ic": 0.003,
       "icir": 0.014,
       "n_periods": 6,
       "quality": "noise",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "sell_score_momentum_concavity": {
       "mean_ic": -0.003,
       "icir": -0.014,
       "n_periods": 6,
       "quality": "noise",
-      "direction": "inverted ✗"
+      "direction": "inverted âœ—"
     },
     "sell_score_growth": {
       "mean_ic": 0.0005,
       "icir": 0.003,
       "n_periods": 6,
       "quality": "noise",
-      "direction": "positive ✓"
+      "direction": "positive âœ“"
     },
     "value": {
       "mean_ic": null,
@@ -678,6 +678,27 @@
       "n_periods": 0,
       "quality": "insufficient periods",
       "direction": "N/A"
+    },
+    "market_relative_strength": {
+      "mean_ic": 0.0006,
+      "icir": 0.003,
+      "n_periods": 6,
+      "quality": "noise",
+      "direction": "positive âœ“"
+    },
+    "price_efficiency": {
+      "mean_ic": 0.034,
+      "icir": 0.249,
+      "n_periods": 6,
+      "quality": "weak",
+      "direction": "positive âœ“"
+    },
+    "intraday_vs_overnight": {
+      "mean_ic": -0.1024,
+      "icir": -0.461,
+      "n_periods": 6,
+      "quality": "moderate",
+      "direction": "inverted âœ—"
     }
   },
   "weight_recommendations": {
@@ -776,7 +797,10 @@
     "sell_score_macd_signal": 0.1,
     "sell_score_gross_margin_trend": 0.1,
     "sell_score_ar_quality": 0.1,
-    "sell_score_size_factor": 0.1
+    "sell_score_size_factor": 0.1,
+    "market_relative_strength": 0.2,
+    "price_efficiency": 0.5,
+    "intraday_vs_overnight": 0.0
   },
   "period_detail": [
     {

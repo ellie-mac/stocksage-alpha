@@ -62,6 +62,7 @@ from factors_extended import (
     score_max_return, score_return_skewness, score_upday_ratio,
     score_volume_expansion, score_nearness_to_high,
     score_price_volume_corr, score_trend_linearity, score_gap_frequency,
+    score_market_relative_strength, score_price_efficiency, score_intraday_vs_overnight,
     # Group B
     score_shareholder_change, score_lhb, score_lockup_pressure,
     score_insider, score_institutional_visits, score_industry_momentum,
@@ -233,6 +234,9 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["price_volume_corr"]        = _safe(score_price_volume_corr, price_df)
         scores["trend_linearity"]          = _safe(score_trend_linearity, price_df)
         scores["gap_frequency"]            = _safe(score_gap_frequency, price_df)
+        scores["market_relative_strength"] = _safe(score_market_relative_strength, price_df, market_price_df)
+        scores["price_efficiency"]         = _safe(score_price_efficiency, price_df)
+        scores["intraday_vs_overnight"]    = _safe(score_intraday_vs_overnight, price_df)
 
         # Sell scores for Ext-A
         scores["sell_score_div_yield"]          = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df)
@@ -275,7 +279,10 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["sell_score_nearness_to_high"]      = _safe_sell(score_nearness_to_high, price_df)
         scores["sell_score_price_volume_corr"]     = _safe_sell(score_price_volume_corr, price_df)
         scores["sell_score_trend_linearity"]       = _safe_sell(score_trend_linearity, price_df)
-        scores["sell_score_gap_frequency"]         = _safe_sell(score_gap_frequency, price_df)
+        scores["sell_score_gap_frequency"]              = _safe_sell(score_gap_frequency, price_df)
+        scores["sell_score_market_relative_strength"]   = _safe_sell(score_market_relative_strength, price_df, market_price_df)
+        scores["sell_score_price_efficiency"]           = _safe_sell(score_price_efficiency, price_df)
+        scores["sell_score_intraday_vs_overnight"]      = _safe_sell(score_intraday_vs_overnight, price_df)
 
         # ── Ext-B (only if group includes B) ─────────────────────────────
         if "B" in group.upper():
