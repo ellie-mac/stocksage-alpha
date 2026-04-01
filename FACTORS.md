@@ -1755,6 +1755,30 @@ IC=+0.098, ICIR=0.668 — **inverted in score**: stocks below MA60 get higher sc
 
 ---
 
+#### 46. MAX Effect / 最大单日涨幅 (max_return)
+**Measures**: Maximum single-day return over the past 20 trading days.
+IC=+0.216, ICIR=0.947 — **one of the strongest and most stable signals in the entire system**.
+Score is *inverted*: high MAX → low score (lottery overpricing → expect underperformance).
+
+**High buy_score** (inverted): No extreme single-day spikes in past 20 days — stock moves in a controlled, steady manner consistent with fundamental-driven buying.
+**High sell_score** (inverted): Large spike day in recent history (≥5%) — characteristic of lottery stocks targeted by retail momentum-chasers, subsequently reverting.
+
+**Key principle**: Bali, Cakici & Whitelaw (2011) document that stocks with extreme recent positive returns are systematically overpriced by investors seeking lottery-like payoffs. The MAX effect is especially powerful in A-shares given the dominant retail investor base and the limit-up/limit-down system that concentrates attention on stocks hitting daily limits. A stock's maximum single day captures this lottery appeal better than average volatility. The extremely high ICIR (0.947) means this factor fires consistently across all market conditions. Weight=2.0 in NORMAL; downweighted to 0.3 in BULL (lottery stocks are bid up in rallies); upweighted to 2.5/3.0 in CAUTION/CRISIS (lottery stocks implode fastest in sell-offs).
+
+---
+
+#### 47. Return Skewness / 收益率偏度 (return_skewness)
+**Measures**: Skewness of the daily return distribution over the past 60 days. Positive skewness = right-tail asymmetry (occasional large gains, frequent small losses — the "lottery" pattern).
+IC=+0.105, ICIR=0.872 — strong and consistent signal.
+Score is *inverted*: positive skewness → low score.
+
+**High buy_score** (inverted): Negative or near-zero skewness — returns are symmetric or slightly left-skewed, indicating no lottery-premium overpricing.
+**High sell_score** (inverted): Strongly positive skewness — stock exhibits lottery-like return patterns, attracting overpricing by retail investors seeking asymmetric payoffs.
+
+**Key principle**: Harvey & Siddique (2000) show that investors accept lower expected returns for positively skewed assets (they pay a premium for right-tail exposure). This creates a systematic overpricing of lottery-like stocks. Skewness is related to but distinct from the MAX effect: MAX captures the single largest spike, while skewness measures the overall distributional shape across 60 days. A stock can have moderate MAX but persistent positive skewness (many small positive outliers), or vice versa. Together they provide complementary lottery-risk coverage. Weight=1.5 in NORMAL; 2.0/2.5 in CAUTION/CRISIS.
+
+---
+
 ### Score Interpretation
 
 **Total Buy Score (total_score)**:

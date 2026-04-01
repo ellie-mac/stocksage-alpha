@@ -1,10 +1,10 @@
 # stocksage-alpha
 
-**A-share multi-factor alpha engine** — a 45-factor scoring system for systematic stock selection in Chinese equity markets.
+**A-share multi-factor alpha engine** — a 47-factor scoring system for systematic stock selection in Chinese equity markets.
 
 ## Overview
 
-stocksage-alpha scores individual A-share stocks across 45 factors spanning fundamentals, technicals, sentiment, and market structure. Each factor produces independent **buy** and **sell** scores, enabling nuanced signal separation rather than a single net score.
+stocksage-alpha scores individual A-share stocks across 47 factors spanning fundamentals, technicals, sentiment, and market structure. Each factor produces independent **buy** and **sell** scores, enabling nuanced signal separation rather than a single net score.
 
 The system is designed around A-share market microstructure: limit-up/limit-down mechanics, northbound (沪深港通) flow, Dragon & Tiger Board (龙虎榜) data, retail sentiment proxies, and concept/theme momentum.
 
@@ -16,9 +16,9 @@ The system is designed around A-share market microstructure: limit-up/limit-down
 | **Extended A** | 11–20 | Fund flow, chip distribution, shareholder structure |
 | **Extended B** | 21–28 | Institutional behavior, analyst revisions, northbound |
 | **Extended C** | 29–33 | Behavioral & market-context factors |
-| **Extended A2** | 34–45 | IC-validated additions: low-vol family (idiosyncratic vol, ATR), cash flow quality, momentum concavity, mean-reversion signals (medium-term momentum, OBV trend, MA60 deviation), divergence, BB squeeze, ROE trend, main inflow, Amihud illiquidity |
+| **Extended A2** | 34–47 | IC-validated additions: low-vol family (idiosyncratic vol, ATR, MAX effect, return skewness), cash flow quality, momentum concavity, mean-reversion signals (medium-term momentum, OBV trend, MA60 deviation), divergence, BB squeeze, ROE trend, main inflow, Amihud illiquidity |
 
-See [FACTORS.md](FACTORS.md) for full documentation of all 45 factors including scoring logic, cross-rules, and key principles — in both Chinese and English.
+See [FACTORS.md](FACTORS.md) for full documentation of all 47 factors including scoring logic, cross-rules, and key principles — in both Chinese and English.
 
 ## Key Features
 

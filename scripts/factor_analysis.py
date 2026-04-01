@@ -59,6 +59,7 @@ from factors_extended import (
     score_idiosyncratic_vol, score_gross_margin_trend, score_ar_quality, score_size_factor,
     score_amihud_illiquidity, score_medium_term_momentum, score_obv_trend,
     score_market_beta, score_atr_normalized, score_ma60_deviation,
+    score_max_return, score_return_skewness, score_upday_ratio,
     # Group B
     score_shareholder_change, score_lhb, score_lockup_pressure,
     score_insider, score_institutional_visits, score_industry_momentum,
@@ -222,6 +223,9 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["market_beta"]              = _safe(score_market_beta, price_df, market_price_df)
         scores["atr_normalized"]           = _safe(score_atr_normalized, price_df)
         scores["ma60_deviation"]           = _safe(score_ma60_deviation, price_df)
+        scores["max_return"]               = _safe(score_max_return, price_df)
+        scores["return_skewness"]          = _safe(score_return_skewness, price_df)
+        scores["upday_ratio"]              = _safe(score_upday_ratio, price_df)
 
         # Sell scores for Ext-A
         scores["sell_score_div_yield"]          = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df)
@@ -257,6 +261,9 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["sell_score_market_beta"]           = _safe_sell(score_market_beta, price_df, market_price_df)
         scores["sell_score_atr_normalized"]        = _safe_sell(score_atr_normalized, price_df)
         scores["sell_score_ma60_deviation"]        = _safe_sell(score_ma60_deviation, price_df)
+        scores["sell_score_max_return"]            = _safe_sell(score_max_return, price_df)
+        scores["sell_score_return_skewness"]       = _safe_sell(score_return_skewness, price_df)
+        scores["sell_score_upday_ratio"]           = _safe_sell(score_upday_ratio, price_df)
 
         # ── Ext-B (only if group includes B) ─────────────────────────────
         if "B" in group.upper():

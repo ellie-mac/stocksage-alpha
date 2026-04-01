@@ -27,6 +27,8 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "price_inertia":       2.0,   # IC=+0.107, ICIR=0.787 — most stable momentum signal
     "asset_growth":        2.0,   # IC=+0.109, ICIR=0.585
     "atr_normalized":      2.0,   # IC=+0.249, ICIR=0.802 — low ATR = low realised risk; co-linear w/ low_vol but additive
+    "max_return":          2.0,   # IC=+0.216, ICIR=0.947 — MAX effect: high single-day spike = lottery overpricing → inverted
+    "return_skewness":     1.5,   # IC=+0.105, ICIR=0.872 — positive skew = lottery stock → inverted
 
     # ── Tier 2: IC ≥ 0.05 (1× weight) ───────────────────────────────
     "volume":              1.0,   # IC=+0.090, ICIR=0.432
@@ -75,6 +77,8 @@ FACTOR_WEIGHTS_BULL: dict[str, float] = {
     "low_volatility":     0.3,   # drastically reduced — low-vol lags rallies
     "idiosyncratic_vol":  0.3,   # similarly reduced — speculative names lead in bull
     "atr_normalized":     0.3,   # reduced — low-ATR stocks lag speculative bull rallies
+    "max_return":         0.3,   # reduced — high-MAX lottery stocks often lead bull rallies
+    "return_skewness":    0.3,   # reduced — positive-skew stocks bid up in bull markets
     "piotroski":          0.5,
     # "growth" not inverted — growth stocks LEAD in bull markets
     # "limit_hits" not inverted — momentum stocks continue
@@ -93,6 +97,8 @@ FACTOR_WEIGHTS_CAUTION: dict[str, float] = {
     "low_volatility":     3.0,   # primary screen in sell-offs
     "idiosyncratic_vol":  2.5,   # low residual vol = avoids speculative bombs
     "atr_normalized":     2.5,   # low realised range = avoids volatile names in corrections
+    "max_return":         2.5,   # avoids lottery stocks that crash hardest in corrections
+    "return_skewness":    2.0,   # low-skew stocks have less left-tail risk in sell-offs
     "cash_flow_quality":  2.0,   # earnings quality critical in corrections
     "piotroski":          2.0,   # financial health matters more in downturns
     "quality":            2.0,   # profitable companies hold up better
@@ -124,6 +130,8 @@ FACTOR_WEIGHTS_CRISIS: dict[str, float] = {
     "low_volatility":    4.0,   # dominant — low-beta stocks survive crashes
     "idiosyncratic_vol": 3.0,   # low residual vol = avoids speculative collapse
     "atr_normalized":    3.0,   # low realised range = capital preservation in crash
+    "max_return":        3.0,   # lottery stocks implode fastest in crashes
+    "return_skewness":   2.5,   # positive-skew = high left-tail risk in crisis
     "cash_flow_quality": 2.0,   # cash-backed earnings = survival in crisis
     "piotroski":         2.0,   # balance-sheet strength: avoid distress risk
     "quality":           2.0,   # earnings stability
@@ -198,4 +206,5 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "size_factor":             "no data: circ_cap unreliable in IC analysis (always returns current value)",
     "turnover_acceleration":   "noise: IC≈0 — turnover rate change uncorrelated with forward returns",
     "market_beta":             "noise: IC=+0.016, ICIR=0.049 — beta alone adds no signal beyond low_volatility/atr_normalized",
+    "upday_ratio":             "noise: IC=-0.029, ICIR=-0.155 — up-day consistency uncorrelated with forward returns",
 }

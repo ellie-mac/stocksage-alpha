@@ -5746,6 +5746,7 @@ def score_ma60_deviation(
         score      = float(np.clip(5.0 - deviation * 20.0, 0.0, 10.0))
         sell_score = float(np.clip(5.0 + deviation * 20.0, 0.0, 10.0))
 
+
         pct = deviation * 100
         if deviation <= -0.10:
             signal = f"大幅低于MA60 {pct:+.1f}% — 均值回归机会"
@@ -5768,6 +5769,213 @@ def score_ma60_deviation(
                 "close":      round(latest_close, 2),
                 "ma60":       round(ma60, 2),
                 "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# Batch 5 — Distribution & momentum-quality factors (2026-04-01)
+# ---------------------------------------------------------------------------
+
+def score_max_return(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """MAX effect — maximum single-day return over past 20 days.
+
+    Bali, Cakici & Whitelaw (2011): stocks with extreme positive daily returns
+    are overpriced by lottery-seeking investors and subsequently underperform.
+    A-share lottery effect is especially strong given high retail participation.
+
+    Score is *inverted*: high MAX → low score (lottery stock, expect reversion).
+
+    Scoring (inverted):
+      MAX ≤ 1%   (no extreme moves, stable)   → score 8–10
+      MAX 1–3%   (modest peak, normal range)  → score 6–7
+      MAX 3–5%   (noticeable spike)           → score 4–5
+      MAX 5–8%   (one big gap-up / limit hit) → score 2–3
+      MAX ≥ 10%  (limit-up / extreme spike)   → score 0–1
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        if len(close) < 22:
+            return _neutral(MAX)
+
+        rets_20 = close.pct_change().dropna().tail(20)
+        if len(rets_20) < 10:
+            return _neutral(MAX)
+
+        max_ret = float(rets_20.max()) * 100  # in percent
+
+        # Inverted score: score = 10 - max_ret * 1.2, clipped [0, 10]
+        # max_ret = 0% → 10, max_ret = 5% → ~4, max_ret = 9% → ~0
+        score      = float(np.clip(10.0 - max_ret * 1.2, 0.0, 10.0))
+        sell_score = float(np.clip(max_ret * 1.2, 0.0, 10.0))
+
+        if max_ret <= 1.0:
+            signal = "stable — no extreme moves (low lottery risk)"
+        elif max_ret <= 3.0:
+            signal = f"modest peak {max_ret:.1f}% — normal range"
+        elif max_ret <= 5.0:
+            signal = f"noticeable spike {max_ret:.1f}% — mild lottery risk"
+        elif max_ret <= 8.0:
+            signal = f"large spike {max_ret:.1f}% — elevated lottery overpricing"
+        else:
+            signal = f"extreme spike {max_ret:.1f}% — strong lottery effect, expect underperformance"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":     signal,
+                "max_ret_pct": round(max_ret, 2),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+def score_return_skewness(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """Return skewness — 60-day distribution shape as lottery-stock proxy.
+
+    Positive skewness = asymmetric right-tail (lottery-like returns).
+    Academic evidence: positive-skew stocks are overpriced by investors who
+    prefer right-tail exposure; they subsequently underperform (Harvey & Siddique 2000).
+    Related to MAX effect but captures overall distribution shape, not just peak.
+
+    Score is *inverted*: high positive skewness → low score.
+
+    Scoring (inverted):
+      skew ≤ -0.5  (left-skewed, no lottery appeal)  → score 8–9
+      skew -0.5~0  (slightly left / symmetric)        → score 6–7
+      skew 0~+0.5  (slightly positive)               → score 5
+      skew +0.5~+1 (moderately lottery-like)         → score 3–4
+      skew ≥ +1.5  (strongly lottery-like)           → score 0–1
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 65:
+        return _neutral(MAX)
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        if len(close) < 25:
+            return _neutral(MAX)
+
+        rets = close.pct_change().dropna().tail(60)
+        if len(rets) < 20:
+            return _neutral(MAX)
+
+        skew = float(rets.skew())
+
+        # Inverted score: score = 5 - skew * 2.5, clipped [0, 10]
+        # skew = -2 → 10, skew = 0 → 5, skew = +2 → 0
+        score      = float(np.clip(5.0 - skew * 2.5, 0.0, 10.0))
+        sell_score = float(np.clip(5.0 + skew * 2.5, 0.0, 10.0))
+
+        if skew <= -0.5:
+            signal = f"left-skewed ({skew:.2f}) — no lottery appeal, stable distribution"
+        elif skew <= 0.0:
+            signal = f"slightly left/symmetric ({skew:.2f}) — low lottery risk"
+        elif skew <= 0.5:
+            signal = f"slightly positive ({skew:.2f}) — mild lottery characteristics"
+        elif skew <= 1.5:
+            signal = f"positive skew ({skew:.2f}) — lottery-like, overpricing risk"
+        else:
+            signal = f"high positive skew ({skew:.2f}) — strong lottery premium, expect underperformance"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":    signal,
+                "skewness":  round(skew, 3),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+def score_upday_ratio(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """Up-day ratio — fraction of positive-return days over past 20 days.
+
+    Measures momentum *consistency* rather than magnitude. A stock rising 8%
+    over 20 days but with only 6 up-days is less stable than one with 14 up-days.
+    High up-day ratio = persistent buying pressure; low ratio = churn / noise.
+
+    Complementary to price_inertia (which captures magnitude).
+    IC direction expected positive: consistent uptrends continue in short-horizon.
+
+    Scoring:
+      ratio ≥ 0.70  (≥14/20 days up)         → score 8–9
+      ratio 0.55–0.70 (moderate consistency) → score 6–7
+      ratio 0.45–0.55 (balanced/noisy)       → score 5
+      ratio 0.30–0.45 (more down than up)    → score 3–4
+      ratio ≤ 0.30   (persistent selling)    → score 0–2
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        if len(close) < 22:
+            return _neutral(MAX)
+
+        rets_20 = close.pct_change().dropna().tail(20)
+        if len(rets_20) < 10:
+            return _neutral(MAX)
+
+        ratio = float((rets_20 > 0).sum()) / len(rets_20)
+
+        # score = (ratio - 0.5) * 20 + 5, clipped [0, 10]
+        # ratio = 0.0 → -5 → 0, ratio = 0.5 → 5, ratio = 1.0 → 15 → 10
+        score      = float(np.clip((ratio - 0.5) * 20.0 + 5.0, 0.0, 10.0))
+        sell_score = float(np.clip((0.5 - ratio) * 20.0 + 5.0, 0.0, 10.0))
+
+        pct = ratio * 100
+        if ratio >= 0.70:
+            signal = f"highly consistent ({pct:.0f}% up-days) — persistent buying pressure"
+        elif ratio >= 0.55:
+            signal = f"moderate consistency ({pct:.0f}% up-days)"
+        elif ratio >= 0.45:
+            signal = f"balanced ({pct:.0f}% up-days) — no directional bias"
+        elif ratio >= 0.30:
+            signal = f"more down than up ({pct:.0f}% up-days) — selling pressure"
+        else:
+            signal = f"persistent selling ({pct:.0f}% up-days) — strong downtrend"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":      signal,
+                "upday_ratio": round(ratio, 3),
+                "up_days":     int((rets_20 > 0).sum()),
+                "total_days":  len(rets_20),
+                "sell_score":  round(sell_score, 1),
             },
         }
 
