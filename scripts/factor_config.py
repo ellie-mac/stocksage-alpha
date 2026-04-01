@@ -27,6 +27,7 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "price_inertia":       2.0,   # IC=+0.107, ICIR=0.787 — most stable momentum signal
     "asset_growth":        2.0,   # IC=+0.109, ICIR=0.585
     "atr_normalized":      2.0,   # IC=+0.249, ICIR=0.802 — low ATR = low realised risk; co-linear w/ low_vol but additive
+    "gap_frequency":       2.0,   # IC=+0.250, ICIR=0.717 — low overnight gap frequency = stable, predictable; inverted in score
 
     # ── Tier 2: IC ≥ 0.05 (1× weight) ───────────────────────────────
     "volume":              1.0,   # IC=+0.090, ICIR=0.432
@@ -46,6 +47,7 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "obv_trend":             -1.0,   # IC=-0.115, ICIR=-0.479 — OBV积累=零售追涨=反转信号
     "medium_term_momentum":  -1.0,   # IC=-0.108, ICIR=-0.352 — 中期动量在A股均值回归
     "amihud_illiquidity":    -0.5,   # IC=-0.062, ICIR=-0.275 — 非流动性溢价短期无效
+    "price_volume_corr":     -0.5,   # IC=-0.066, ICIR=-0.624 — 量价配合=散户追涨=反转信号 (inverted)
 }
 
 # Alias so code can refer to it by regime name
@@ -82,7 +84,9 @@ FACTOR_WEIGHTS_BULL: dict[str, float] = {
     "low_volatility":     0.1,
     "idiosyncratic_vol":  0.1,
     "atr_normalized":     0.1,
+    "gap_frequency":      0.1,   # reduced — high-gap speculative names lead in bull
     # ── No inversions in bull — prior losers and high-vol names lead ───
+    # price_volume_corr not inverted in bull — volume-confirmed moves can continue
     # growth, limit_hits, medium_term_momentum, obv_trend NOT inverted
     # ma60_deviation omitted — extended stocks keep running in bull
 }
@@ -97,6 +101,8 @@ FACTOR_WEIGHTS_CAUTION: dict[str, float] = {
     "low_volatility":     3.0,   # primary screen in sell-offs
     "idiosyncratic_vol":  2.5,   # low residual vol = avoids speculative bombs
     "atr_normalized":     2.5,   # low realised range = avoids volatile names in corrections
+    "gap_frequency":      2.5,   # low gap = stable stocks that don't blow up in corrections
+    "price_volume_corr":  -1.0,  # volume-confirmed moves reverse harder in corrections
     "cash_flow_quality":  2.0,   # earnings quality critical in corrections
     "piotroski":          2.0,   # financial health matters more in downturns
     "quality":            2.0,   # profitable companies hold up better
@@ -129,6 +135,7 @@ FACTOR_WEIGHTS_CRISIS: dict[str, float] = {
     "low_volatility":    4.0,   # dominant — low-beta stocks survive crashes
     "idiosyncratic_vol": 3.0,   # low residual vol = avoids speculative collapse
     "atr_normalized":    3.0,   # low realised range = capital preservation in crash
+    "gap_frequency":     3.0,   # low gap = stocks that don't implode overnight in crisis
     "cash_flow_quality": 2.0,   # cash-backed earnings = survival in crisis
     "piotroski":         2.0,   # balance-sheet strength: avoid distress risk
     "quality":           2.0,   # earnings stability
@@ -207,6 +214,7 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "turnover_acceleration":   "noise: IC≈0 — turnover rate change uncorrelated with forward returns",
     "market_beta":             "noise: IC=+0.016, ICIR=0.049 — beta alone adds no signal beyond low_volatility/atr_normalized",
     "volume_expansion":        "noise: IC=+0.021, ICIR=0.095 — 10d/60d volume ratio uncorrelated with forward returns",
+    "trend_linearity":         "noise: IC=-0.062, ICIR=-0.210 — R² trend fit weakly negative but ICIR too low to be reliable",
     "upday_ratio":             "noise: IC=-0.029, ICIR=-0.155 — up-day consistency uncorrelated with forward returns",
     "max_return":              "redundant: IC=+0.216 ICIR=0.947 strong individually but collinear with low_volatility/atr_normalized/idiosyncratic_vol — over-tilts portfolio to low-vol, hurts win rate in up markets",
     "return_skewness":         "redundant: IC=+0.105 ICIR=0.872 strong individually but collinear with low-vol cluster — same exclusion rationale as max_return",

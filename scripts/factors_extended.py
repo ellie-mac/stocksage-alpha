@@ -6119,3 +6119,240 @@ def score_nearness_to_high(
 
     except Exception:
         return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# Batch 7 — Price-volume interaction & trend quality factors (2026-04-01)
+# ---------------------------------------------------------------------------
+
+def score_price_volume_corr(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """价量关系质量 — Spearman correlation between |return| and volume over 20d.
+
+    Measures whether price moves are confirmed by volume.
+    High positive correlation = volume-backed moves (institutional accumulation,
+    momentum quality). Low/negative = price moves on thin volume (unreliable).
+
+    Distinct from `volume` (absolute level), `volume_expansion` (trend),
+    and `obv_trend` (directional). This measures the *consistency* of the
+    volume-price relationship.
+
+    In A-shares, moves confirmed by volume tend to continue; low-volume
+    breakouts/breakdowns typically reverse within days.
+
+    Score: high positive correlation → high score.
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    vol_col = None
+    for c in ["volume", "成交量", "vol", "turnover", "换手率"]:
+        if c in price_df.columns:
+            vol_col = c
+            break
+    if vol_col is None:
+        return _neutral(MAX)
+
+    try:
+        from scipy.stats import spearmanr as _spearmanr
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        vol   = pd.to_numeric(price_df[vol_col], errors="coerce")
+
+        # Align
+        df = pd.DataFrame({"close": close, "vol": vol}).dropna().tail(21)
+        if len(df) < 10:
+            return _neutral(MAX)
+
+        abs_ret = df["close"].pct_change().abs().dropna()
+        v       = df["vol"].iloc[1:].reset_index(drop=True)
+        abs_ret = abs_ret.reset_index(drop=True)
+
+        if len(abs_ret) < 8:
+            return _neutral(MAX)
+
+        corr, _ = _spearmanr(abs_ret, v)
+        if np.isnan(corr):
+            return _neutral(MAX)
+
+        # score = corr * 5 + 5, clipped [0, 10]
+        # corr=-1→0, corr=0→5, corr=+1→10
+        score      = float(np.clip(corr * 5.0 + 5.0, 0.0, 10.0))
+        sell_score = float(np.clip(-corr * 5.0 + 5.0, 0.0, 10.0))
+
+        if corr >= 0.4:
+            signal = f"strong volume-price confirmation (r={corr:.2f}) — moves are reliable"
+        elif corr >= 0.1:
+            signal = f"moderate confirmation (r={corr:.2f})"
+        elif corr >= -0.1:
+            signal = f"no relationship (r={corr:.2f}) — volume uninformative"
+        else:
+            signal = f"volume-price divergence (r={corr:.2f}) — moves unreliable, reversal risk"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":    signal,
+                "pv_corr":   round(float(corr), 3),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+def score_trend_linearity(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """趋势线性度 — R² × direction of OLS fit on close over 20 days.
+
+    Measures how orderly the price trend is. A steady, linear uptrend scores
+    high; a volatile or sideways stock scores low; a linear downtrend scores
+    negative (inverted).
+
+    Distinct from price_inertia (magnitude of return) and momentum_concavity
+    (acceleration). This captures *consistency* of the trend — institutional
+    accumulation typically produces clean linear trends; retail chasing
+    produces jagged, volatile price action.
+
+    Score: high R² with upward slope → high score; high R² downward → low score.
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna().tail(20)
+        if len(close) < 10:
+            return _neutral(MAX)
+
+        x = np.arange(len(close), dtype=float)
+        y = close.values.astype(float)
+
+        # OLS
+        x_mean, y_mean = x.mean(), y.mean()
+        slope = float(np.sum((x - x_mean) * (y - y_mean)) / np.sum((x - x_mean) ** 2))
+        y_hat = slope * x + (y_mean - slope * x_mean)
+        ss_res = float(np.sum((y - y_hat) ** 2))
+        ss_tot = float(np.sum((y - y_mean) ** 2))
+        r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+        direction = 1.0 if slope >= 0 else -1.0
+        # signed_r2 in [-1, +1]: +1 = perfect uptrend, -1 = perfect downtrend
+        signed_r2 = float(r2 * direction)
+
+        # score = signed_r2 * 5 + 5, clipped [0, 10]
+        score      = float(np.clip(signed_r2 * 5.0 + 5.0, 0.0, 10.0))
+        sell_score = float(np.clip(-signed_r2 * 5.0 + 5.0, 0.0, 10.0))
+
+        if signed_r2 >= 0.6:
+            signal = f"clean uptrend (R²={r2:.2f}, slope+) — institutional-quality trend"
+        elif signed_r2 >= 0.2:
+            signal = f"moderate uptrend (R²={r2:.2f})"
+        elif signed_r2 >= -0.2:
+            signal = f"sideways/noisy (R²={r2:.2f}) — no clear trend"
+        elif signed_r2 >= -0.6:
+            signal = f"moderate downtrend (R²={r2:.2f}, slope-)"
+        else:
+            signal = f"clean downtrend (R²={r2:.2f}, slope-) — persistent selling"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":    signal,
+                "r2":        round(r2, 3),
+                "slope":     round(float(slope), 4),
+                "signed_r2": round(signed_r2, 3),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+def score_gap_frequency(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """跳空频率 — fraction of significant overnight gaps in past 20 days (inverted).
+
+    Measures how often the stock gaps significantly at open vs prior close.
+    A significant gap is defined as |open - prev_close| / prev_close > 0.5%.
+
+    High gap frequency = news-driven, unpredictable, high tail risk.
+    Low gap frequency = steady, predictable price action (institutional flow).
+
+    Distinct from ATR (which includes intraday range) — gaps capture
+    *overnight* risk specifically. Stocks that frequently gap are harder
+    to hold and tend to underperform on risk-adjusted basis.
+
+    Score is *inverted*: high gap frequency → low score.
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+
+    open_col = None
+    for c in ["open", "开盘", "open_price"]:
+        if c in price_df.columns:
+            open_col = c
+            break
+    if open_col is None or "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        opn   = pd.to_numeric(price_df[open_col], errors="coerce")
+
+        df = pd.DataFrame({"close": close, "open": opn}).dropna().tail(21)
+        if len(df) < 10:
+            return _neutral(MAX)
+
+        prev_close = df["close"].shift(1).dropna()
+        curr_open  = df["open"].iloc[1:].reset_index(drop=True)
+        prev_close = prev_close.reset_index(drop=True)
+
+        gap_ratio = ((curr_open - prev_close) / prev_close).abs()
+        gap_freq  = float((gap_ratio > 0.005).mean())  # >0.5% = significant gap
+
+        # Inverted score: score = (1 - gap_freq) * 10, clipped [0, 10]
+        # gap_freq=0→10, gap_freq=0.5→5, gap_freq=1.0→0
+        score      = float(np.clip((1.0 - gap_freq) * 10.0, 0.0, 10.0))
+        sell_score = float(np.clip(gap_freq * 10.0, 0.0, 10.0))
+
+        pct = gap_freq * 100
+        if gap_freq <= 0.1:
+            signal = f"very low gap frequency ({pct:.0f}%) — stable, predictable"
+        elif gap_freq <= 0.25:
+            signal = f"low gap frequency ({pct:.0f}%) — mostly steady"
+        elif gap_freq <= 0.5:
+            signal = f"moderate gaps ({pct:.0f}%) — some news sensitivity"
+        elif gap_freq <= 0.7:
+            signal = f"high gap frequency ({pct:.0f}%) — news-driven, hard to hold"
+        else:
+            signal = f"very high gap frequency ({pct:.0f}%) — extreme tail risk"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":    signal,
+                "gap_freq":  round(gap_freq, 3),
+                "gap_pct":   round(pct, 1),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)

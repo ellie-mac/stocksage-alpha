@@ -35,6 +35,20 @@
       "quality": "strong",
       "direction": "inverted ✗"
     },
+    "gap_frequency": {
+      "mean_ic": 0.2497,
+      "icir": 0.717,
+      "n_periods": 6,
+      "quality": "strong",
+      "direction": "positive ✓"
+    },
+    "sell_score_gap_frequency": {
+      "mean_ic": -0.2497,
+      "icir": -0.717,
+      "n_periods": 6,
+      "quality": "strong",
+      "direction": "inverted ✗"
+    },
     "atr_normalized": {
       "mean_ic": 0.2473,
       "icir": 0.777,
@@ -196,13 +210,6 @@
       "quality": "strong",
       "direction": "inverted ✗"
     },
-    "sell_score_chip_distribution": {
-      "mean_ic": -0.0911,
-      "icir": -0.551,
-      "n_periods": 6,
-      "quality": "strong",
-      "direction": "inverted ✗"
-    },
     "price_inertia": {
       "mean_ic": 0.084,
       "icir": 0.436,
@@ -224,6 +231,20 @@
       "quality": "moderate",
       "direction": "positive ✓"
     },
+    "sell_score_chip_distribution": {
+      "mean_ic": -0.0811,
+      "icir": -0.498,
+      "n_periods": 6,
+      "quality": "moderate",
+      "direction": "inverted ✗"
+    },
+    "sell_score_main_inflow": {
+      "mean_ic": -0.0762,
+      "icir": -0.305,
+      "n_periods": 6,
+      "quality": "moderate",
+      "direction": "inverted ✗"
+    },
     "market_beta": {
       "mean_ic": 0.0751,
       "icir": 0.329,
@@ -237,20 +258,6 @@
       "n_periods": 6,
       "quality": "moderate",
       "direction": "inverted ✗"
-    },
-    "sell_score_main_inflow": {
-      "mean_ic": -0.0733,
-      "icir": -0.301,
-      "n_periods": 6,
-      "quality": "moderate",
-      "direction": "inverted ✗"
-    },
-    "main_inflow": {
-      "mean_ic": 0.073,
-      "icir": 0.3,
-      "n_periods": 6,
-      "quality": "moderate",
-      "direction": "positive ✓"
     },
     "sell_score_momentum": {
       "mean_ic": -0.0722,
@@ -266,11 +273,39 @@
       "quality": "moderate",
       "direction": "positive ✓"
     },
-    "chip_distribution": {
-      "mean_ic": 0.0685,
-      "icir": 0.477,
+    "main_inflow": {
+      "mean_ic": 0.0696,
+      "icir": 0.29,
+      "n_periods": 6,
+      "quality": "weak",
+      "direction": "positive ✓"
+    },
+    "price_volume_corr": {
+      "mean_ic": -0.0662,
+      "icir": -0.624,
       "n_periods": 6,
       "quality": "moderate",
+      "direction": "inverted ✗"
+    },
+    "sell_score_price_volume_corr": {
+      "mean_ic": 0.0662,
+      "icir": 0.624,
+      "n_periods": 6,
+      "quality": "moderate",
+      "direction": "positive ✓"
+    },
+    "trend_linearity": {
+      "mean_ic": -0.0617,
+      "icir": -0.21,
+      "n_periods": 6,
+      "quality": "weak",
+      "direction": "inverted ✗"
+    },
+    "sell_score_trend_linearity": {
+      "mean_ic": 0.0617,
+      "icir": 0.21,
+      "n_periods": 6,
+      "quality": "weak",
       "direction": "positive ✓"
     },
     "sell_score_piotroski": {
@@ -293,6 +328,13 @@
       "n_periods": 6,
       "quality": "weak",
       "direction": "inverted ✗"
+    },
+    "chip_distribution": {
+      "mean_ic": 0.0576,
+      "icir": 0.408,
+      "n_periods": 6,
+      "quality": "moderate",
+      "direction": "positive ✓"
     },
     "momentum": {
       "mean_ic": -0.0534,
@@ -321,13 +363,6 @@
       "n_periods": 6,
       "quality": "weak",
       "direction": "positive ✓"
-    },
-    "sell_score_northbound": {
-      "mean_ic": -0.036,
-      "icir": -0.254,
-      "n_periods": 6,
-      "quality": "weak",
-      "direction": "inverted ✗"
     },
     "turnover_acceleration": {
       "mean_ic": -0.0331,
@@ -363,6 +398,13 @@
       "n_periods": 6,
       "quality": "weak",
       "direction": "positive ✓"
+    },
+    "sell_score_northbound": {
+      "mean_ic": -0.0304,
+      "icir": -0.229,
+      "n_periods": 6,
+      "quality": "weak",
+      "direction": "inverted ✗"
     },
     "sell_score_asset_growth": {
       "mean_ic": -0.0297,
@@ -434,13 +476,6 @@
       "quality": "weak",
       "direction": "inverted ✗"
     },
-    "northbound": {
-      "mean_ic": 0.0207,
-      "icir": 0.128,
-      "n_periods": 6,
-      "quality": "weak",
-      "direction": "positive ✓"
-    },
     "volume": {
       "mean_ic": 0.0188,
       "icir": 0.104,
@@ -451,6 +486,13 @@
     "quality": {
       "mean_ic": 0.0186,
       "icir": 0.165,
+      "n_periods": 6,
+      "quality": "noise",
+      "direction": "positive ✓"
+    },
+    "northbound": {
+      "mean_ic": 0.0148,
+      "icir": 0.101,
       "n_periods": 6,
       "quality": "noise",
       "direction": "positive ✓"
@@ -643,6 +685,8 @@
     "low_volatility": 2.0,
     "idiosyncratic_vol": 2.0,
     "sell_score_idiosyncratic_vol": 0.0,
+    "gap_frequency": 2.0,
+    "sell_score_gap_frequency": 0.0,
     "atr_normalized": 2.0,
     "sell_score_atr_normalized": 0.0,
     "sell_score_low_volatility": 2.0,
@@ -666,30 +710,34 @@
     "ma60_deviation": 2.0,
     "sell_score_ma60_deviation": 0.0,
     "sell_score_position_52w": 0.0,
-    "sell_score_chip_distribution": 0.0,
     "price_inertia": 1.0,
     "obv_trend": 0.0,
     "sell_score_obv_trend": 1.0,
+    "sell_score_chip_distribution": 0.0,
+    "sell_score_main_inflow": 0.0,
     "market_beta": 1.0,
     "sell_score_market_beta": 0.0,
-    "sell_score_main_inflow": 0.0,
-    "main_inflow": 1.0,
     "sell_score_momentum": 0.0,
     "piotroski": 1.0,
-    "chip_distribution": 1.0,
+    "main_inflow": 0.5,
+    "price_volume_corr": 0.0,
+    "sell_score_price_volume_corr": 1.0,
+    "trend_linearity": 0.1,
+    "sell_score_trend_linearity": 0.5,
     "sell_score_piotroski": 0.0,
     "growth": 0.0,
     "ma_alignment": 0.1,
+    "chip_distribution": 1.0,
     "momentum": 0.1,
     "amihud_illiquidity": 0.1,
     "sell_score_amihud_illiquidity": 0.5,
     "sell_score_ma_alignment": 0.5,
-    "sell_score_northbound": 0.1,
     "turnover_acceleration": 0.1,
     "sell_score_turnover_acceleration": 0.5,
     "roe_trend": 0.5,
     "sell_score_roe_trend": 0.1,
     "sell_score_quality": 0.5,
+    "sell_score_northbound": 0.1,
     "sell_score_asset_growth": 0.1,
     "upday_ratio": 0.1,
     "sell_score_upday_ratio": 0.5,
@@ -700,9 +748,9 @@
     "position_52w": 0.1,
     "volume_expansion": 0.5,
     "sell_score_volume_expansion": 0.1,
-    "northbound": 0.5,
     "volume": 0.2,
     "quality": 0.2,
+    "northbound": 0.2,
     "reversal": 0.2,
     "bollinger_position": 0.1,
     "sell_score_bollinger_position": 0.2,
@@ -742,14 +790,14 @@
         "growth": 0.1478,
         "momentum": -0.2742,
         "quality": 0.1999,
-        "northbound": 0.2948,
+        "northbound": 0.2411,
         "volume": 0.1237,
         "position_52w": -0.2705,
         "sell_score_value": null,
         "sell_score_growth": -0.3566,
         "sell_score_momentum": 0.1403,
         "sell_score_quality": -0.2143,
-        "sell_score_northbound": -0.2335,
+        "sell_score_northbound": -0.2019,
         "sell_score_volume": -0.2425,
         "sell_score_position_52w": -0.1249,
         "div_yield": null,
@@ -764,14 +812,14 @@
         "rsi_signal": null,
         "macd_signal": null,
         "turnover_percentile": 0.0845,
-        "chip_distribution": 0.2939,
+        "chip_distribution": 0.2658,
         "limit_hits": -0.0193,
         "price_inertia": 0.0632,
         "divergence": 0.0392,
         "bollinger_position": -0.0203,
         "roe_trend": -0.2767,
         "cash_flow_quality": 0.0023,
-        "main_inflow": 0.346,
+        "main_inflow": 0.353,
         "turnover_acceleration": -0.0299,
         "momentum_concavity": -0.1599,
         "bb_squeeze": 0.0967,
@@ -790,6 +838,9 @@
         "upday_ratio": -0.0772,
         "volume_expansion": 0.1329,
         "nearness_to_high": 0.2107,
+        "price_volume_corr": -0.2107,
+        "trend_linearity": 0.0775,
+        "gap_frequency": 0.5257,
         "sell_score_div_yield": null,
         "sell_score_volume_ratio": null,
         "sell_score_ma_alignment": 0.1723,
@@ -802,14 +853,14 @@
         "sell_score_rsi_signal": null,
         "sell_score_macd_signal": null,
         "sell_score_turnover_percentile": -0.2847,
-        "sell_score_chip_distribution": -0.3487,
+        "sell_score_chip_distribution": -0.3212,
         "sell_score_limit_hits": -0.2799,
         "sell_score_price_inertia": -0.073,
         "sell_score_divergence": -0.0392,
         "sell_score_bollinger_position": 0.0203,
         "sell_score_roe_trend": 0.2767,
         "sell_score_cash_flow_quality": -0.0023,
-        "sell_score_main_inflow": -0.346,
+        "sell_score_main_inflow": -0.3928,
         "sell_score_turnover_acceleration": 0.0299,
         "sell_score_momentum_concavity": 0.1599,
         "sell_score_bb_squeeze": -0.0967,
@@ -827,7 +878,10 @@
         "sell_score_return_skewness": -0.1124,
         "sell_score_upday_ratio": 0.0772,
         "sell_score_volume_expansion": -0.1329,
-        "sell_score_nearness_to_high": -0.2107
+        "sell_score_nearness_to_high": -0.2107,
+        "sell_score_price_volume_corr": 0.2107,
+        "sell_score_trend_linearity": -0.0775,
+        "sell_score_gap_frequency": -0.5257
       }
     },
     {
@@ -841,14 +895,14 @@
         "growth": -0.2151,
         "momentum": -0.1127,
         "quality": -0.1185,
-        "northbound": 0.0922,
+        "northbound": 0.1108,
         "volume": -0.0231,
         "position_52w": -0.1031,
         "sell_score_value": null,
         "sell_score_growth": 0.0381,
         "sell_score_momentum": -0.1157,
         "sell_score_quality": 0.191,
-        "sell_score_northbound": -0.1116,
+        "sell_score_northbound": -0.1096,
         "sell_score_volume": -0.2073,
         "sell_score_position_52w": -0.0032,
         "div_yield": null,
@@ -863,14 +917,14 @@
         "rsi_signal": null,
         "macd_signal": null,
         "turnover_percentile": 0.5048,
-        "chip_distribution": -0.0323,
+        "chip_distribution": -0.0699,
         "limit_hits": -0.2688,
         "price_inertia": 0.0995,
         "divergence": 0.0102,
         "bollinger_position": 0.0181,
         "roe_trend": 0.1286,
         "cash_flow_quality": 0.1443,
-        "main_inflow": 0.2909,
+        "main_inflow": 0.2634,
         "turnover_acceleration": 0.2545,
         "momentum_concavity": 0.3809,
         "bb_squeeze": 0.1311,
@@ -889,6 +943,9 @@
         "upday_ratio": -0.0648,
         "volume_expansion": 0.2329,
         "nearness_to_high": 0.2611,
+        "price_volume_corr": 0.0409,
+        "trend_linearity": -0.268,
+        "gap_frequency": 0.3402,
         "sell_score_div_yield": null,
         "sell_score_volume_ratio": null,
         "sell_score_ma_alignment": 0.1216,
@@ -901,14 +958,14 @@
         "sell_score_rsi_signal": null,
         "sell_score_macd_signal": null,
         "sell_score_turnover_percentile": -0.0072,
-        "sell_score_chip_distribution": 0.0373,
+        "sell_score_chip_distribution": 0.0701,
         "sell_score_limit_hits": null,
         "sell_score_price_inertia": -0.0769,
         "sell_score_divergence": -0.0102,
         "sell_score_bollinger_position": -0.0181,
         "sell_score_roe_trend": -0.1286,
         "sell_score_cash_flow_quality": -0.1443,
-        "sell_score_main_inflow": -0.2924,
+        "sell_score_main_inflow": -0.2634,
         "sell_score_turnover_acceleration": -0.2545,
         "sell_score_momentum_concavity": -0.3809,
         "sell_score_bb_squeeze": -0.1311,
@@ -926,7 +983,10 @@
         "sell_score_return_skewness": -0.076,
         "sell_score_upday_ratio": 0.0648,
         "sell_score_volume_expansion": -0.2329,
-        "sell_score_nearness_to_high": -0.2611
+        "sell_score_nearness_to_high": -0.2611,
+        "sell_score_price_volume_corr": -0.0409,
+        "sell_score_trend_linearity": 0.268,
+        "sell_score_gap_frequency": -0.3402
       }
     },
     {
@@ -988,6 +1048,9 @@
         "upday_ratio": 0.1729,
         "volume_expansion": -0.0038,
         "nearness_to_high": -0.0883,
+        "price_volume_corr": -0.0161,
+        "trend_linearity": -0.0459,
+        "gap_frequency": -0.1403,
         "sell_score_div_yield": null,
         "sell_score_volume_ratio": null,
         "sell_score_ma_alignment": -0.1552,
@@ -1025,7 +1088,10 @@
         "sell_score_return_skewness": -0.0344,
         "sell_score_upday_ratio": -0.1729,
         "sell_score_volume_expansion": 0.0038,
-        "sell_score_nearness_to_high": 0.0883
+        "sell_score_nearness_to_high": 0.0883,
+        "sell_score_price_volume_corr": 0.0161,
+        "sell_score_trend_linearity": 0.0459,
+        "sell_score_gap_frequency": 0.1403
       }
     },
     {
@@ -1087,6 +1153,9 @@
         "upday_ratio": -0.206,
         "volume_expansion": -0.252,
         "nearness_to_high": -0.21,
+        "price_volume_corr": -0.1093,
+        "trend_linearity": -0.266,
+        "gap_frequency": -0.238,
         "sell_score_div_yield": null,
         "sell_score_volume_ratio": null,
         "sell_score_ma_alignment": 0.0456,
@@ -1124,7 +1193,10 @@
         "sell_score_return_skewness": 0.0719,
         "sell_score_upday_ratio": 0.206,
         "sell_score_volume_expansion": 0.252,
-        "sell_score_nearness_to_high": 0.21
+        "sell_score_nearness_to_high": 0.21,
+        "sell_score_price_volume_corr": 0.1093,
+        "sell_score_trend_linearity": 0.266,
+        "sell_score_gap_frequency": 0.238
       }
     },
     {
@@ -1186,6 +1258,9 @@
         "upday_ratio": 0.2213,
         "volume_expansion": 0.2458,
         "nearness_to_high": 0.538,
+        "price_volume_corr": 0.0468,
+        "trend_linearity": 0.4486,
+        "gap_frequency": 0.4776,
         "sell_score_div_yield": null,
         "sell_score_volume_ratio": null,
         "sell_score_ma_alignment": -0.1916,
@@ -1223,7 +1298,10 @@
         "sell_score_return_skewness": -0.2451,
         "sell_score_upday_ratio": -0.2213,
         "sell_score_volume_expansion": -0.2458,
-        "sell_score_nearness_to_high": -0.538
+        "sell_score_nearness_to_high": -0.538,
+        "sell_score_price_volume_corr": -0.0468,
+        "sell_score_trend_linearity": -0.4486,
+        "sell_score_gap_frequency": -0.4776
       }
     },
     {
@@ -1285,6 +1363,9 @@
         "upday_ratio": -0.2208,
         "volume_expansion": -0.2294,
         "nearness_to_high": -0.0764,
+        "price_volume_corr": -0.1485,
+        "trend_linearity": -0.3162,
+        "gap_frequency": 0.5329,
         "sell_score_div_yield": null,
         "sell_score_volume_ratio": null,
         "sell_score_ma_alignment": 0.2237,
@@ -1322,7 +1403,10 @@
         "sell_score_return_skewness": -0.2316,
         "sell_score_upday_ratio": 0.2208,
         "sell_score_volume_expansion": 0.2294,
-        "sell_score_nearness_to_high": 0.0764
+        "sell_score_nearness_to_high": 0.0764,
+        "sell_score_price_volume_corr": 0.1485,
+        "sell_score_trend_linearity": 0.3162,
+        "sell_score_gap_frequency": -0.5329
       }
     }
   ]
