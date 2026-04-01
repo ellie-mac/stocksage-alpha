@@ -27,8 +27,22 @@ import argparse
 import json
 import os
 import sys
+import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
+
+# Patch requests.Session so every akshare HTTP call gets a fast connect timeout.
+# East Money endpoints are currently slow/hanging; 5s connect / 25s read allows
+# legitimate APIs (163.com ~7s) to succeed while failing hung ones quickly.
+import requests as _requests
+_orig_session_request = _requests.Session.request
+
+def _patched_session_request(self, method, url, **kwargs):
+    if "timeout" not in kwargs:
+        kwargs["timeout"] = (5, 25)
+    return _orig_session_request(self, method, url, **kwargs)
+
+_requests.Session.request = _patched_session_request
 
 import numpy as np
 import pandas as pd
@@ -37,6 +51,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import fetcher
 from factor_analysis import compute_stock_scores, TEST_UNIVERSE
+from factor_config import (FACTOR_WEIGHTS,
+                           REGIME_MA_SHORT, REGIME_MA_LONG,
+                           REGIME_EXPOSURE, REGIME_WEIGHTS,
+                           REGIME_CAUTION_THRESHOLD, REGIME_CRISIS_THRESHOLD,
+                           REGIME_BULL_THRESHOLD, REGIME_EXTREME_BULL_THRESHOLD)
 
 
 # ---------------------------------------------------------------------------
@@ -79,22 +98,83 @@ def _get_benchmark_returns(
 # Composite score
 # ---------------------------------------------------------------------------
 
-def _composite_score(stock_scores: dict) -> Optional[float]:
+def _composite_score(stock_scores: dict,
+                     weights: Optional[dict] = None) -> Optional[float]:
     """
-    Compute a single composite score from the buy-side factor scores.
-    Excludes sell_score_* columns, forward_ret, and code.
-    Returns None if fewer than 3 valid factors.
+    Compute a weighted composite score.
+    `weights` defaults to FACTOR_WEIGHTS (NORMAL regime).
+    Only factors listed in `weights` are used; others are ignored.
+    Negative weights invert the factor (contrarian signal).
+    Returns None if fewer than 3 active factors have valid data.
     """
+    if weights is None:
+        weights = FACTOR_WEIGHTS
     exclude = {"forward_ret", "code"}
-    values = []
+    weighted_sum = 0.0
+    weight_total = 0.0
+    n_active = 0
     for k, v in stock_scores.items():
         if k in exclude or k.startswith("sell_score_"):
             continue
-        if v is not None and not np.isnan(float(v)):
-            values.append(float(v))
-    if len(values) < 3:
+        w = weights.get(k)
+        if w is None or w == 0.0:
+            continue
+        try:
+            fval = float(v)
+        except (TypeError, ValueError):
+            continue
+        if np.isnan(fval):
+            continue
+        weighted_sum += fval * w
+        weight_total += abs(w)
+        n_active += 1
+    if n_active < 3 or weight_total == 0.0:
         return None
-    return float(np.mean(values))
+    return float(weighted_sum / weight_total)
+
+
+def _detect_regime(regime_close: Optional[pd.Series],
+                   price_offset: int) -> tuple[str, float, dict]:
+    """
+    Detect market regime at the cross-section date.
+
+    Exposure is controlled by fixed prior-20d return thresholds (robust, tested):
+      prior_ret >= -3%  -> NORMAL  (100% exposure)
+      prior_ret <  -3%  -> CAUTION ( 70% exposure)
+      prior_ret <  -6%  -> CRISIS  ( 40% exposure)
+
+    Factor weights are always NORMAL IC weights — regime only scales position size.
+
+    Returns (regime_name, exposure, factor_weights).
+    """
+    default = ("NORMAL", REGIME_EXPOSURE["NORMAL"], REGIME_WEIGHTS["NORMAL"])
+    if regime_close is None:
+        return default
+
+    lookback = 20
+    needed = price_offset + lookback + 2
+    if len(regime_close) < needed:
+        return default
+
+    end_px   = float(regime_close.iloc[-(price_offset + 1)])
+    start_px = float(regime_close.iloc[-(price_offset + lookback + 1)])
+    if start_px <= 0:
+        return default
+
+    prior_ret = (end_px / start_px - 1) * 100
+
+    if prior_ret < REGIME_CRISIS_THRESHOLD:
+        r = "CRISIS"
+    elif prior_ret < REGIME_CAUTION_THRESHOLD:
+        r = "CAUTION"
+    elif prior_ret > REGIME_EXTREME_BULL_THRESHOLD:
+        r = "EXTREME_BULL"   # parabolic rally: bull weights + reduced exposure
+    elif prior_ret > REGIME_BULL_THRESHOLD:
+        r = "BULL"           # moderate-to-strong rally: switch to momentum/volume
+    else:
+        r = "NORMAL"
+
+    return r, REGIME_EXPOSURE[r], REGIME_WEIGHTS[r]
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +190,7 @@ def run_backtest(
     txn_cost_pct: float = 0.10, # round-trip transaction cost (%)
     group: str = "A",
     max_workers: int = 8,
+    use_regime: bool = True,    # apply market-regime exposure filter
 ) -> dict:
     """
     Run a long-only quantile portfolio backtest.
@@ -126,6 +207,13 @@ def run_backtest(
 
     benchmark_rets = _get_benchmark_returns(forward_days, n_periods, step)
 
+    # Load CSI 300 close series for regime filter
+    regime_close: Optional[pd.Series] = None
+    if use_regime:
+        _rdf = fetcher.get_market_regime_data()
+        if _rdf is not None and "close" in _rdf.columns:
+            regime_close = pd.to_numeric(_rdf["close"], errors="coerce").dropna().reset_index(drop=True)
+
     period_results: list[dict] = []
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -138,23 +226,35 @@ def run_backtest(
                 for code in codes
             }
 
+            # Detect regime BEFORE scoring so we use the right factor weights
+            if use_regime:
+                regime_name, exposure, regime_wts = _detect_regime(regime_close, price_offset)
+            else:
+                regime_name, exposure, regime_wts = "NORMAL", 1.0, FACTOR_WEIGHTS
+
             period_rows: list[dict] = []
-            for future in as_completed(futures):
-                code = futures[future]
-                try:
-                    r = future.result(timeout=60)
-                    if r is None:
-                        continue
-                    comp = _composite_score(r)
-                    if comp is None:
-                        continue
-                    period_rows.append({
-                        "code":         code,
-                        "composite":    comp,
-                        "forward_ret":  r.get("forward_ret"),
-                    })
-                except Exception:
-                    pass
+            per_period_timeout = len(codes) * 60  # 60s budget per stock
+            try:
+                done_iter = as_completed(futures, timeout=per_period_timeout)
+                for future in done_iter:
+                    code = futures[future]
+                    try:
+                        r = future.result(timeout=0)
+                        if r is None:
+                            continue
+                        comp = _composite_score(r, regime_wts)
+                        if comp is None:
+                            continue
+                        period_rows.append({
+                            "code":         code,
+                            "composite":    comp,
+                            "forward_ret":  r.get("forward_ret"),
+                        })
+                    except Exception:
+                        pass
+            except concurrent.futures.TimeoutError:
+                print(f"    Warning: period timed out after {per_period_timeout}s, "
+                      f"collected {len(period_rows)} stocks so far")
 
             if len(period_rows) < max(10, top_n * 2):
                 print(f"    Skipped — only {len(period_rows)} valid stocks\n")
@@ -170,7 +270,11 @@ def run_backtest(
             long_basket  = df_period.head(top_n)
             short_basket = df_period.tail(top_n)  # bottom quantile for reference
 
-            port_ret  = float(long_basket["forward_ret"].mean()) - txn_cost_pct
+            basket_ret = float(long_basket["forward_ret"].mean())
+            # regime_name / exposure already set above (before scoring)
+            regime_label = f"{regime_name} ({exposure:.0%})"
+            # Partial exposure: exposure fraction in basket, (1-exposure) in cash
+            port_ret  = (basket_ret - txn_cost_pct) * exposure
             bench_ret = benchmark_rets[period_idx]
             alpha     = (round(port_ret - bench_ret, 3) if bench_ret is not None else None)
 
@@ -185,7 +289,10 @@ def run_backtest(
                 "period":          period_idx + 1,
                 "price_offset_d":  price_offset,
                 "n_valid":         len(df_period),
+                "exposure":        round(exposure, 2),
+                "regime":          regime_name,
                 "portfolio_ret":   round(port_ret, 3),
+                "basket_ret":      round(basket_ret - txn_cost_pct, 3),
                 "benchmark_ret":   bench_ret,
                 "alpha":           alpha,
                 "bottom_ret":      round(float(short_basket["forward_ret"].mean()), 3),
@@ -197,9 +304,11 @@ def run_backtest(
                 "top_stocks":      long_basket["code"].tolist(),
             })
 
+            regime_tag = (f"  [{regime_name} exp={exposure:.0%}]"
+                         if use_regime and regime_name != "NORMAL" else "")
             status = (f"port={port_ret:+.2f}%  bench={bench_ret:+.2f}%  "
-                      f"alpha={alpha:+.2f}%" if bench_ret is not None
-                      else f"port={port_ret:+.2f}%  bench=N/A")
+                      f"alpha={alpha:+.2f}%{regime_tag}" if bench_ret is not None
+                      else f"port={port_ret:+.2f}%  bench=N/A{regime_tag}")
             print(f"    {status}\n")
 
     if not period_results:
@@ -227,6 +336,7 @@ def run_backtest(
             "top_n":        top_n,
             "txn_cost_pct": txn_cost_pct,
             "group":        group,
+            "use_regime":   use_regime,
         },
         "period_results":      period_results,
         "cumulative_portfolio": cum_port,
@@ -322,13 +432,18 @@ def _print_results(result: dict) -> None:
           f"Group: {meta['group']}  |  Txn cost: {meta['txn_cost_pct']:.2f}%/period\n")
 
     # Period-by-period table
-    print(f"{'Period':>7} {'Port%':>8} {'Bench%':>8} {'Alpha%':>8} {'L/S%':>7} {'#Stocks':>8}")
-    print("-" * 52)
+    has_regime = meta.get("use_regime", False)
+    hdr_regime = "  Regime" if has_regime else ""
+    print(f"{'Period':>7} {'Port%':>8} {'Bench%':>8} {'Alpha%':>8} {'L/S%':>7} {'#Stk':>5}{hdr_regime}")
+    print("-" * (52 + (10 if has_regime else 0)))
     for p in result["period_results"]:
         bench  = f"{p['benchmark_ret']:+.2f}" if p["benchmark_ret"] is not None else "  N/A"
         alpha  = f"{p['alpha']:+.2f}"         if p["alpha"]         is not None else "  N/A"
+        regime = p.get("regime", "NORMAL")
+        exp    = p.get("exposure", 1.0)
+        reg_s  = f"  {regime}({exp:.0%})" if has_regime else ""
         print(f"{p['period']:>7}  {p['portfolio_ret']:>+7.2f}%  {bench:>7}%  "
-              f"{alpha:>7}%  {p['long_short_spread']:>+6.2f}%  {p['n_valid']:>7}")
+              f"{alpha:>7}%  {p['long_short_spread']:>+6.2f}%  {p['n_valid']:>4}{reg_s}")
 
     # Cumulative
     cum_p = result["cumulative_portfolio"]
@@ -351,7 +466,7 @@ def _print_results(result: dict) -> None:
         print(f"  {key:<35}  {val}")
 
     # Monotonicity check (decile returns)
-    print("\nDecile returns (top→bottom, averaged across periods):")
+    print("\nDecile returns (top->bottom, averaged across periods):")
     n_deciles = 5
     agg_deciles = [[] for _ in range(n_deciles)]
     for p in result["period_results"]:
@@ -360,7 +475,7 @@ def _print_results(result: dict) -> None:
     decile_means = [round(np.mean(d), 2) for d in agg_deciles if d]
     labels = ["Top 20%", "Q2", "Q3", "Q4", "Bot 20%"]
     for label, val in zip(labels, decile_means):
-        bar = "█" * max(0, int((val + 5) * 2))
+        bar = "#" * max(0, int((val + 5) * 2))
         print(f"  {label:<9} {val:>+6.2f}%  {bar}")
 
 
@@ -378,6 +493,8 @@ if __name__ == "__main__":
     parser.add_argument("--group",   type=str,   default="A",  help="Factor group: A (fast) or AB (all)")
     parser.add_argument("--cost",    type=float, default=0.10, help="Round-trip transaction cost %% (default 0.10)")
     parser.add_argument("--out",     type=str,   default="",   help="Save full output to JSON file")
+    parser.add_argument("--workers",   type=int,   default=4,    help="Thread pool size (default 4; use 1 to avoid V8 crashes)")
+    parser.add_argument("--no-regime", action="store_true",      help="Disable market-regime exposure filter")
     args = parser.parse_args()
 
     codes  = TEST_UNIVERSE[:args.n]
@@ -389,6 +506,8 @@ if __name__ == "__main__":
         top_pct     = args.top / 100,
         txn_cost_pct= args.cost,
         group       = args.group,
+        max_workers = args.workers,
+        use_regime  = not args.no_regime,
     )
 
     _print_results(result)

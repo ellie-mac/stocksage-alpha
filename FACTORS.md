@@ -1619,6 +1619,142 @@ Composite scores (0–100):
 
 ---
 
+### Extended Factors — Group A2 (IC-validated additions, factors_extended.py)
+
+> All factors below were added after rolling 6-period IC analysis (20d forward, Group A, 50 stocks, 2026-03-31). IC and ICIR values are from that run.
+
+#### 34. Divergence / 多指标共振 (divergence)
+**Measures**: Confluence of multiple technical indicators (MACD histogram, RSI, volume trend, BB position) to detect signals confirmed across methodologies rather than from a single indicator.
+IC=+0.130, ICIR=0.810 — one of the most stable technical signals in our universe.
+
+**High buy_score**: MACD, RSI, volume, and BB all aligned bullishly; more confirming indicators = higher score.
+**High sell_score**: Multiple indicators aligned bearishly simultaneously.
+
+**Key principle**: A-share retail-driven markets frequently generate false signals from individual indicators. Multi-indicator confluence filters out noise and identifies cleaner trend continuations. Weight=2.0 in NORMAL/CAUTION regimes.
+
+---
+
+#### 35. Idiosyncratic Volatility / 个股特质波动率 (idiosyncratic_vol)
+**Measures**: Residual volatility after removing market beta — the stock-specific risk component not explained by CSI 300 index movement. Computed via 60-day OLS regression.
+IC=+0.229, ICIR=0.578 — **inverted**: lower idiosyncratic vol → higher score.
+
+**High buy_score**: Low residual vol after market-beta removal (stock moves with market, not as a standalone lottery ticket).
+**High sell_score**: High residual vol — the stock moves unpredictably relative to the market, a sign of speculative activity.
+
+**Key principle**: A-share "lottery effect" — high-idiosyncratic-vol stocks attract retail speculators seeking asymmetric payoffs, causing overpricing and subsequent underperformance. This is the opposite of US markets where idiosyncratic vol is often rewarded. Weight=2.0 in NORMAL/CAUTION/CRISIS regimes, reduced to 0.3 in BULL (speculative names lead rallies).
+
+---
+
+#### 36. Momentum Concavity / 动量加速度 (momentum_concavity)
+**Measures**: Acceleration of momentum — recent 10-day return minus prior 10-day return. Positive concavity means momentum is accelerating (improving), not just continuing.
+IC=+0.135, ICIR=0.566.
+
+**High buy_score**: Recent momentum stronger than prior momentum (acceleration).
+**High sell_score**: Momentum decelerating (recent period weaker than prior period).
+
+**Key principle**: Trend continuation vs. trend fading is more predictive than the trend level alone. A stock that was +5% last month and +8% this month is a better hold than one that was +8% then +5%. Weight=2.0 in NORMAL/BULL; dropped in CAUTION (unreliable when trend is breaking).
+
+---
+
+#### 37. Bollinger Band Squeeze / 布林带收缩 (bb_squeeze)
+**Measures**: Ratio of current Bollinger Band width to its 60-day average. A very narrow band (squeeze) means volatility has compressed — often precedes a breakout.
+IC=+0.064, ICIR=0.399.
+
+**High buy_score**: Band width significantly below its 60-day average (compressed) AND price above MA20 (squeeze + uptrend).
+**High sell_score**: Band width above average (expanding volatility) in a downtrend.
+
+**Key principle**: Volatility compression is a universal breakout precursor. The squeeze alone is direction-neutral; the MA20 condition filters for upward resolutions. Weight=0.5 in NORMAL; 1.0 in BULL (breakout setups thrive in bull momentum).
+
+---
+
+#### 38. Cash Flow Quality / 现金流质量 (cash_flow_quality)
+**Measures**: Ratio of operating cash flow to net profit (经营现金净流量与净利润的比率). High ratio means earnings are backed by actual cash, not accounting accruals.
+IC=+0.164, ICIR=0.894 — **second-strongest fundamental factor after low_volatility**.
+
+**High buy_score**: Operating cash flow ≥ 100% of net profit (cash > earnings — genuine cash generation).
+**High sell_score**: Operating cash flow far below net profit (earnings not converting to cash — potential accruals or channel stuffing).
+
+**Key principle**: A-share accounting manipulation is widespread. Companies with high accrual-to-earnings ratios often suffer future earnings disappointments as accounting reverses to cash reality. Weight=2.0 across all regimes including CRISIS.
+
+---
+
+#### 39. Main Force Inflow / 大单净流入 (main_inflow)
+**Measures**: Net inflow percentage from large orders (主力净流入占比) over 5 days — a proxy for institutional accumulation vs. distribution.
+IC=+0.060, ICIR=0.239 — meaningful but low ICIR (noisy).
+
+**High buy_score**: Large-order net inflow positive (institutions accumulating).
+**High sell_score**: Large-order net outflow (institutions distributing).
+
+**Key principle**: Large order flow separates "smart money" from retail activity in A-shares. However, signal is noisy (low ICIR) because East Money's "主力" classification includes both institutions and large retail operators. Weight=0.5 in NORMAL; 1.0 in BULL (institutional flow more relevant in rallies).
+
+---
+
+#### 40. ROE Trend / ROE趋势 (roe_trend)
+**Measures**: Direction of change in Return on Equity between the most recent and prior period.
+IC=+0.053, ICIR=0.362 — weak but stable positive signal.
+
+**High buy_score**: ROE increasing period-over-period (business profitability improving).
+**High sell_score**: ROE declining (deteriorating profitability).
+
+**Key principle**: Level of ROE matters less than direction — a company improving from 5% to 8% ROE often outperforms one declining from 15% to 12%. Complements the Piotroski score (which measures 9-dimension financial health improvement). Weight=0.5 in NORMAL; 1.0 in CAUTION (resilient businesses hold ROE in corrections).
+
+---
+
+#### 41. Amihud Illiquidity / 非流动性 (amihud_illiquidity)
+**Measures**: Mean(|daily return| / daily amount) over 60 days — the Amihud (2002) illiquidity ratio. Higher = less liquid.
+IC=−0.062, ICIR=−0.275 — **inverted**: lower illiquidity (more liquid) → higher score.
+
+**High buy_score**: Highly liquid stock (low Amihud ratio) — easy to trade in and out without price impact.
+**High sell_score**: Illiquid stock — large bid-ask spreads, price impact on entry/exit.
+
+**Key principle**: Academic literature finds an illiquidity premium (illiquid stocks should earn more). In A-share short-horizon cross-sections, we observe the opposite: illiquid micro-caps underperform due to reversal risk, forced selling, and index exclusion effects. Weight=−0.5 (inverted) in NORMAL.
+
+---
+
+#### 42. Medium-Term Momentum / 中期动量 (medium_term_momentum)
+**Measures**: 40-day return (skipping the most recent 20 days to avoid overlap with price_inertia). Captures the 1–3 month price trend.
+IC=−0.108, ICIR=−0.352 — **inverted**: prior 40-day winners underperform.
+
+**High buy_score** (inverted): Recent 40-day losers (contrarian entry point).
+**High sell_score** (inverted): Recent 40-day winners (mean-reversion sell signal).
+
+**Key principle**: In global markets, medium-term momentum (6–12 months) is a robust factor. In A-shares, it **reverses**: the 1–3 month horizon is dominated by retail mean-reversion behavior. Stocks that have run up 40 days ago are crowded by retail, become overbought, and subsequently underperform. This is one of the clearest regime differences between A-shares and global markets. Weight=−1.0 in NORMAL; −1.5 in CAUTION (mean-reversion stronger in corrections).
+
+---
+
+#### 43. OBV Trend / OBV趋势 (obv_trend)
+**Measures**: Slope of On-Balance Volume (OBV) over the past 20 days, normalized by average volume. Positive slope = accumulation (volume on up-days > down-days).
+IC=−0.115, ICIR=−0.479 — **inverted**: OBV accumulation predicts underperformance.
+
+**High buy_score** (inverted): OBV declining (distribution pattern) — retail has exited or is distributing.
+**High sell_score** (inverted): OBV strongly positive (accumulation pattern) — retail retail-chasing signal.
+
+**Key principle**: In A-shares, OBV accumulation is a **reversal signal**, not a continuation signal. OBV rising means retail investors are chasing a move (buying on up-days), creating overbuying that subsequently reverses. This is the inverse of the US market intuition. Weight=−1.0 in NORMAL/CAUTION.
+
+---
+
+#### 44. ATR Normalized / 归一化ATR (atr_normalized)
+**Measures**: Average True Range over 14 days, divided by closing price to normalize. ATR captures realised price range (including gap risk), unlike close-to-close volatility.
+IC=+0.249, ICIR=0.802 — **strongest new factor; tied with low_volatility for top signal**.
+
+**High buy_score**: Low normalised ATR — stock has tight daily ranges relative to its price level, indicating low realised risk and stable price behavior.
+**High sell_score**: High normalised ATR — wide daily swings, gap risk, harder to hold without being stopped out.
+
+**Key principle**: ATR captures gap risk that close-to-close volatility misses. A stock that opens -4% once a week looks "stable" on daily close vol but has catastrophic ATR. This makes atr_normalized a complementary (not redundant) signal to low_volatility. The extremely high ICIR (0.802) reflects that the signal is stable across all 6 rolling periods. Weight=2.0 in NORMAL; upweighted to 2.5 in CAUTION/CRISIS (capital preservation regimes).
+
+---
+
+#### 45. MA60 Deviation / 60日均线偏离 (ma60_deviation)
+**Measures**: (Close − MA60) / MA60 × 100%. Positive = stock above its 60-day MA; negative = below.
+IC=+0.098, ICIR=0.668 — **inverted in score**: stocks below MA60 get higher scores (contrarian).
+
+**High buy_score**: Stock trading near or below its 60-day moving average — historically cheap relative to its recent trend, mean-reversion opportunity.
+**High sell_score**: Stock trading significantly above MA60 — extended, prone to mean-reversion.
+
+**Key principle**: MA60 deviation is a medium-term mean-reversion signal in A-shares. Unlike US markets where extended moves can continue (momentum), A-share retail investors and institutional profit-taking create systematic reversion at the 60-day horizon. Stocks 20%+ above MA60 face selling pressure; stocks near or below MA60 find natural support. Weight=1.0 in NORMAL; 1.5 in CAUTION/CRISIS (extended stocks fall hardest in corrections).
+
+---
+
 ### Score Interpretation
 
 **Total Buy Score (total_score)**:

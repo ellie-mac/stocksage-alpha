@@ -11,6 +11,33 @@ from typing import Optional
 import cache
 
 _spot_lock = threading.Lock()
+_spot_em_failed = False  # once set True, skip all subsequent stock_zh_a_spot_em calls
+
+
+def _call_with_timeout(fn, timeout: float = 20.0, *args, **kwargs):
+    """
+    Run fn(*args, **kwargs) in a daemon thread and return its result.
+    Returns None if the call doesn't finish within `timeout` seconds.
+    Needed for akshare functions that use DrissionPage / JavaScript scrapers,
+    which are unaffected by socket or requests timeouts.
+    """
+    result: list = [None]
+    exc: list = [None]
+
+    def _run():
+        try:
+            result[0] = fn(*args, **kwargs)
+        except Exception as e:  # noqa: BLE001
+            exc[0] = e
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        return None  # timed out — leave daemon thread running
+    if exc[0] is not None:
+        raise exc[0]
+    return result[0]
 
 
 def normalize_code(code: str) -> str:
@@ -34,16 +61,29 @@ def _get_spot_df() -> pd.DataFrame:
     (e.g. when both get_realtime_quote and search_stock_by_name are called).
     Uses a double-checked lock so concurrent threads don't each trigger
     a separate akshare call on a simultaneous cache miss.
+
+    _spot_em_failed: once stock_zh_a_spot_em times out once, we mark it failed
+    and skip all subsequent calls.  This prevents concurrent daemon threads from
+    both initialising py_mini_racer's V8 engine simultaneously, which causes a
+    fatal "Check failed: !IsConfigurablePoolInitialized()" crash (exit code 3).
     """
+    global _spot_em_failed
+    if _spot_em_failed:
+        return pd.DataFrame()
     cached = cache.get("spot_all", cache.TTL_REALTIME)
     if cached is not None:
         return pd.DataFrame(cached)
     with _spot_lock:
         # Re-check inside the lock; another thread may have populated it
+        if _spot_em_failed:
+            return pd.DataFrame()
         cached = cache.get("spot_all", cache.TTL_REALTIME)
         if cached is not None:
             return pd.DataFrame(cached)
-        df = ak.stock_zh_a_spot_em()
+        df = _call_with_timeout(ak.stock_zh_a_spot_em, 20)
+        if df is None or df.empty:
+            _spot_em_failed = True  # don't retry; prevents concurrent V8 re-init crash
+            return pd.DataFrame()
         cache.set("spot_all", df.to_dict("records"))
         return df
 
@@ -261,7 +301,7 @@ def get_shareholder_count(code: str) -> Optional[pd.DataFrame]:
     if cached is not None:
         return cached
     try:
-        df = ak.stock_zh_a_gdhs(symbol=code)
+        df = _call_with_timeout(ak.stock_zh_a_gdhs, 20, symbol=code)
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
@@ -281,7 +321,7 @@ def get_lhb_flow(code: str, days: int = 90) -> Optional[pd.DataFrame]:
     try:
         end   = datetime.now().strftime("%Y%m%d")
         start = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
-        df = ak.stock_lhb_detail_em(symbol=code, start_date=start, end_date=end)
+        df = _call_with_timeout(ak.stock_lhb_detail_em, 20, symbol=code, start_date=start, end_date=end)
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
@@ -299,7 +339,7 @@ def get_lockup_pressure(code: str) -> Optional[pd.DataFrame]:
     if cached is not None:
         return cached
     try:
-        df = ak.stock_restricted_release_detail_em(symbol=code)
+        df = _call_with_timeout(ak.stock_restricted_release_detail_em, 20, symbol=code)
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
@@ -317,7 +357,7 @@ def get_insider_transactions(code: str) -> Optional[pd.DataFrame]:
     if cached is not None:
         return cached
     try:
-        df = ak.stock_share_hold_change_em(symbol=code)
+        df = _call_with_timeout(ak.stock_share_hold_change_em, 20, symbol=code)
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
@@ -335,7 +375,7 @@ def get_institutional_visits(code: str) -> Optional[pd.DataFrame]:
     if cached is not None:
         return cached
     try:
-        df = ak.stock_irm_cninfo(symbol=code)
+        df = _call_with_timeout(ak.stock_irm_cninfo, 20, symbol=code)
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
@@ -412,7 +452,7 @@ def get_northbound_holdings(code: str) -> Optional[pd.DataFrame]:
         return cached
     try:
         market = "沪股通" if code.startswith("6") else "深股通"
-        df = ak.stock_hsgt_hold_stock_em(market=market, stock=code)
+        df = _call_with_timeout(ak.stock_hsgt_hold_stock_em, 20, market=market, stock=code)
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
@@ -430,7 +470,7 @@ def get_earnings_revision(code: str) -> Optional[pd.DataFrame]:
     if cached is not None:
         return cached
     try:
-        df = ak.stock_analyst_forecast_em(symbol=code)
+        df = _call_with_timeout(ak.stock_analyst_forecast_em, 20, symbol=code)
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
@@ -453,7 +493,7 @@ def get_social_heat(code: str) -> Optional[dict]:
         return cached
     try:
         # Try East Money hot rank
-        df = ak.stock_hot_rank_em()
+        df = _call_with_timeout(ak.stock_hot_rank_em, 20)
         if df is not None and not df.empty:
             df.columns = [c.strip() for c in df.columns]
             # Find code column
@@ -474,27 +514,32 @@ def get_social_heat(code: str) -> Optional[dict]:
 def get_market_regime_data() -> Optional[pd.DataFrame]:
     """
     Fetch CSI 300 (沪深300) recent price history for market regime detection.
-    Returns last 120 trading days. Cached for 2 hours.
+    Returns last 300 trading days. Cached for 2 hours.
     """
     cache_key = "market_regime_data"
     cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY * 2)
     if cached is not None:
         return cached
-    try:
-        df = ak.stock_zh_index_daily_em(symbol="sh000300")
-        if df is None or df.empty:
-            return None
-        df.columns = [c.strip() for c in df.columns]
-        close_col = next((c for c in df.columns if "close" in c.lower() or "收盘" in c), None)
-        if close_col is None:
-            return None
-        df = df.rename(columns={close_col: "close"})
-        df["close"] = pd.to_numeric(df["close"], errors="coerce")
-        df = df.dropna(subset=["close"]).tail(120).reset_index(drop=True)
-        cache.set_df(cache_key, df)
-        return df
-    except Exception:
-        return None
+    for fetch in [
+        lambda: ak.stock_zh_index_daily_em(symbol="sh000300"),
+        lambda: ak.stock_zh_index_daily(symbol="sh000300"),  # 163/Netease fallback
+    ]:
+        try:
+            df = fetch()
+            if df is None or df.empty:
+                continue
+            df.columns = [c.strip() for c in df.columns]
+            close_col = next((c for c in df.columns if "close" in c.lower() or "收盘" in c), None)
+            if close_col is None:
+                continue
+            df = df.rename(columns={close_col: "close"})
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+            df = df.dropna(subset=["close"]).tail(300).reset_index(drop=True)
+            cache.set_df(cache_key, df)
+            return df
+        except Exception:
+            continue
+    return None
 
 
 def _get_concept_1m_ret(concept_name: str) -> Optional[float]:

@@ -4136,3 +4136,1640 @@ def score_market_regime(market_df: Optional[pd.DataFrame]) -> dict:
             "sell_score":  round(sell_score, 1),
         },
     }
+
+
+# ===========================================================================
+# DIVERGENCE — Multi-indicator confluence (底背离 / 顶背离)
+# ===========================================================================
+
+def _compute_macd_hist(close: pd.Series, fast: int = 12,
+                       slow: int = 26, signal: int = 9) -> pd.Series:
+    """Return MACD histogram (DIF - DEA)."""
+    ema_fast = close.ewm(span=fast, adjust=False).mean()
+    ema_slow = close.ewm(span=slow, adjust=False).mean()
+    dif      = ema_fast - ema_slow
+    dea      = dif.ewm(span=signal, adjust=False).mean()
+    return dif - dea
+
+
+def _compute_rsi(close: pd.Series, window: int = 14) -> pd.Series:
+    """Return RSI series."""
+    delta    = close.diff()
+    gain     = delta.clip(lower=0).ewm(span=window, adjust=False).mean()
+    loss     = (-delta.clip(upper=0)).ewm(span=window, adjust=False).mean()
+    rs       = gain / (loss + 1e-10)
+    return 100 - 100 / (1 + rs)
+
+
+def _compute_kdj_k(high: pd.Series, low: pd.Series,
+                   close: pd.Series, n: int = 9, m: int = 3) -> pd.Series:
+    """Return KDJ K-line."""
+    lo = low.rolling(n).min()
+    hi = high.rolling(n).max()
+    rsv = (close - lo) / (hi - lo + 1e-10) * 100
+    return rsv.ewm(com=m - 1, adjust=False).mean()
+
+
+def _divergence_signal(price: pd.Series, indicator: pd.Series,
+                       pivot_window: int = 5, lookback: int = 80,
+                       min_sep: int = 10) -> float:
+    """
+    Detect divergence between price and indicator over the last `lookback` bars.
+
+    Returns:
+      +1.0  strong bullish divergence  (price lower-low, indicator higher-low)
+      +0.5  weak   bullish divergence  (small magnitude)
+       0.0  no divergence
+      -0.5  weak   bearish divergence
+      -1.0  strong bearish divergence  (price higher-high, indicator lower-high)
+    """
+    # Align and trim to lookback window
+    combined = pd.concat([price.rename("p"), indicator.rename("i")], axis=1).dropna()
+    if len(combined) < lookback // 2:
+        return 0.0
+    combined = combined.tail(lookback)
+    p = combined["p"].values
+    ind = combined["i"].values
+    n = len(p)
+
+    # ── Find local minima (troughs) for bullish divergence ─────────────────
+    troughs: list[int] = []
+    for i in range(pivot_window, n - pivot_window):
+        if (all(p[i] <= p[i - j] for j in range(1, pivot_window + 1)) and
+                all(p[i] <= p[i + j] for j in range(1, pivot_window + 1))):
+            if not troughs or i - troughs[-1] >= min_sep:
+                troughs.append(i)
+
+    if len(troughs) >= 2:
+        t1, t2 = troughs[-2], troughs[-1]
+        price_ll  = p[t2]   < p[t1]   * 0.998   # price made lower low
+        ind_hl    = ind[t2] > ind[t1] * 1.002    # indicator made higher low
+        if price_ll and ind_hl:
+            price_drop = (p[t1] - p[t2]) / (abs(p[t1]) + 1e-10)
+            ind_rise   = (ind[t2] - ind[t1]) / (abs(ind[t1]) + 1e-10)
+            magnitude  = price_drop + ind_rise
+            return +1.0 if magnitude > 0.04 else +0.5
+
+    # ── Find local maxima (peaks) for bearish divergence ───────────────────
+    peaks: list[int] = []
+    for i in range(pivot_window, n - pivot_window):
+        if (all(p[i] >= p[i - j] for j in range(1, pivot_window + 1)) and
+                all(p[i] >= p[i + j] for j in range(1, pivot_window + 1))):
+            if not peaks or i - peaks[-1] >= min_sep:
+                peaks.append(i)
+
+    if len(peaks) >= 2:
+        k1, k2 = peaks[-2], peaks[-1]
+        price_hh  = p[k2]   > p[k1]   * 1.002   # price made higher high
+        ind_lh    = ind[k2] < ind[k1] * 0.998    # indicator made lower high
+        if price_hh and ind_lh:
+            price_rise = (p[k2] - p[k1]) / (abs(p[k1]) + 1e-10)
+            ind_drop   = (ind[k1] - ind[k2]) / (abs(ind[k1]) + 1e-10)
+            magnitude  = price_rise + ind_drop
+            return -1.0 if magnitude > 0.04 else -0.5
+
+    return 0.0
+
+
+def score_divergence(price_df: Optional[pd.DataFrame]) -> dict:
+    """
+    Multi-indicator divergence confluence score (max 10).
+
+    Checks four independent divergence signals:
+      1. MACD histogram 日线背离  (12,26,9)  — weight 1.5×  (most followed in A-shares)
+      2. RSI 背离               (14-period) — weight 1.0×
+      3. KDJ K-line 背离        (9,3,3)    — weight 1.0×  (popular in Chinese retail)
+      4. 量价背离               (volume vs price direction) — weight 1.0×
+
+    Composite scoring:
+      Bottom divergence (底背离): positive contribution → bullish → high score
+      Top    divergence (顶背离): negative contribution → bearish → low score
+
+      Weighted sum → normalised to [0, 10] with neutral = 5.0.
+
+    Multiple signals aligning (共振) amplifies score:
+      All 4 signals  bullish → ~10
+      3   signals    bullish → ~8–9
+      2   signals    bullish → ~7
+      1   signal     bullish → ~6
+      No divergence          →  5
+      1   signal     bearish → ~4
+      2   signals    bearish → ~3
+      3   signals    bearish → ~1–2
+      All 4 signals  bearish → ~0
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 40:
+        return _neutral(MAX)
+
+    required = {"close", "high", "low", "volume"}
+    if not required.issubset(price_df.columns):
+        return _neutral(MAX)
+
+    try:
+        close  = pd.to_numeric(price_df["close"],  errors="coerce").dropna()
+        high   = pd.to_numeric(price_df["high"],   errors="coerce").dropna()
+        low    = pd.to_numeric(price_df["low"],    errors="coerce").dropna()
+        volume = pd.to_numeric(price_df["volume"], errors="coerce").dropna()
+
+        if len(close) < 40:
+            return _neutral(MAX)
+
+        # ── 1. MACD histogram divergence ──────────────────────────────────
+        macd_hist  = _compute_macd_hist(close)
+        sig_macd   = _divergence_signal(close, macd_hist)
+
+        # ── 2. RSI divergence ─────────────────────────────────────────────
+        rsi        = _compute_rsi(close)
+        sig_rsi    = _divergence_signal(close, rsi)
+
+        # ── 3. KDJ K-line divergence ──────────────────────────────────────
+        kdj_k      = _compute_kdj_k(high, low, close)
+        sig_kdj    = _divergence_signal(close, kdj_k)
+
+        # ── 4. 量价背离 (volume-price divergence) ─────────────────────────
+        # Bullish vol-price: price at lower low, but volume contracting (seller exhaustion)
+        # Bearish vol-price: price at higher high, but volume shrinking (buyer exhaustion)
+        vol_ma5    = volume.rolling(5).mean()
+        vol_ma20   = volume.rolling(20).mean()
+        vol_ratio  = (vol_ma5 / (vol_ma20 + 1e-10)).reindex(close.index)
+        sig_vol    = _divergence_signal(close, -vol_ratio)  # invert: low vol at trough = bullish
+
+        # ── Composite weighted score ──────────────────────────────────────
+        W_MACD, W_RSI, W_KDJ, W_VOL = 1.5, 1.0, 1.0, 1.0
+        total_weight = W_MACD + W_RSI + W_KDJ + W_VOL  # 4.5
+
+        weighted_sum = (sig_macd * W_MACD + sig_rsi * W_RSI +
+                        sig_kdj  * W_KDJ  + sig_vol * W_VOL)
+        # weighted_sum range: [-4.5, +4.5]
+        # Map to [0, 10]: score = 5 + weighted_sum / 4.5 * 5
+        score = 5.0 + (weighted_sum / total_weight) * 5.0
+        score = float(np.clip(score, 0.0, 10.0))
+
+        # sell_score: high when bearish divergence is strong
+        sell_score = float(np.clip(5.0 - (weighted_sum / total_weight) * 5.0, 0.0, 10.0))
+
+        # ── Signal label ──────────────────────────────────────────────────
+        n_bull = sum(1 for s in [sig_macd, sig_rsi, sig_kdj, sig_vol] if s > 0)
+        n_bear = sum(1 for s in [sig_macd, sig_rsi, sig_kdj, sig_vol] if s < 0)
+        if n_bull >= 3:
+            label = f"strong bullish divergence ({n_bull}/4 signals)"
+        elif n_bull == 2:
+            label = f"moderate bullish divergence ({n_bull}/4 signals)"
+        elif n_bull == 1:
+            label = "weak bullish divergence (1/4 signals)"
+        elif n_bear >= 3:
+            label = f"strong bearish divergence ({n_bear}/4 signals)"
+        elif n_bear == 2:
+            label = f"moderate bearish divergence ({n_bear}/4 signals)"
+        elif n_bear == 1:
+            label = "weak bearish divergence (1/4 signals)"
+        else:
+            label = "no divergence"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":           label,
+                "macd_divergence":  sig_macd,
+                "rsi_divergence":   sig_rsi,
+                "kdj_divergence":   sig_kdj,
+                "vol_divergence":   sig_vol,
+                "n_bullish":        n_bull,
+                "n_bearish":        n_bear,
+                "weighted_sum":     round(weighted_sum, 3),
+                "sell_score":       round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ===========================================================================
+# NEW GROUP A FACTORS — added 2026-03
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# score_bollinger_position — 布林带位置 (Bollinger Band Position)
+# ---------------------------------------------------------------------------
+
+def score_bollinger_position(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """布林带位置因子 — Bollinger Band position as a contrarian mean-reversion signal.
+
+    Logic:
+      BB position = (close - lower_band) / (upper_band - lower_band)
+        0.0 = at lower band (oversold)   → bullish
+        0.5 = at midline (neutral)
+        1.0 = at upper band (overbought) → bearish
+
+    Parameters: 20-period MA with 2× std bands (standard BB).
+
+    Scoring:
+      position ≤ 0.10  (near lower band, deeply oversold)  → score 9–10
+      position ≈ 0.25                                       → score 7
+      position = 0.50  (midline, neutral)                  → score 5
+      position ≈ 0.75                                       → score 3
+      position ≥ 0.90  (near upper band, overbought)       → score 0–1
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 25:
+        return _neutral(MAX)
+
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        if len(close) < 25:
+            return _neutral(MAX)
+
+        # Compute BB on full series, take latest value
+        ma20    = close.rolling(20).mean()
+        std20   = close.rolling(20).std(ddof=1)
+        upper   = ma20 + 2.0 * std20
+        lower   = ma20 - 2.0 * std20
+
+        latest_close = float(close.iloc[-1])
+        latest_upper = float(upper.iloc[-1])
+        latest_lower = float(lower.iloc[-1])
+        band_width   = latest_upper - latest_lower
+
+        if band_width < 1e-8:
+            return _neutral(MAX)
+
+        position = (latest_close - latest_lower) / band_width
+        position = float(np.clip(position, 0.0, 1.0))
+
+        # Contrarian: low position = oversold = high score
+        score      = float(np.clip((1.0 - position) * 10.0, 0.0, 10.0))
+        sell_score = float(np.clip(position * 10.0, 0.0, 10.0))
+
+        if position <= 0.15:
+            signal = f"near lower band (oversold) pos={position:.2f}"
+        elif position >= 0.85:
+            signal = f"near upper band (overbought) pos={position:.2f}"
+        else:
+            signal = f"mid-range pos={position:.2f}"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":      signal,
+                "bb_position": round(position, 3),
+                "close":       round(latest_close, 2),
+                "upper_band":  round(latest_upper, 2),
+                "lower_band":  round(latest_lower, 2),
+                "sell_score":  round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_roe_trend — ROE趋势 (ROE Trend / Improvement)
+# ---------------------------------------------------------------------------
+
+def score_roe_trend(
+    financial_df: Optional[pd.DataFrame],
+) -> dict:
+    """ROE趋势因子 — direction of ROE change signals profitability improvement.
+
+    Logic:
+      Compares most recent ROE with prior period ROE.
+      Improving ROE (margin expansion, efficiency gains) → bullish.
+      Deteriorating ROE (earnings quality erosion) → bearish.
+
+    The change is normalised against the prior ROE level so small changes on
+    high-ROE firms and large changes on low-ROE firms are properly weighted.
+
+    Scoring (change defined as roe_cur - roe_prev in percentage points):
+      Δ ≥ +5 pp   → score 9–10  (strong improvement)
+      Δ  +2~+5 pp → score 7–8   (moderate improvement)
+      Δ  0~+2 pp  → score 5–6   (mild improvement)
+      Δ  -2~0 pp  → score 4–5   (mild deterioration)
+      Δ  -5~-2 pp → score 2–3   (moderate deterioration)
+      Δ ≤ -5 pp   → score 0–1   (sharp deterioration)
+    """
+    MAX = 10
+    if financial_df is None or financial_df.empty:
+        return _neutral(MAX)
+
+    try:
+        roe_cur, roe_prev = _extract_two(
+            financial_df,
+            ["净资产收益率(%)", "加权净资产收益率(%)", "ROE(%)"],
+        )
+
+        if roe_cur is None or roe_prev is None:
+            # Only one period: score on absolute level only
+            if roe_cur is not None:
+                score = float(np.clip(5.0 + roe_cur / 6.0, 0.0, 10.0))
+                sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+                return {
+                    "score":      round(score, 1),
+                    "sell_score": round(sell_score, 1),
+                    "max":        MAX,
+                    "details": {
+                        "signal":    f"single period ROE={roe_cur:.1f}%",
+                        "roe_cur":   round(roe_cur, 2),
+                        "roe_prev":  None,
+                        "roe_delta": None,
+                        "sell_score": round(sell_score, 1),
+                    },
+                }
+            return _neutral(MAX)
+
+        delta = roe_cur - roe_prev   # percentage points change
+
+        # Score: 5 = no change, higher = improving, lower = deteriorating
+        # Scale: ±5 pp maps to ±2.5 score points; clamp to [0,10]
+        score      = float(np.clip(5.0 + delta * 0.5, 0.0, 10.0))
+        sell_score = float(np.clip(5.0 - delta * 0.5, 0.0, 10.0))
+
+        if delta >= 5:
+            signal = f"ROE sharply improving +{delta:.1f}pp ({roe_prev:.1f}%→{roe_cur:.1f}%)"
+        elif delta >= 2:
+            signal = f"ROE improving +{delta:.1f}pp ({roe_prev:.1f}%→{roe_cur:.1f}%)"
+        elif delta >= 0:
+            signal = f"ROE stable/mild improvement +{delta:.1f}pp ({roe_cur:.1f}%)"
+        elif delta >= -2:
+            signal = f"ROE mild decline {delta:.1f}pp ({roe_cur:.1f}%)"
+        elif delta >= -5:
+            signal = f"ROE declining {delta:.1f}pp ({roe_prev:.1f}%→{roe_cur:.1f}%)"
+        else:
+            signal = f"ROE sharply declining {delta:.1f}pp ({roe_prev:.1f}%→{roe_cur:.1f}%)"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":    signal,
+                "roe_cur":   round(roe_cur, 2),
+                "roe_prev":  round(roe_prev, 2),
+                "roe_delta": round(delta, 2),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_cash_flow_quality — 现金流质量 (Cash Flow Quality)
+# ---------------------------------------------------------------------------
+
+def score_cash_flow_quality(
+    financial_df: Optional[pd.DataFrame],
+) -> dict:
+    """现金流质量因子 — operating cash flow backing of reported earnings.
+
+    Logic:
+      ratio = operating_CF / net_income (as a percentage)
+      A high ratio means earnings are well-supported by actual cash receipts.
+      A low or negative ratio is a red flag: profits may be paper-based
+      (accruals, channel stuffing, aggressive revenue recognition).
+
+    Uses akshare `经营现金净流量与净利润的比率(%)` column directly when available.
+    Falls back to computing from raw CF and net income fields.
+
+    Scoring:
+      ratio ≥ 150%  → score 10  (exceptional cash backing)
+      ratio 100–150 → score 8
+      ratio  80–100 → score 6
+      ratio  50–80  → score 4
+      ratio  0–50   → score 2
+      ratio ≤ 0%    → score 0   (earnings not backed by cash — bearish)
+    """
+    MAX = 10
+    if financial_df is None or financial_df.empty:
+        return _neutral(MAX)
+
+    try:
+        # 1. Try direct ratio column
+        ratio = _extract(
+            financial_df,
+            ["经营现金净流量与净利润的比率(%)", "经营活动现金流/净利润(%)",
+             "CFO/净利润(%)", "经营现金流与净利润比率(%)"],
+        )
+
+        # 2. Fallback: compute from raw components
+        if ratio is None:
+            cf = _extract(financial_df, [
+                "经营活动现金流量净额(元)", "经营活动产生的现金流量净额",
+                "经营活动现金流净额", "经营现金流量净额",
+            ])
+            ni = _extract(financial_df, [
+                "净利润(元)", "归母净利润(元)", "净利润",
+            ])
+            if cf is not None and ni is not None and abs(ni) > 1e-6:
+                ratio = cf / ni * 100.0
+            else:
+                return _neutral(MAX)
+
+        if ratio is None:
+            return _neutral(MAX)
+
+        # Score: linearly map ratio → [0, 10]
+        # Breakpoints: 0% → 0, 100% → 6.67, 150% → 10
+        if ratio >= 150:
+            score = 10.0
+        elif ratio >= 0:
+            score = ratio / 150.0 * 10.0
+        else:
+            # Negative ratio: earnings exceed cash by magnitude
+            score = float(np.clip(ratio / 50.0 + 0.0, -10.0, 0.0))
+        score      = float(np.clip(score, 0.0, 10.0))
+        sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+
+        if ratio >= 150:
+            signal = f"excellent cash backing: CF/NI={ratio:.0f}%"
+        elif ratio >= 100:
+            signal = f"good cash backing: CF/NI={ratio:.0f}%"
+        elif ratio >= 50:
+            signal = f"moderate cash backing: CF/NI={ratio:.0f}%"
+        elif ratio >= 0:
+            signal = f"weak cash backing: CF/NI={ratio:.0f}%"
+        else:
+            signal = f"negative cash ratio (earnings not backed by cash): CF/NI={ratio:.0f}%"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":     signal,
+                "cf_ni_ratio": round(ratio, 1),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_main_inflow — 大单净流入 (Main/Institutional Capital Net Inflow)
+# ---------------------------------------------------------------------------
+
+def score_main_inflow(
+    fund_flow_df: Optional[pd.DataFrame],
+) -> dict:
+    """大单净流入因子 — institutional/large-order net buying pressure.
+
+    Logic:
+      Uses `主力净流入-净占比` (main capital net inflow as % of total turnover),
+      averaged over the most recent 5 trading days. Positive = net institutional
+      buying; negative = net selling.
+
+      Unlike chip_distribution which uses net 元 amount, this factor uses the
+      percentage metric which normalises across stocks with different market caps.
+
+    Scoring:
+      net_pct ≥ +5%  → score 10  (strong institutional accumulation)
+      net_pct  +2~+5 → score 8
+      net_pct  0~+2  → score 6
+      net_pct  -2~0  → score 4
+      net_pct  -5~-2 → score 2
+      net_pct ≤ -5%  → score 0   (heavy institutional distribution)
+    """
+    MAX = 10
+    if fund_flow_df is None or fund_flow_df.empty:
+        return _neutral(MAX)
+
+    try:
+        # Look for percentage column first, then fall back to raw 净额 normalised
+        pct_cols = [c for c in fund_flow_df.columns
+                    if "主力净流入" in c and "净占比" in c]
+        amt_cols = [c for c in fund_flow_df.columns
+                    if any(k in c for k in ["主力净流入-净额", "大单净流入-净额", "超大单净流入-净额"])]
+
+        net_pct: Optional[float] = None
+
+        if pct_cols:
+            series = pd.to_numeric(fund_flow_df[pct_cols[0]], errors="coerce").dropna()
+            if not series.empty:
+                net_pct = float(series.tail(5).mean())
+
+        elif amt_cols:
+            # Use raw amount — normalise to a pseudo-percentage via 5d average sign
+            series = pd.to_numeric(fund_flow_df[amt_cols[0]], errors="coerce").dropna()
+            if not series.empty:
+                amt_5d = float(series.tail(5).sum())
+                # Scale: ≥ +1e8 yuan → +5%, ≤ -1e8 → -5%
+                net_pct = float(np.clip(amt_5d / 2e7, -10.0, 10.0))
+
+        if net_pct is None:
+            return _neutral(MAX)
+
+        # Map net_pct to score: neutral at 0%, +/- 5% maps to ±5 score points above/below 5
+        score      = float(np.clip(5.0 + net_pct, 0.0, 10.0))
+        sell_score = float(np.clip(5.0 - net_pct, 0.0, 10.0))
+
+        if net_pct >= 5:
+            signal = f"strong institutional accumulation: net={net_pct:.1f}%"
+        elif net_pct >= 2:
+            signal = f"moderate institutional buying: net={net_pct:.1f}%"
+        elif net_pct >= 0:
+            signal = f"mild net inflow: net={net_pct:.1f}%"
+        elif net_pct >= -2:
+            signal = f"mild net outflow: net={net_pct:.1f}%"
+        elif net_pct >= -5:
+            signal = f"moderate institutional distribution: net={net_pct:.1f}%"
+        else:
+            signal = f"heavy institutional distribution: net={net_pct:.1f}%"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":   signal,
+                "net_pct_5d_avg": round(net_pct, 2),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ===========================================================================
+# BATCH-2 FACTORS — added 2026-04-01
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# score_turnover_acceleration — 换手率加速度 (Turnover Rate Trend)
+# ---------------------------------------------------------------------------
+
+def score_turnover_acceleration(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """换手率加速度 — whether market attention/accumulation is accelerating.
+
+    Logic:
+      acceleration = avg_turnover(last 5d) / avg_turnover(last 20d)
+      A rising ratio means participation is increasing relative to the recent
+      baseline, which in A-shares often signals institutional accumulation or
+      fresh retail interest.
+
+      Combined with 5-day price direction for confirmation:
+        High acceleration + price rising  → strong bullish (放量上涨)
+        High acceleration + price falling → strong bearish (放量下跌 / distribution)
+        Low acceleration  (turnover drying up) → slightly bearish
+
+    Distinct from score_volume_breakout (absolute volume vs 20d MA) and
+    score_turnover_percentile (level vs 90d history):
+    this factor captures the *rate of change* in turnover rate (换手率 %).
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+
+    turn_col = next((c for c in ["turnover", "turnover_rate"] if c in price_df.columns), None)
+    if turn_col is None:
+        return _neutral(MAX)
+
+    try:
+        turnover = pd.to_numeric(price_df[turn_col], errors="coerce").dropna()
+        close    = pd.to_numeric(price_df["close"],   errors="coerce").dropna()
+        if len(turnover) < 22 or len(close) < 6:
+            return _neutral(MAX)
+
+        avg_5d  = float(turnover.tail(5).mean())
+        avg_20d = float(turnover.tail(20).mean())
+        if avg_20d < 1e-10:
+            return _neutral(MAX)
+
+        accel = avg_5d / avg_20d           # >1 = accelerating, <1 = decelerating
+
+        # 5-day price direction: +1 rising, -1 falling
+        ret_5d = float((close.iloc[-1] / close.iloc[-6] - 1) * 100) if len(close) >= 6 else 0.0
+        price_dir = 1 if ret_5d > 0.5 else (-1 if ret_5d < -0.5 else 0)
+
+        # Base score from acceleration (neutral=5 at accel=1)
+        base = float(np.clip(5.0 + (accel - 1.0) * 4.0, 1.0, 9.0))
+
+        # Direction modifier: amplify signal if acceleration + direction agree
+        if price_dir == 1 and accel >= 1.3:
+            score = float(np.clip(base + 1.5, 0.0, 10.0))
+            signal = f"放量上涨 accel={accel:.2f}x ret5d={ret_5d:+.1f}%"
+        elif price_dir == -1 and accel >= 1.3:
+            score = float(np.clip(base - 2.0, 0.0, 10.0))
+            signal = f"放量下跌(分发) accel={accel:.2f}x ret5d={ret_5d:+.1f}%"
+        elif accel < 0.7:
+            score = float(np.clip(base - 0.5, 0.0, 10.0))
+            signal = f"缩量 accel={accel:.2f}x"
+        else:
+            score = base
+            signal = f"换手正常 accel={accel:.2f}x"
+
+        sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":       signal,
+                "accel_5d_20d": round(accel, 3),
+                "ret_5d_pct":   round(ret_5d, 2),
+                "sell_score":   round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_momentum_concavity — 动量加速度 (Momentum Concavity / Acceleration)
+# ---------------------------------------------------------------------------
+
+def score_momentum_concavity(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """动量加速度 — whether price momentum is speeding up or slowing down.
+
+    Logic:
+      recent_mom  = 10-day return (last  1–10 trading days)
+      prior_mom   = 10-day return (last 11–20 trading days)
+      concavity   = recent_mom - prior_mom  (percentage points)
+
+      Positive concavity = momentum accelerating   → bullish
+      Negative concavity = momentum decelerating   → approaching reversal
+
+    Complements price_inertia (which measures overall 20d direction):
+    this factor detects *change in velocity*, catching early trend exhaustion
+    or fresh momentum ignition earlier than raw price_inertia.
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        if len(close) < 22:
+            return _neutral(MAX)
+
+        p_now   = float(close.iloc[-1])
+        p_10d   = float(close.iloc[-11])   # 10 trading days ago
+        p_20d   = float(close.iloc[-21])   # 20 trading days ago
+
+        if p_10d <= 0 or p_20d <= 0:
+            return _neutral(MAX)
+
+        recent_mom = (p_now / p_10d - 1) * 100
+        prior_mom  = (p_10d / p_20d - 1) * 100
+        concavity  = recent_mom - prior_mom      # pp change in velocity
+
+        # Score: neutral=5, ±5pp maps to ±2 score; ±10pp maps to ±4 score
+        score      = float(np.clip(5.0 + concavity * 0.35, 0.0, 10.0))
+        sell_score = float(np.clip(5.0 - concavity * 0.35, 0.0, 10.0))
+
+        if concavity >= 5:
+            signal = f"动量强加速 conc={concavity:+.1f}pp (近10d {recent_mom:+.1f}% vs 前10d {prior_mom:+.1f}%)"
+        elif concavity >= 2:
+            signal = f"动量加速 conc={concavity:+.1f}pp"
+        elif concavity >= -2:
+            signal = f"动量平稳 conc={concavity:+.1f}pp"
+        elif concavity >= -5:
+            signal = f"动量减速 conc={concavity:+.1f}pp — 趋势衰减"
+        else:
+            signal = f"动量急减速 conc={concavity:+.1f}pp — 可能反转"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":         signal,
+                "concavity_pp":   round(concavity, 2),
+                "recent_10d_pct": round(recent_mom, 2),
+                "prior_10d_pct":  round(prior_mom, 2),
+                "sell_score":     round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_bb_squeeze — BOLL带宽收缩 (Bollinger Band Squeeze)
+# ---------------------------------------------------------------------------
+
+def score_bb_squeeze(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """BOLL带宽收缩因子 — volatility compression signals an impending breakout.
+
+    Logic:
+      BB bandwidth = (upper - lower) / MA20  (normalised band width)
+      A low bandwidth relative to recent history = volatility squeeze.
+      After a squeeze, the subsequent expansion (breakout) tends to persist.
+
+      Signal is directional: combine squeeze with price position relative to
+      the midline (MA20) to determine if the coming breakout is bullish or bearish.
+
+    Two-component score:
+      1. Squeeze intensity: current_bw / avg_bw_60d  (low ratio = tight squeeze)
+      2. Direction: close vs MA20 (above = bullish, below = bearish)
+
+    Scoring:
+      Tight squeeze (ratio ≤ 0.60) + close > MA20  → score 8–9  (bullish coil)
+      Tight squeeze (ratio ≤ 0.60) + close < MA20  → score 1–2  (bearish coil)
+      Moderate squeeze (0.60–0.80) + above MA20    → score 6–7
+      Moderate squeeze (0.60–0.80) + below MA20    → score 3–4
+      Wide band (ratio ≥ 1.0) → neutral 5 (already in breakout mode)
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 30:
+        return _neutral(MAX)
+
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        if len(close) < 30:
+            return _neutral(MAX)
+
+        ma20  = close.rolling(20).mean()
+        std20 = close.rolling(20).std(ddof=1)
+        upper = ma20 + 2.0 * std20
+        lower = ma20 - 2.0 * std20
+
+        # Normalised bandwidth time series
+        bw = ((upper - lower) / ma20.replace(0, np.nan)).dropna()
+        if len(bw) < 10:
+            return _neutral(MAX)
+
+        current_bw = float(bw.iloc[-1])
+        avg_bw_60  = float(bw.tail(60).mean()) if len(bw) >= 60 else float(bw.mean())
+        if avg_bw_60 < 1e-10:
+            return _neutral(MAX)
+
+        squeeze_ratio = current_bw / avg_bw_60   # <1 = tighter than average
+
+        latest_close = float(close.iloc[-1])
+        latest_ma20  = float(ma20.iloc[-1])
+        above_ma = latest_close > latest_ma20
+
+        # Score based on squeeze intensity × direction
+        if squeeze_ratio <= 0.60:
+            base_bullish, base_bearish = 8.5, 1.5
+        elif squeeze_ratio <= 0.80:
+            base_bullish, base_bearish = 7.0, 3.0
+        elif squeeze_ratio <= 1.00:
+            base_bullish, base_bearish = 6.0, 4.0
+        else:
+            # Wide band — already post-squeeze, follow trend mildly
+            base_bullish, base_bearish = 5.5, 4.5
+
+        score      = float(np.clip(base_bullish if above_ma else base_bearish, 0.0, 10.0))
+        sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+
+        direction_str = "价格在MA20上方" if above_ma else "价格在MA20下方"
+        if squeeze_ratio <= 0.60:
+            squeeze_str = f"紧缩(ratio={squeeze_ratio:.2f})"
+        elif squeeze_ratio <= 0.80:
+            squeeze_str = f"收窄(ratio={squeeze_ratio:.2f})"
+        else:
+            squeeze_str = f"扩张(ratio={squeeze_ratio:.2f})"
+
+        signal = f"{squeeze_str}, {direction_str}"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":        signal,
+                "squeeze_ratio": round(squeeze_ratio, 3),
+                "current_bw":    round(current_bw, 4),
+                "avg_bw_60d":    round(avg_bw_60, 4),
+                "above_ma20":    above_ma,
+                "sell_score":    round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_idiosyncratic_vol — 特质波动率 (Idiosyncratic Volatility)
+# ---------------------------------------------------------------------------
+
+def score_idiosyncratic_vol(
+    price_df: Optional[pd.DataFrame],
+    market_price_df: Optional[pd.DataFrame] = None,
+) -> dict:
+    """特质波动率因子 — idiosyncratic (residual) volatility after removing market beta.
+
+    Logic:
+      Regresses daily stock returns against CSI 300 daily returns over 60 days.
+      Idiosyncratic vol = annualised std(residuals).
+
+      A-share lottery-stock effect: high idiosyncratic vol stocks are
+      systematically overpriced (retail speculation premium) and subsequently
+      underperform. Low idiosyncratic vol stocks are underappreciated.
+
+      Score is *inverted*: low idio vol → high score (prefer boring, low-residual stocks).
+
+    Fallback: if market_price_df not provided, uses total volatility as proxy
+    (correlates well with idio_vol since market beta is relatively stable).
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 30:
+        return _neutral(MAX)
+
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close      = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        stock_ret  = close.pct_change().dropna()
+        N          = min(60, len(stock_ret))
+        if N < 20:
+            return _neutral(MAX)
+        stock_ret_arr = stock_ret.tail(N).values
+
+        if market_price_df is not None and "close" in market_price_df.columns:
+            mkt_close = pd.to_numeric(market_price_df["close"], errors="coerce").dropna()
+            mkt_ret   = mkt_close.pct_change().dropna()
+            M         = min(N, len(mkt_ret))
+            if M >= 20:
+                s = stock_ret_arr[-M:]
+                m = mkt_ret.tail(M).values
+                var_m = float(np.var(m, ddof=1))
+                if var_m > 1e-12:
+                    beta  = float(np.cov(s, m, ddof=1)[0, 1] / var_m)
+                    resid = s - beta * m
+                    idio_vol = float(np.std(resid, ddof=1)) * np.sqrt(252)
+                else:
+                    idio_vol = float(np.std(stock_ret_arr, ddof=1)) * np.sqrt(252)
+            else:
+                idio_vol = float(np.std(stock_ret_arr, ddof=1)) * np.sqrt(252)
+        else:
+            idio_vol = float(np.std(stock_ret_arr, ddof=1)) * np.sqrt(252)
+
+        # Score inverted: low idio vol = high score
+        # A-share range: ~0.20 (large cap) to ~0.65 (small speculative)
+        score      = float(np.clip((0.65 - idio_vol) / 0.50 * 10.0, 0.0, 10.0))
+        sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+
+        if idio_vol <= 0.20:
+            signal = f"低特质波动率={idio_vol:.2f} — 稳健，被低估"
+        elif idio_vol <= 0.35:
+            signal = f"中等特质波动率={idio_vol:.2f}"
+        elif idio_vol <= 0.50:
+            signal = f"较高特质波动率={idio_vol:.2f} — 彩票效应风险"
+        else:
+            signal = f"高特质波动率={idio_vol:.2f} — 投机溢价，预期跑输"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":       signal,
+                "idio_vol_ann": round(idio_vol, 4),
+                "n_days_used":  N,
+                "sell_score":   round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_gross_margin_trend — 毛利率趋势 (Gross Margin Trend)
+# ---------------------------------------------------------------------------
+
+def score_gross_margin_trend(
+    financial_df: Optional[pd.DataFrame],
+) -> dict:
+    """毛利率趋势因子 — direction of gross margin change as competitive moat signal.
+
+    Logic:
+      Expanding gross margin = pricing power improving or cost structure
+      improving → precedes ROE improvement → bullish.
+      Contracting gross margin = competitive pressure or cost inflation → bearish.
+
+    Complements roe_trend (which is net) and cash_flow_quality (which is CF-based):
+    gross margin is earlier-stage, reflecting revenue/cost dynamics before
+    financing and tax effects.
+
+    Scoring (delta = gm_cur - gm_prev in pp):
+      Δ ≥ +3pp  → score 9–10  (material improvement)
+      Δ +1~+3pp → score 7–8
+      Δ  0~+1pp → score 5–6
+      Δ -1~0pp  → score 4–5
+      Δ -3~-1pp → score 2–3
+      Δ ≤ -3pp  → score 0–1
+    """
+    MAX = 10
+    if financial_df is None or financial_df.empty:
+        return _neutral(MAX)
+
+    try:
+        gm_cur, gm_prev = _extract_two(
+            financial_df,
+            ["销售毛利率(%)", "毛利率(%)", "综合毛利率(%)"],
+        )
+
+        if gm_cur is None or gm_prev is None:
+            if gm_cur is not None:
+                score      = float(np.clip(gm_cur / 5.0, 0.0, 10.0))
+                sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+                return {
+                    "score":      round(score, 1),
+                    "sell_score": round(sell_score, 1),
+                    "max":        MAX,
+                    "details": {
+                        "signal": f"单期毛利率={gm_cur:.1f}%",
+                        "gm_cur": round(gm_cur, 2), "gm_prev": None,
+                        "gm_delta": None, "sell_score": round(sell_score, 1),
+                    },
+                }
+            return _neutral(MAX)
+
+        delta = gm_cur - gm_prev
+
+        score      = float(np.clip(5.0 + delta * 0.7, 0.0, 10.0))
+        sell_score = float(np.clip(5.0 - delta * 0.7, 0.0, 10.0))
+
+        if delta >= 3:
+            signal = f"毛利率明显改善 +{delta:.1f}pp ({gm_prev:.1f}%→{gm_cur:.1f}%)"
+        elif delta >= 1:
+            signal = f"毛利率改善 +{delta:.1f}pp"
+        elif delta >= -1:
+            signal = f"毛利率稳定 {delta:+.1f}pp ({gm_cur:.1f}%)"
+        elif delta >= -3:
+            signal = f"毛利率收窄 {delta:.1f}pp"
+        else:
+            signal = f"毛利率明显恶化 {delta:.1f}pp ({gm_prev:.1f}%→{gm_cur:.1f}%)"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":   signal,
+                "gm_cur":   round(gm_cur, 2),
+                "gm_prev":  round(gm_prev, 2),
+                "gm_delta": round(delta, 2),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_ar_quality — 应收账款质量 (Accounts Receivable Quality)
+# ---------------------------------------------------------------------------
+
+def score_ar_quality(
+    financial_df: Optional[pd.DataFrame],
+) -> dict:
+    """应收账款质量因子 — AR growing faster than revenue signals earnings inflation.
+
+    Logic:
+      ar_spread = AR_growth% - Revenue_growth%
+      High positive spread → AR inflating relative to revenue → revenue quality risk → bearish
+      Negative spread      → AR shrinking vs revenue → healthy earnings → bullish
+
+    Complements cash_flow_quality: catches earlier-stage receivables inflation
+    before it shows up in the cash flow statement.
+
+    Scoring (spread in pp):
+      spread ≤ -20pp  → score 10  (AR shrinking: healthy)
+      spread -20~0pp  → score 7–9
+      spread 0~+20pp  → score 4–6 (mild build-up)
+      spread +20~+50pp→ score 2–3 (concerning)
+      spread ≥ +50pp  → score 0–1 (serious risk)
+    """
+    MAX = 10
+    if financial_df is None or financial_df.empty:
+        return _neutral(MAX)
+
+    try:
+        ar_cur, ar_prev = _extract_two(
+            financial_df,
+            ["应收账款(元)", "应收账款净额(元)", "应收票据及应收账款(元)",
+             "应收账款净额", "应收票据及应收账款"],
+        )
+        rev_cur, rev_prev = _extract_two(
+            financial_df,
+            ["营业总收入(元)", "营业收入(元)", "总营收(元)", "营业总收入"],
+        )
+
+        if (ar_cur is None or ar_prev is None or
+                rev_cur is None or rev_prev is None):
+            return _neutral(MAX)
+        if abs(ar_prev) < 1 or abs(rev_prev) < 1:
+            return _neutral(MAX)
+
+        ar_growth  = (ar_cur  - ar_prev)  / abs(ar_prev)  * 100
+        rev_growth = (rev_cur - rev_prev) / abs(rev_prev) * 100
+        spread     = ar_growth - rev_growth
+
+        # Inverted: lower spread = better quality = higher score
+        score      = float(np.clip(6.0 - spread * 0.1, 0.0, 10.0))
+        sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+
+        if spread <= -20:
+            signal = f"应收账款质量优(AR收缩): spread={spread:+.0f}pp"
+        elif spread <= 0:
+            signal = f"应收账款健康: spread={spread:+.0f}pp"
+        elif spread <= 20:
+            signal = f"应收账款略增: spread={spread:+.0f}pp — 温和风险"
+        elif spread <= 50:
+            signal = f"应收账款增速远超营收: spread={spread:+.0f}pp — 关注"
+        else:
+            signal = f"应收账款质量差: spread={spread:+.0f}pp — 收入粉饰风险"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":         signal,
+                "ar_growth_pct":  round(ar_growth, 1),
+                "rev_growth_pct": round(rev_growth, 1),
+                "ar_spread_pp":   round(spread, 1),
+                "sell_score":     round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_size_factor — 小市值效应 (Size Factor / Small-Cap Premium)
+# ---------------------------------------------------------------------------
+
+def score_size_factor(
+    circ_cap: float = 0,
+) -> dict:
+    """小市值效应 — A-share small-cap premium factor.
+
+    Logic:
+      Smaller stocks in A-shares systematically outperform over long horizons.
+      Driven by: limited analyst coverage, institutional neglect, higher
+      liquidity premium, and speculative rotation cycles.
+
+      Score is a monotonically decreasing function of log(circulating_cap).
+      circ_cap is in yuan (元), as returned by akshare realtime quote.
+
+    Scoring (log-linear):
+      circ_cap < 3e9  (30亿)  → score 9–10
+      circ_cap ≈ 1e10 (100亿) → score 7
+      circ_cap ≈ 5e10 (500亿) → score 5
+      circ_cap ≈ 2e11 (2000亿)→ score 3
+      circ_cap > 1e12 (1万亿) → score 0–1
+    """
+    MAX = 10
+    if circ_cap <= 0:
+        return _neutral(MAX)
+
+    try:
+        log_size   = np.log10(max(circ_cap, 1e7) / 3e8)
+        score      = float(np.clip(10.0 - 2.0 * log_size, 0.0, 10.0))
+        sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+
+        cap_bn = circ_cap / 1e8   # 亿元 for display
+        if cap_bn < 30:
+            signal = f"小市值 {cap_bn:.0f}亿 — A股小盘溢价"
+        elif cap_bn < 100:
+            signal = f"中小市值 {cap_bn:.0f}亿"
+        elif cap_bn < 500:
+            signal = f"中市值 {cap_bn:.0f}亿"
+        elif cap_bn < 2000:
+            signal = f"大市值 {cap_bn:.0f}亿 — 覆盖充分，超额收益受限"
+        else:
+            signal = f"超大市值 {cap_bn:.0f}亿 — 指数化，难以超越"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":      signal,
+                "circ_cap_bn": round(cap_bn, 1),
+                "sell_score":  round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ===========================================================================
+# BATCH-3 FACTORS — added 2026-04-01
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# score_amihud_illiquidity — Amihud非流动性 (Illiquidity Premium)
+# ---------------------------------------------------------------------------
+
+def score_amihud_illiquidity(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """Amihud非流动性因子 — illiquidity premium.
+
+    Amihud (2002) illiquidity ratio:
+        IL = mean( |r_t| / Amount_t )   over last 60 trading days
+
+    where |r_t| = absolute daily return, Amount_t = daily turnover in yuan.
+    High IL → illiquid → earns liquidity risk premium → bullish.
+
+    Economically distinct from low_volatility (return smoothness) and
+    size_factor (market cap): isolates actual market-impact cost.
+
+    Scoring (log-linear, typical A-share range 1e-12 to 1e-7):
+      IL ~ 1e-12  (mega-liquid, e.g. Moutai)   → score 0–2
+      IL ~ 1e-10  (mid-cap average)             → score 5
+      IL ~ 1e-8   (small/thin)                  → score 8–10
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 10:
+        return _neutral(MAX)
+
+    if not {"close", "amount"}.issubset(price_df.columns):
+        return _neutral(MAX)
+
+    try:
+        close  = pd.to_numeric(price_df["close"],  errors="coerce")
+        amount = pd.to_numeric(price_df["amount"], errors="coerce")
+        ret    = close.pct_change().abs()
+        il_ser = (ret / amount.replace(0, np.nan)).dropna()
+
+        N = min(60, len(il_ser))
+        if N < 5:
+            return _neutral(MAX)
+
+        il_mean = float(il_ser.tail(N).mean())
+        if il_mean <= 0:
+            return _neutral(MAX)
+
+        # log10(IL * 1e10): range [-2, +4] → score [0, 10]
+        log_il = np.log10(il_mean * 1e10)
+        score  = float(np.clip((log_il + 2.0) / 6.0 * 10.0, 0.0, 10.0))
+        sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+
+        if il_mean >= 1e-8:
+            signal = f"高非流动性 IL={il_mean:.2e} — 流动性溢价显著"
+        elif il_mean >= 1e-9:
+            signal = f"中等非流动性 IL={il_mean:.2e}"
+        elif il_mean >= 1e-10:
+            signal = f"流动性一般 IL={il_mean:.2e}"
+        else:
+            signal = f"高流动性 IL={il_mean:.2e} — 溢价已定价"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":    signal,
+                "amihud_il": float(f"{il_mean:.4e}"),
+                "n_days":    N,
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_medium_term_momentum — 中期动量 (Medium-Term Momentum, 60d skip 20d)
+# ---------------------------------------------------------------------------
+
+def score_medium_term_momentum(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """中期动量因子 — 40-day return ending 20 days ago (skip recent month).
+
+    Return window: T-61d → T-21d.
+    Skipping last 20 days avoids short-term reversal noise.
+    Captures the prior medium-term trend that price_inertia (20d) and
+    momentum_concavity (10d/10d) do not cover.
+
+    Scoring:
+      +20% → score ~8    0% → 5    -20% → score ~2
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 65:
+        return _neutral(MAX)
+
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        if len(close) < 65:
+            return _neutral(MAX)
+
+        p_end   = float(close.iloc[-21])   # 20 trading days ago
+        p_start = float(close.iloc[-61])   # 60 trading days ago
+        if p_start <= 0:
+            return _neutral(MAX)
+
+        mom_40d = (p_end / p_start - 1) * 100
+
+        score      = float(np.clip(5.0 + mom_40d * 0.15, 0.0, 10.0))
+        sell_score = float(np.clip(5.0 - mom_40d * 0.15, 0.0, 10.0))
+
+        if mom_40d >= 15:
+            signal = f"中期强势 mom40d={mom_40d:+.1f}%"
+        elif mom_40d >= 5:
+            signal = f"中期上涨 mom40d={mom_40d:+.1f}%"
+        elif mom_40d >= -5:
+            signal = f"中期盘整 mom40d={mom_40d:+.1f}%"
+        elif mom_40d >= -15:
+            signal = f"中期弱势 mom40d={mom_40d:+.1f}%"
+        else:
+            signal = f"中期明显下跌 mom40d={mom_40d:+.1f}%"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":      signal,
+                "mom_40d_pct": round(mom_40d, 2),
+                "sell_score":  round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_obv_trend — OBV趋势 (On Balance Volume Trend Slope)
+# ---------------------------------------------------------------------------
+
+def score_obv_trend(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """OBV趋势因子 — On Balance Volume slope as directional accumulation signal.
+
+    OBV[t] = OBV[t-1] + vol if close rises, - vol if close falls.
+    Linear regression slope of OBV over last 20 days, normalised by avg volume.
+
+    Positive slope = net accumulation = bullish.
+    Distinct from volume_breakout (spike) and main_inflow (order-size based):
+    captures *directional* volume persistence without large-order classification.
+
+    Scoring:
+      slope_norm ≥ +0.15 → score 8–10  (strong accumulation)
+      slope_norm ~ 0     → score 5
+      slope_norm ≤ -0.15 → score 0–2   (strong distribution)
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 25:
+        return _neutral(MAX)
+
+    if not {"close", "volume"}.issubset(price_df.columns):
+        return _neutral(MAX)
+
+    try:
+        close  = pd.to_numeric(price_df["close"],  errors="coerce").ffill()
+        volume = pd.to_numeric(price_df["volume"], errors="coerce").fillna(0)
+
+        if len(close) < 25:
+            return _neutral(MAX)
+
+        direction = np.sign(close.diff().fillna(0))
+        obv       = (direction * volume).cumsum()
+
+        N         = 20
+        obv_slice = obv.tail(N).values
+        vol_avg   = float(volume.tail(N).mean())
+        if vol_avg < 1:
+            return _neutral(MAX)
+
+        x       = np.arange(N, dtype=float)
+        x_c     = x - x.mean()
+        slope   = float(np.dot(x_c, obv_slice) / np.dot(x_c, x_c))
+        slope_norm = slope / vol_avg
+
+        score      = float(np.clip(5.0 + slope_norm * 33.0, 0.0, 10.0))
+        sell_score = float(np.clip(5.0 - slope_norm * 33.0, 0.0, 10.0))
+
+        if slope_norm >= 0.15:
+            signal = f"OBV强势积累 slope={slope_norm:+.3f}"
+        elif slope_norm >= 0.03:
+            signal = f"OBV温和积累 slope={slope_norm:+.3f}"
+        elif slope_norm >= -0.03:
+            signal = f"OBV中性 slope={slope_norm:+.3f}"
+        elif slope_norm >= -0.15:
+            signal = f"OBV温和分发 slope={slope_norm:+.3f}"
+        else:
+            signal = f"OBV强势分发 slope={slope_norm:+.3f}"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":      signal,
+                "slope_norm":  round(slope_norm, 4),
+                "vol_avg_20d": round(vol_avg, 0),
+                "sell_score":  round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ===========================================================================
+# BATCH-4 FACTORS — added 2026-04-01
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# score_market_beta — 市场Beta (Market Sensitivity / Defensive Beta)
+# ---------------------------------------------------------------------------
+
+def score_market_beta(
+    price_df: Optional[pd.DataFrame],
+    market_price_df: Optional[pd.DataFrame] = None,
+) -> dict:
+    """市场Beta因子 — systematic risk exposure (defensive low-beta premium).
+
+    Beta = cov(stock_ret, market_ret) / var(market_ret) over 60 days.
+
+    Low beta stocks in A-shares outperform in NORMAL/CAUTION regimes because:
+      1. Institutional preference for predictable earnings in risk-off
+      2. Less crowded by retail speculation
+      3. Smaller drawdowns attract more sticky capital
+
+    Score is *inverted*: low beta → high score (prefer defensive names).
+    In BULL regime, factor_config.py can neutralise or invert this weight.
+
+    Scoring:
+      beta ≤ 0.3  → score 9–10  (ultra-defensive)
+      beta ~ 0.7  → score 6
+      beta = 1.0  → score 4     (market-neutral)
+      beta ~ 1.3  → score 2
+      beta ≥ 1.8  → score 0     (high-beta speculative)
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 30:
+        return _neutral(MAX)
+
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close     = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        stock_ret = close.pct_change().dropna()
+        N         = min(60, len(stock_ret))
+        if N < 20:
+            return _neutral(MAX)
+        s = stock_ret.tail(N).values
+
+        if market_price_df is not None and "close" in market_price_df.columns:
+            mkt_close = pd.to_numeric(market_price_df["close"], errors="coerce").dropna()
+            mkt_ret   = mkt_close.pct_change().dropna()
+            M         = min(N, len(mkt_ret))
+            if M >= 20:
+                sv = s[-M:]
+                mv = mkt_ret.tail(M).values
+                var_m = float(np.var(mv, ddof=1))
+                if var_m > 1e-12:
+                    beta = float(np.cov(sv, mv, ddof=1)[0, 1] / var_m)
+                else:
+                    beta = 1.0
+            else:
+                beta = 1.0
+        else:
+            # Fallback: estimate beta from total vol ratio (beta ≈ sigma_s / sigma_m)
+            # Without market data, use normalised vol as proxy (beta ~ 1 for average stock)
+            total_vol = float(np.std(s, ddof=1)) * np.sqrt(252)
+            beta = total_vol / 0.20   # 0.20 = typical A-share index annualised vol
+
+        beta = float(np.clip(beta, -0.5, 3.0))
+
+        # Score inversely: beta=0 → 10, beta=1 → ~5.5, beta=2 → ~1
+        score      = float(np.clip(10.0 - beta * 4.5, 0.0, 10.0))
+        sell_score = float(np.clip(beta * 4.5, 0.0, 10.0))
+
+        if beta <= 0.4:
+            signal = f"低Beta={beta:.2f} — 防御型，系统性风险极低"
+        elif beta <= 0.7:
+            signal = f"偏低Beta={beta:.2f} — 弱周期，回撤相对小"
+        elif beta <= 1.1:
+            signal = f"中性Beta={beta:.2f} — 随市波动"
+        elif beta <= 1.5:
+            signal = f"偏高Beta={beta:.2f} — 弹性标的，波动放大"
+        else:
+            signal = f"高Beta={beta:.2f} — 高弹性投机，风险敞口大"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":    signal,
+                "beta":      round(beta, 3),
+                "n_days":    N,
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_atr_normalized — 归一化ATR (Normalized Average True Range)
+# ---------------------------------------------------------------------------
+
+def score_atr_normalized(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """归一化ATR因子 — range-based volatility normalized by price.
+
+    ATR = mean(True Range, 14d)
+    True Range = max(High - Low, |High - prev_Close|, |Low - prev_Close|)
+    Normalized ATR = ATR / Close
+
+    Unlike close-to-close volatility (used by idiosyncratic_vol and low_volatility),
+    ATR incorporates intraday range and gap risk. High ATR/price stocks have:
+      - Greater intraday manipulation risk in A-shares
+      - Higher bid-ask spread (implicit transaction cost)
+      - More speculative retail participation
+
+    Score *inverted*: low ATR/price → high score (prefer calm, stable stocks).
+
+    Scoring:
+      ATR/price ≤ 0.015  → score 9–10  (very stable)
+      ATR/price ~ 0.025  → score 6
+      ATR/price ~ 0.035  → score 3
+      ATR/price ≥ 0.050  → score 0     (highly volatile/manipulated)
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 16:
+        return _neutral(MAX)
+
+    required = {"close", "high", "low"}
+    if not required.issubset(price_df.columns):
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").ffill()
+        high  = pd.to_numeric(price_df["high"],  errors="coerce").ffill()
+        low   = pd.to_numeric(price_df["low"],   errors="coerce").ffill()
+
+        if len(close) < 16:
+            return _neutral(MAX)
+
+        prev_close = close.shift(1)
+        tr = pd.concat([
+            high - low,
+            (high - prev_close).abs(),
+            (low  - prev_close).abs(),
+        ], axis=1).max(axis=1)
+
+        atr14 = float(tr.tail(14).mean())
+        latest_close = float(close.iloc[-1])
+        if latest_close <= 0:
+            return _neutral(MAX)
+
+        atr_norm = atr14 / latest_close
+
+        # Invert: low ATR/price = high score
+        # score = clip((0.05 - atr_norm) / 0.035 * 10, 0, 10)
+        score      = float(np.clip((0.05 - atr_norm) / 0.035 * 10.0, 0.0, 10.0))
+        sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
+
+        if atr_norm <= 0.015:
+            signal = f"低ATR={atr_norm:.3f} — 盘中稳定，操纵风险低"
+        elif atr_norm <= 0.025:
+            signal = f"中低ATR={atr_norm:.3f}"
+        elif atr_norm <= 0.035:
+            signal = f"中等ATR={atr_norm:.3f} — 正常波动区间"
+        elif atr_norm <= 0.050:
+            signal = f"偏高ATR={atr_norm:.3f} — 振幅较大"
+        else:
+            signal = f"高ATR={atr_norm:.3f} — 盘中大幅震荡，操纵/炒作风险高"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":   signal,
+                "atr_norm": round(atr_norm, 4),
+                "atr14":    round(atr14, 3),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+# ---------------------------------------------------------------------------
+# score_ma60_deviation — 长期均线偏离度 (MA60 Deviation / Mean-Reversion Signal)
+# ---------------------------------------------------------------------------
+
+def score_ma60_deviation(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """长期均线偏离度因子 — distance from 60-day MA as mean-reversion signal.
+
+    Deviation = (close - MA60) / MA60
+
+    In A-shares, stocks that are significantly above their 60-day MA
+    (overbought) tend to revert. Stocks near or below the 60-day MA
+    (potential oversold) tend to bounce, especially in NORMAL regimes.
+
+    Consistent with our finding that medium_term_momentum is negative IC:
+    A-share mean-reversion dominates at the 1-3 month horizon.
+
+    Score is *contrarian*: high positive deviation → low score (overbought/revert);
+    price near/below MA60 → high score (mean-reversion setup).
+
+    Scoring:
+      deviation ≤ -0.10  (far below MA60, oversold)   → score 8–9
+      deviation -0.05~0  (just below MA60)             → score 6–7
+      deviation 0~+0.05  (just above MA60)             → score 5
+      deviation +0.10    (10% above MA60, extended)    → score 3
+      deviation ≥ +0.20  (far above MA60, overbought)  → score 0–1
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 65:
+        return _neutral(MAX)
+
+    if "close" not in price_df.columns:
+        return _neutral(MAX)
+
+    try:
+        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+        if len(close) < 65:
+            return _neutral(MAX)
+
+        ma60         = float(close.tail(60).mean())
+        latest_close = float(close.iloc[-1])
+        if ma60 <= 0:
+            return _neutral(MAX)
+
+        deviation = (latest_close - ma60) / ma60
+
+        # Contrarian score: score = 5 - deviation * 20, clipped [0, 10]
+        # deviation = -0.25 → score 10, deviation = 0 → 5, deviation = +0.25 → 0
+        score      = float(np.clip(5.0 - deviation * 20.0, 0.0, 10.0))
+        sell_score = float(np.clip(5.0 + deviation * 20.0, 0.0, 10.0))
+
+        pct = deviation * 100
+        if deviation <= -0.10:
+            signal = f"大幅低于MA60 {pct:+.1f}% — 均值回归机会"
+        elif deviation <= -0.03:
+            signal = f"略低于MA60 {pct:+.1f}% — 支撑区"
+        elif deviation <= +0.05:
+            signal = f"贴近MA60 {pct:+.1f}% — 中性"
+        elif deviation <= +0.15:
+            signal = f"高于MA60 {pct:+.1f}% — 短线偏贵"
+        else:
+            signal = f"大幅高于MA60 {pct:+.1f}% — 均值回归风险高"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":     signal,
+                "deviation":  round(deviation, 4),
+                "close":      round(latest_close, 2),
+                "ma60":       round(ma60, 2),
+                "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)

@@ -53,7 +53,12 @@ from factors_extended import (
     score_reversal, score_accruals, score_asset_growth, score_piotroski,
     score_short_interest, score_rsi_signal, score_macd_signal,
     score_turnover_percentile, score_chip_distribution,
-    score_limit_hits, score_price_inertia,
+    score_limit_hits, score_price_inertia, score_divergence,
+    score_bollinger_position, score_roe_trend, score_cash_flow_quality, score_main_inflow,
+    score_turnover_acceleration, score_momentum_concavity, score_bb_squeeze,
+    score_idiosyncratic_vol, score_gross_margin_trend, score_ar_quality, score_size_factor,
+    score_amihud_illiquidity, score_medium_term_momentum, score_obv_trend,
+    score_market_beta, score_atr_normalized, score_ma60_deviation,
     # Group B
     score_shareholder_change, score_lhb, score_lockup_pressure,
     score_insider, score_institutional_visits, score_industry_momentum,
@@ -151,12 +156,13 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         )
 
         # Fetch supporting data (uses cache so repeated calls are free)
-        quote        = fetcher.get_realtime_quote(code) or {}
-        financial_df = fetcher.get_financial_indicators(code)
-        val_history  = fetcher.get_valuation_history(code)
-        fund_flow_df = fetcher.get_fund_flow(code, 10)
-        margin_df    = fetcher.get_margin_data(code)
-        circ_cap     = quote.get("circulating_cap", 0) or 0
+        quote           = fetcher.get_realtime_quote(code) or {}
+        financial_df    = fetcher.get_financial_indicators(code)
+        val_history     = fetcher.get_valuation_history(code)
+        fund_flow_df    = fetcher.get_fund_flow(code, 10)
+        margin_df       = fetcher.get_margin_data(code)
+        market_price_df = fetcher.get_market_regime_data()
+        circ_cap        = quote.get("circulating_cap", 0) or 0
 
         scores: dict[str, float] = {"forward_ret": forward_ret}
 
@@ -198,6 +204,24 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["chip_distribution"]    = _safe(score_chip_distribution, price_df, fund_flow_df)
         scores["limit_hits"]           = _safe(score_limit_hits, price_df, financial_df)
         scores["price_inertia"]        = _safe(score_price_inertia, price_df)
+        scores["divergence"]           = _safe(score_divergence, price_df)
+        scores["bollinger_position"]   = _safe(score_bollinger_position, price_df)
+        scores["roe_trend"]            = _safe(score_roe_trend, financial_df)
+        scores["cash_flow_quality"]    = _safe(score_cash_flow_quality, financial_df)
+        scores["main_inflow"]          = _safe(score_main_inflow, fund_flow_df)
+        scores["turnover_acceleration"] = _safe(score_turnover_acceleration, price_df)
+        scores["momentum_concavity"]    = _safe(score_momentum_concavity, price_df)
+        scores["bb_squeeze"]            = _safe(score_bb_squeeze, price_df)
+        scores["idiosyncratic_vol"]     = _safe(score_idiosyncratic_vol, price_df, market_price_df)
+        scores["gross_margin_trend"]    = _safe(score_gross_margin_trend, financial_df)
+        scores["ar_quality"]            = _safe(score_ar_quality, financial_df)
+        scores["size_factor"]              = _safe(score_size_factor, circ_cap)
+        scores["amihud_illiquidity"]       = _safe(score_amihud_illiquidity, price_df)
+        scores["medium_term_momentum"]     = _safe(score_medium_term_momentum, price_df)
+        scores["obv_trend"]                = _safe(score_obv_trend, price_df)
+        scores["market_beta"]              = _safe(score_market_beta, price_df, market_price_df)
+        scores["atr_normalized"]           = _safe(score_atr_normalized, price_df)
+        scores["ma60_deviation"]           = _safe(score_ma60_deviation, price_df)
 
         # Sell scores for Ext-A
         scores["sell_score_div_yield"]          = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df)
@@ -215,6 +239,24 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["sell_score_chip_distribution"]   = _safe_sell(score_chip_distribution, price_df, fund_flow_df)
         scores["sell_score_limit_hits"]          = _safe_sell(score_limit_hits, price_df, financial_df)
         scores["sell_score_price_inertia"]       = _safe_sell(score_price_inertia, price_df)
+        scores["sell_score_divergence"]          = _safe_sell(score_divergence, price_df)
+        scores["sell_score_bollinger_position"]  = _safe_sell(score_bollinger_position, price_df)
+        scores["sell_score_roe_trend"]           = _safe_sell(score_roe_trend, financial_df)
+        scores["sell_score_cash_flow_quality"]   = _safe_sell(score_cash_flow_quality, financial_df)
+        scores["sell_score_main_inflow"]          = _safe_sell(score_main_inflow, fund_flow_df)
+        scores["sell_score_turnover_acceleration"] = _safe_sell(score_turnover_acceleration, price_df)
+        scores["sell_score_momentum_concavity"]    = _safe_sell(score_momentum_concavity, price_df)
+        scores["sell_score_bb_squeeze"]            = _safe_sell(score_bb_squeeze, price_df)
+        scores["sell_score_idiosyncratic_vol"]     = _safe_sell(score_idiosyncratic_vol, price_df, market_price_df)
+        scores["sell_score_gross_margin_trend"]    = _safe_sell(score_gross_margin_trend, financial_df)
+        scores["sell_score_ar_quality"]            = _safe_sell(score_ar_quality, financial_df)
+        scores["sell_score_size_factor"]           = _safe_sell(score_size_factor, circ_cap)
+        scores["sell_score_amihud_illiquidity"]    = _safe_sell(score_amihud_illiquidity, price_df)
+        scores["sell_score_medium_term_momentum"]  = _safe_sell(score_medium_term_momentum, price_df)
+        scores["sell_score_obv_trend"]             = _safe_sell(score_obv_trend, price_df)
+        scores["sell_score_market_beta"]           = _safe_sell(score_market_beta, price_df, market_price_df)
+        scores["sell_score_atr_normalized"]        = _safe_sell(score_atr_normalized, price_df)
+        scores["sell_score_ma60_deviation"]        = _safe_sell(score_ma60_deviation, price_df)
 
         # ── Ext-B (only if group includes B) ─────────────────────────────
         if "B" in group.upper():
