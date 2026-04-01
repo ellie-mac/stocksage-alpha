@@ -138,12 +138,17 @@ def _detect_regime(regime_close: Optional[pd.Series],
     """
     Detect market regime at the cross-section date.
 
-    Exposure is controlled by fixed prior-20d return thresholds (robust, tested):
-      prior_ret >= -3%  -> NORMAL  (100% exposure)
-      prior_ret <  -3%  -> CAUTION ( 70% exposure)
-      prior_ret <  -6%  -> CRISIS  ( 40% exposure)
+    Two-layer regime system:
+    Layer 1 — MA60 trend filter (structural):
+      CSI 300 < MA60  ->  BEAR (15% exposure, crisis weights) — stay near cash
+      CSI 300 >= MA60 ->  proceed to Layer 2
 
-    Factor weights are always NORMAL IC weights — regime only scales position size.
+    Layer 2 — prior-20d return thresholds (tactical, only when above MA60):
+      prior_ret >= -3%  -> NORMAL  (100% exposure)
+      prior_ret <  -3%  -> CAUTION ( 70% exposure, defensive weights)
+      prior_ret <  -6%  -> CRISIS  ( 40% exposure, crisis weights)
+      prior_ret > +3.5% -> BULL    ( 80% exposure, momentum weights)
+      prior_ret > +6%   -> EXTREME_BULL (55% exposure, momentum weights)
 
     Returns (regime_name, exposure, factor_weights).
     """
@@ -152,11 +157,22 @@ def _detect_regime(regime_close: Optional[pd.Series],
         return default
 
     lookback = 20
-    needed = price_offset + lookback + 2
+    ma60_lookback = 60
+    needed = price_offset + max(lookback, ma60_lookback) + 2
     if len(regime_close) < needed:
         return default
 
     end_px   = float(regime_close.iloc[-(price_offset + 1)])
+
+    # --- Layer 1: MA60 trend filter ---
+    ma60_start = max(0, len(regime_close) - (price_offset + ma60_lookback + 1))
+    ma60_end   = len(regime_close) - price_offset
+    ma60       = float(regime_close.iloc[ma60_start:ma60_end].mean())
+    if end_px < ma60:
+        # Structural downtrend: near-cash, use crisis weights for the small deployed portion
+        return "BEAR", REGIME_EXPOSURE["BEAR"], REGIME_WEIGHTS["BEAR"]
+
+    # --- Layer 2: prior-20d return (tactical) ---
     start_px = float(regime_close.iloc[-(price_offset + lookback + 1)])
     if start_px <= 0:
         return default
@@ -168,9 +184,9 @@ def _detect_regime(regime_close: Optional[pd.Series],
     elif prior_ret < REGIME_CAUTION_THRESHOLD:
         r = "CAUTION"
     elif prior_ret > REGIME_EXTREME_BULL_THRESHOLD:
-        r = "EXTREME_BULL"   # parabolic rally: bull weights + reduced exposure
+        r = "EXTREME_BULL"
     elif prior_ret > REGIME_BULL_THRESHOLD:
-        r = "BULL"           # moderate-to-strong rally: switch to momentum/volume
+        r = "BULL"
     else:
         r = "NORMAL"
 
@@ -369,7 +385,9 @@ def _compute_stats(
     drawdowns   = (cum - running_max) / running_max * 100
     max_dd      = float(drawdowns.min())
 
-    win_rate    = float(np.mean(arr > 0)) * 100
+    # Beat-benchmark win rate: fraction of periods where portfolio outperforms index
+    beat_bench  = np.array(alphas) > 0 if alphas else np.array([])
+    win_rate    = float(np.mean(beat_bench)) * 100 if len(beat_bench) > 0 else 0.0
 
     annualized  = (float(np.prod(1 + arr / 100)) ** (periods_per_year / len(arr)) - 1) * 100
 
@@ -485,7 +503,7 @@ def _print_results(result: dict) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Long-only quantile backtest for A-share multi-factor model")
-    parser.add_argument("--periods", type=int,   default=6,    help="Number of backtest periods (default 6)")
+    parser.add_argument("--periods", type=int,   default=12,   help="Number of backtest periods (default 12)")
     parser.add_argument("--fwd",     type=int,   default=20,   help="Forward return window in days (default 20)")
     parser.add_argument("--step",    type=int,   default=20,   help="Days between periods (default 20)")
     parser.add_argument("--top",     type=float, default=20.0, help="Long basket size as %% of universe (default 20)")

@@ -27,8 +27,6 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "price_inertia":       2.0,   # IC=+0.107, ICIR=0.787 — most stable momentum signal
     "asset_growth":        2.0,   # IC=+0.109, ICIR=0.585
     "atr_normalized":      2.0,   # IC=+0.249, ICIR=0.802 — low ATR = low realised risk; co-linear w/ low_vol but additive
-    "max_return":          2.0,   # IC=+0.216, ICIR=0.947 — MAX effect: high single-day spike = lottery overpricing → inverted
-    "return_skewness":     1.5,   # IC=+0.105, ICIR=0.872 — positive skew = lottery stock → inverted
 
     # ── Tier 2: IC ≥ 0.05 (1× weight) ───────────────────────────────
     "volume":              1.0,   # IC=+0.090, ICIR=0.432
@@ -77,8 +75,6 @@ FACTOR_WEIGHTS_BULL: dict[str, float] = {
     "low_volatility":     0.3,   # drastically reduced — low-vol lags rallies
     "idiosyncratic_vol":  0.3,   # similarly reduced — speculative names lead in bull
     "atr_normalized":     0.3,   # reduced — low-ATR stocks lag speculative bull rallies
-    "max_return":         0.3,   # reduced — high-MAX lottery stocks often lead bull rallies
-    "return_skewness":    0.3,   # reduced — positive-skew stocks bid up in bull markets
     "piotroski":          0.5,
     # "growth" not inverted — growth stocks LEAD in bull markets
     # "limit_hits" not inverted — momentum stocks continue
@@ -97,8 +93,6 @@ FACTOR_WEIGHTS_CAUTION: dict[str, float] = {
     "low_volatility":     3.0,   # primary screen in sell-offs
     "idiosyncratic_vol":  2.5,   # low residual vol = avoids speculative bombs
     "atr_normalized":     2.5,   # low realised range = avoids volatile names in corrections
-    "max_return":         2.5,   # avoids lottery stocks that crash hardest in corrections
-    "return_skewness":    2.0,   # low-skew stocks have less left-tail risk in sell-offs
     "cash_flow_quality":  2.0,   # earnings quality critical in corrections
     "piotroski":          2.0,   # financial health matters more in downturns
     "quality":            2.0,   # profitable companies hold up better
@@ -130,8 +124,6 @@ FACTOR_WEIGHTS_CRISIS: dict[str, float] = {
     "low_volatility":    4.0,   # dominant — low-beta stocks survive crashes
     "idiosyncratic_vol": 3.0,   # low residual vol = avoids speculative collapse
     "atr_normalized":    3.0,   # low realised range = capital preservation in crash
-    "max_return":        3.0,   # lottery stocks implode fastest in crashes
-    "return_skewness":   2.5,   # positive-skew = high left-tail risk in crisis
     "cash_flow_quality": 2.0,   # cash-backed earnings = survival in crisis
     "piotroski":         2.0,   # balance-sheet strength: avoid distress risk
     "quality":           2.0,   # earnings stability
@@ -150,14 +142,17 @@ REGIME_EXPOSURE: dict[str, float] = {
     "CRISIS":       0.4,   # prior-20d < -6%  (severe decline)
     "BULL":         0.8,   # prior-20d > +2.5% (moderate-to-strong rally)
     "EXTREME_BULL": 0.55,  # prior-20d > +6%  (extreme/parabolic rally — hard to catch)
+    # Trend-filter overlay (applied on top of return-based regime)
+    "BEAR":         0.15,  # CSI 300 < MA60 (structural downtrend) — near-cash, avoid drawdown
 }
 
 REGIME_WEIGHTS: dict[str, dict] = {
     "NORMAL":       FACTOR_WEIGHTS_NORMAL,
-    "CAUTION":      FACTOR_WEIGHTS_NORMAL,
-    "CRISIS":       FACTOR_WEIGHTS_NORMAL,
+    "CAUTION":      FACTOR_WEIGHTS_CAUTION,
+    "CRISIS":       FACTOR_WEIGHTS_CRISIS,
     "BULL":         FACTOR_WEIGHTS_BULL,
     "EXTREME_BULL": FACTOR_WEIGHTS_BULL,   # same bull weights, just less exposure
+    "BEAR":         FACTOR_WEIGHTS_CRISIS, # BEAR uses crisis weights: max defensive
 }
 
 # ---------------------------------------------------------------------------
@@ -207,4 +202,6 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "turnover_acceleration":   "noise: IC≈0 — turnover rate change uncorrelated with forward returns",
     "market_beta":             "noise: IC=+0.016, ICIR=0.049 — beta alone adds no signal beyond low_volatility/atr_normalized",
     "upday_ratio":             "noise: IC=-0.029, ICIR=-0.155 — up-day consistency uncorrelated with forward returns",
+    "max_return":              "redundant: IC=+0.216 ICIR=0.947 strong individually but collinear with low_volatility/atr_normalized/idiosyncratic_vol — over-tilts portfolio to low-vol, hurts win rate in up markets",
+    "return_skewness":         "redundant: IC=+0.105 ICIR=0.872 strong individually but collinear with low-vol cluster — same exclusion rationale as max_return",
 }
