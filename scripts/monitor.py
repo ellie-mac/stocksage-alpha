@@ -1159,25 +1159,57 @@ def run_loop(
                                      if last_universe_refresh_date else None,
             "watchlist_last_scan":   _watchlist_last_scan.isoformat()
                                      if _watchlist_last_scan else None,
+            "premarket_scan_date":   _premarket_scan_date.isoformat()
+                                     if _premarket_scan_date else None,
+            "premarket_picks":       _premarket_picks,
+            "night_scan_date":       _night_scan_date.isoformat()
+                                     if _night_scan_date else None,
         })
         print("\n[StockSage] 监控已停止（Ctrl+C）。状态已保存。")
 
 
+def _register_scheduler_tasks(dry_run: bool = False) -> None:
+    """Register Windows scheduled tasks for xhs/writer.py (wraps setup_scheduler.py logic)."""
+    import subprocess as _sp
+    _setup = os.path.join(_ROOT, "xhs", "setup_scheduler.py")
+    if not os.path.exists(_setup):
+        print("[WARN] xhs/setup_scheduler.py not found — skipping task registration")
+        return
+    cmd = [sys.executable, _setup]
+    if dry_run:
+        cmd.append("--status")
+    print("[StockSage] Registering Windows scheduled tasks...")
+    result = _sp.run(cmd, encoding="utf-8", capture_output=True, text=True)
+    print(result.stdout)
+    if result.returncode != 0:
+        print(f"[WARN] setup_scheduler failed: {result.stderr[:200]}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="StockSage 持仓监控 + 买卖信号邮件提醒")
-    parser.add_argument("--dry-run",     action="store_true", help="只打印，不发邮件")
-    parser.add_argument("--buy-only",    action="store_true", help="只检查买入机会")
-    parser.add_argument("--sell-only",   action="store_true", help="只检查卖出信号")
-    parser.add_argument("--always-send", action="store_true", help="无信号时也发日报邮件")
-    parser.add_argument("--loop",        action="store_true",
+    parser.add_argument("--dry-run",        action="store_true", help="只打印，不发微信")
+    parser.add_argument("--buy-only",       action="store_true", help="只检查买入机会")
+    parser.add_argument("--sell-only",      action="store_true", help="只检查卖出信号")
+    parser.add_argument("--always-send",    action="store_true", help="无信号时也发日报")
+    parser.add_argument("--loop",           action="store_true",
                         help="持续运行：交易时间每 --interval 分钟快速检查一次")
-    parser.add_argument("--interval",    type=int, default=2,
+    parser.add_argument("--interval",       type=int, default=2,
                         help="快速检查间隔（分钟），默认 2")
-    parser.add_argument("--full-interval", type=int, default=30,
+    parser.add_argument("--full-interval",  type=int, default=30,
                         help="完整因子检查间隔（分钟），默认 30")
+    parser.add_argument("--register-tasks", action="store_true",
+                        help="启动前注册 Windows 定时任务（xhs/setup_scheduler.py）")
+    parser.add_argument("--test-now",       action="store_true",
+                        help="立即跑一轮全量扫描并推送，用于测试（不启动 loop）")
     args = parser.parse_args()
 
-    if args.loop:
+    if args.register_tasks:
+        _register_scheduler_tasks(dry_run=args.dry_run)
+
+    if args.test_now:
+        print("[StockSage] --test-now: 立即跑一轮全量扫描...")
+        run(dry_run=args.dry_run, always_send=True)
+    elif args.loop:
         run_loop(
             interval_min=args.interval,
             full_interval_min=args.full_interval,

@@ -19,7 +19,7 @@ PYTHON    = sys.executable
 WRITER    = REPO_ROOT / "xhs" / "writer.py"
 
 TASKS = [
-    ("StockSage_Morning", "09:30", "morning"),
+    ("StockSage_Morning", "09:25", "morning"),
     ("StockSage_Midday",  "11:50", "midday"),
     ("StockSage_Evening", "15:35", "evening"),
     ("StockSage_Night",   "22:00", "night"),
