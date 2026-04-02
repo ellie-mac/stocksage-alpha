@@ -1,11 +1,11 @@
 {
   "meta": {
-    "n_stocks": 50,
+    "n_stocks": 62,
     "n_periods": 6,
     "forward_days": 20,
     "step_days": 20,
     "top_pct": 0.2,
-    "top_n": 10,
+    "top_n": 12,
     "txn_cost_pct": 0.1,
     "group": "A",
     "use_regime": true
@@ -14,21 +14,21 @@
     {
       "period": 1,
       "price_offset_d": 0,
-      "n_valid": 47,
+      "n_valid": 62,
       "exposure": 0.15,
       "regime": "BEAR",
-      "portfolio_ret": 0.559,
-      "basket_ret": 3.727,
+      "portfolio_ret": 0.401,
+      "basket_ret": 2.673,
       "benchmark_ret": -3.631,
-      "alpha": 4.19,
-      "bottom_ret": -10.326,
-      "long_short_spread": 14.153,
+      "alpha": 4.032,
+      "bottom_ret": -6.023,
+      "long_short_spread": 8.796,
       "decile_rets": [
-        3.994,
-        0.426,
-        -5.461,
-        -4.895,
-        -10.234
+        2.773,
+        0.276,
+        -3.875,
+        -4.996,
+        -6.289
       ],
       "top_stocks": [
         "000895",
@@ -40,27 +40,29 @@
         "601398",
         "000001",
         "601985",
-        "601166"
+        "601166",
+        "601328",
+        "600050"
       ]
     },
     {
       "period": 2,
       "price_offset_d": 20,
-      "n_valid": 50,
+      "n_valid": 62,
       "exposure": 0.15,
       "regime": "BEAR",
-      "portfolio_ret": 0.217,
-      "basket_ret": 1.445,
+      "portfolio_ret": 0.203,
+      "basket_ret": 1.353,
       "benchmark_ret": -1.49,
-      "alpha": 1.707,
-      "bottom_ret": -10.483,
-      "long_short_spread": 12.027,
+      "alpha": 1.693,
+      "bottom_ret": -8.338,
+      "long_short_spread": 9.791,
       "decile_rets": [
-        1.545,
-        -0.785,
-        -1.463,
-        -0.587,
-        -10.483
+        1.453,
+        0.063,
+        -1.457,
+        -1.526,
+        -9.579
       ],
       "top_stocks": [
         "600519",
@@ -72,123 +74,131 @@
         "600585",
         "000625",
         "600887",
-        "601398"
+        "601398",
+        "600690",
+        "600016"
       ]
     },
     {
       "period": 3,
       "price_offset_d": 40,
-      "n_valid": 50,
+      "n_valid": 62,
       "exposure": 1.0,
       "regime": "NORMAL",
-      "portfolio_ret": -2.225,
-      "basket_ret": -2.225,
+      "portfolio_ret": -2.951,
+      "basket_ret": -2.951,
       "benchmark_ret": 1.695,
-      "alpha": -3.92,
-      "bottom_ret": 4.148,
-      "long_short_spread": -6.273,
+      "alpha": -4.646,
+      "bottom_ret": 5.562,
+      "long_short_spread": -8.413,
       "decile_rets": [
-        -2.125,
-        -4.488,
-        0.394,
-        1.838,
-        4.148
+        -2.851,
+        0.408,
+        -1.708,
+        3.83,
+        8.237
       ],
       "top_stocks": [
         "600028",
         "002594",
         "600019",
-        "600519",
+        "601328",
         "000001",
-        "600900",
-        "000725",
+        "600519",
+        "600015",
         "601857",
+        "000725",
+        "600900",
         "601166",
-        "000333"
+        "600050"
       ]
     },
     {
       "period": 4,
       "price_offset_d": 60,
-      "n_valid": 50,
+      "n_valid": 62,
       "exposure": 1.0,
       "regime": "NORMAL",
-      "portfolio_ret": -1.196,
-      "basket_ret": -1.196,
+      "portfolio_ret": -1.614,
+      "basket_ret": -1.614,
       "benchmark_ret": 1.374,
-      "alpha": -2.57,
-      "bottom_ret": 0.15,
-      "long_short_spread": -1.246,
+      "alpha": -2.988,
+      "bottom_ret": 0.741,
+      "long_short_spread": -2.255,
       "decile_rets": [
-        -1.096,
-        -2.324,
-        2.829,
-        -4.288,
-        0.15
+        -1.514,
+        -2.746,
+        3.029,
+        -5.402,
+        1.395
       ],
       "top_stocks": [
         "000725",
         "000001",
         "600104",
         "600900",
-        "600036",
+        "601328",
         "000333",
-        "601985",
+        "600036",
+        "600050",
+        "600015",
         "600690",
-        "601088",
-        "600519"
+        "600519",
+        "601985"
       ]
     },
     {
       "period": 5,
       "price_offset_d": 80,
-      "n_valid": 50,
+      "n_valid": 62,
       "exposure": 1.0,
       "regime": "NORMAL",
-      "portfolio_ret": 1.773,
-      "basket_ret": 1.773,
+      "portfolio_ret": 2.303,
+      "basket_ret": 2.303,
       "benchmark_ret": -1.653,
-      "alpha": 3.426,
-      "bottom_ret": -5.762,
-      "long_short_spread": 7.635,
+      "alpha": 3.956,
+      "bottom_ret": -6.521,
+      "long_short_spread": 8.924,
       "decile_rets": [
-        1.873,
-        1.459,
-        -1.499,
-        -4.554,
-        -5.762
+        2.403,
+        1.409,
+        -0.637,
+        -3.604,
+        -6.645
       ],
       "top_stocks": [
-        "601166",
         "600887",
+        "601328",
         "600019",
-        "600900",
         "600028",
+        "600900",
+        "601166",
         "601398",
-        "000725",
         "600690",
+        "000725",
+        "600015",
         "000001",
-        "601857"
+        "000333"
       ]
     },
     {
       "period": 6,
       "price_offset_d": 100,
-      "n_valid": 50,
+      "n_valid": 62,
       "exposure": 1.0,
       "regime": "NORMAL",
-      "portfolio_ret": 4.398,
-      "basket_ret": 4.398,
+      "portfolio_ret": 4.397,
+      "basket_ret": 4.397,
       "benchmark_ret": 2.271,
-      "alpha": 2.127,
-      "bottom_ret": -1.77,
-      "long_short_spread": 6.268,
+      "alpha": 2.126,
+      "bottom_ret": 3.555,
+      "long_short_spread": 0.941,
       "decile_rets": [
-        4.498,
-        4.829,
-        -0.285,
-        -1.679,
-        -1.77
+        4.497,
+        4.31,
+        -0.199,
+        -0.252,
+        5.722
       ],
       "top_stocks": [
         "601985",
@@ -196,21 +206,23 @@
         "600019",
         "601088",
         "000333",
-        "601166",
         "600028",
+        "601166",
         "000725",
+        "601398",
+        "601318",
         "600036",
-        "601318"
+        "600015"
       ]
     }
   ],
   "cumulative_portfolio": [
-    0.559,
-    0.777,
-    -1.465,
-    -2.644,
-    -0.917,
-    3.44
+    0.401,
+    0.605,
+    -2.364,
+    -3.94,
+    -1.728,
+    2.593
   ],
   "cumulative_benchmark": [
     -3.631,
@@ -221,14 +233,14 @@
     -1.563
   ],
   "stats": {
-    "mean_period_ret_pct": 0.588,
-    "annualized_ret_pct": 7.36,
-    "sharpe_ratio": 0.895,
-    "information_ratio": 0.888,
-    "max_drawdown_pct": -3.39,
+    "mean_period_ret_pct": 0.456,
+    "annualized_ret_pct": 5.52,
+    "sharpe_ratio": 0.613,
+    "information_ratio": 0.675,
+    "max_drawdown_pct": -4.52,
     "win_rate_pct": 66.7,
-    "mean_alpha_pct": 0.827,
-    "mean_long_short_spread_pct": 5.427,
+    "mean_alpha_pct": 0.696,
+    "mean_long_short_spread_pct": 2.964,
     "n_periods": 6
   }
 }
