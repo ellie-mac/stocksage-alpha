@@ -35,7 +35,6 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "piotroski":           1.0,   # IC=+0.058, ICIR=0.583 — financial health score
     "return_skewness":     0.5,   # IC=+0.097, ICIR=1.025 — collinear w/ low-vol, conservative add
     "main_inflow":         0.5,   # IC=+0.102, ICIR=0.399 — institutional flow, moderate ICIR
-    "chip_distribution":   0.3,   # IC=+0.058, ICIR=0.408 — re-activated: IC direction flipped positive
     "roe_trend":           0.5,   # IC=+0.053, ICIR=0.355 — ROE direction
 
     # ── Tier 3: Weak-positive ─────────────────────────────────────────
@@ -218,7 +217,8 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "max_return":          "redundant: IC=+0.216 ICIR=0.947 — collinear with low_vol/atr/idio_vol cluster; over-tilts",
     "market_relative_strength": "noise: IC=+0.0006, ICIR=0.003",
     "price_efficiency":    "weak: IC=+0.034, ICIR=0.249 — insufficient for A-shares",
-    # chip_distribution REACTIVATED 2026-04-02: IC turned +0.058, ICIR=0.408
+    "chip_distribution":  "degraded: IC=+0.015, ICIR=0.094 — was IC=+0.058; decayed back to noise",
+    # volume_expansion improved: IC=+0.106, ICIR=0.440 (was 0.021/0.095); still ICIR<0.50 pending
 
     # ── Newly added, pending IC test ──────────────────────────────────────
     "hammer_bottom":           "inverted: IC=-0.057 ICIR=-0.641 — A股金针探底后续反而偏弱，弱势反弹失败信号; sell_score同向 IC=-0.062 ICIR=-1.115",
