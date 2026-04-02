@@ -689,7 +689,7 @@ def run(
     has_signal = bool(sell_alerts or buy_alerts)
     if not has_signal and not always_send:
         print("  No signals triggered. No email sent.")
-        return
+        return buy_alerts
 
     _sell_trigger = thresholds.get("sell_score_trigger", 60)
     _stall_score  = thresholds.get("stall_sell_score", 40)
@@ -718,6 +718,8 @@ def run(
         send_wechat(title, desp, sendkey, dry_run=dry_run)
     except Exception as e:
         print(f"[ERROR] 微信推送失败: {e}")
+
+    return buy_alerts
 
 
 def run_loop(
@@ -785,6 +787,8 @@ def run_loop(
     _closing_date   = None   # not persisted — harmless if fired twice on restart
     last_universe_refresh_date = _restore_date("universe_refresh_date")
     _watchlist_last_scan: Optional[datetime] = _restore_dt("watchlist_last_scan")
+    _premarket_scan_date: Optional[object] = _restore_date("premarket_scan_date")
+    _premarket_picks: list[str] = _state.get("premarket_picks", [])
     _WATCHLIST_INTERVAL_MIN = 30
 
     # Holdings hot-reload: detect changes to holdings.json without restarting
@@ -875,6 +879,29 @@ def run_loop(
                     print(f"  [WARN] build_universe failed:\n{result.stderr[:300]}")
             except Exception as e:
                 print(f"  [WARN] build_universe error: {e}")
+
+        # ── Pre-market scan (01:00 — prev-day closing data, pick candidates) ────
+        if (now.weekday() < 5
+                and now.hour == 1 and 0 <= now.minute < 5
+                and _premarket_scan_date != now.date()):
+            _premarket_scan_date = now.date()
+            print(f"[{run_time}] Pre-market scan (01:00)...")
+            try:
+                _pm_regime = None
+                try:
+                    mkt = score_market_regime(fetcher.get_market_regime_data())
+                    if mkt:
+                        _pm_regime = (mkt.get("score", 5.0),
+                                      mkt.get("details", {}).get("signal", "unknown"))
+                except Exception:
+                    pass
+                _pm_universe = config.get("screener_universe", [])
+                picked = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
+                             _regime=_pm_regime, universe_override=_pm_universe)
+                _premarket_picks = [b["code"] for b in (picked or [])]
+                print(f"  Pre-market picks saved: {_premarket_picks}")
+            except Exception as e:
+                print(f"  [ERROR] Pre-market scan failed: {e}")
 
         # ── Daily heartbeat + cache purge (09:00, before market open) ──────────
         if (now.weekday() < 5
@@ -1018,10 +1045,19 @@ def run_loop(
         if need_full:
             print(f"[{run_time}] Full factor check ({session_key} session)...")
             try:
-                # Dedup: skip stocks already covered by watchlist scan this cycle
                 _watchlist_set = set(config.get("watchlist", []))
-                _full_universe = [c for c in config.get("screener_universe", [])
-                                  if c not in _watchlist_set]
+                # Morning open: re-check today's 1AM pre-market picks after auction.
+                # Afternoon close: fall back to full screener universe.
+                if (session_key == "morning"
+                        and _premarket_picks
+                        and _premarket_scan_date == now.date()):
+                    _full_universe = [c for c in _premarket_picks
+                                      if c not in _watchlist_set]
+                    print(f"  Using {len(_full_universe)} pre-market picks "
+                          f"(post-auction confirmation)")
+                else:
+                    _full_universe = [c for c in config.get("screener_universe", [])
+                                      if c not in _watchlist_set]
                 run(dry_run=dry_run, sell_alert_state=sell_alert_state,
                     _regime=_regime_this_iter, universe_override=_full_universe)
                 _scanned_sessions.add(scan_id)
@@ -1039,6 +1075,9 @@ def run_loop(
                                      if last_universe_refresh_date else None,
             "watchlist_last_scan": _watchlist_last_scan.isoformat()
                                    if _watchlist_last_scan else None,
+            "premarket_scan_date": _premarket_scan_date.isoformat()
+                                   if _premarket_scan_date else None,
+            "premarket_picks":     _premarket_picks,
         })
 
         # ── Sleep until next fast interval ────────────────────────────────────
