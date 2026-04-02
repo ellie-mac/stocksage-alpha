@@ -26,9 +26,13 @@ from typing import Optional
 XHS_DIR    = Path(__file__).parent
 REPO_ROOT  = XHS_DIR.parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
-RECORDS_DIR = XHS_DIR / "records"
-POSTS_DIR   = RECORDS_DIR / "posts"
-META_FILE   = RECORDS_DIR / "meta.json"
+RECORDS_DIR      = XHS_DIR / "records"
+POSTS_DIR        = RECORDS_DIR / "posts"
+META_FILE        = RECORDS_DIR / "meta.json"
+LATEST_PICKS_FILE = REPO_ROOT / "data" / "latest_picks.json"
+
+# Max age (minutes) for latest_picks.json to be considered fresh enough to reuse
+_LATEST_PICKS_MAX_AGE_MIN = 90
 
 MILESTONE_DAYS = {7, 14, 21, 30, 60, 90}
 
@@ -133,7 +137,31 @@ def _send_wechat_notify(title: str, content: str):
 # Screener integration
 # ---------------------------------------------------------------------------
 
+def _load_latest_picks(top_n: int) -> Optional[dict]:
+    """Return monitor's latest_picks.json if it exists and is fresh enough."""
+    if not LATEST_PICKS_FILE.exists():
+        return None
+    try:
+        data = json.loads(LATEST_PICKS_FILE.read_text(encoding="utf-8"))
+        ts = datetime.fromisoformat(data.get("timestamp", "1970-01-01"))
+        age_min = (datetime.now() - ts).total_seconds() / 60
+        if age_min > _LATEST_PICKS_MAX_AGE_MIN:
+            print(f"[~] latest_picks.json 已过期（{age_min:.0f}min），重新筛选...")
+            return None
+        picks = data.get("results", [])[:top_n]
+        print(f"[+] 复用 monitor 扫描结果（{age_min:.0f}min 前，{len(picks)} 只）")
+        return {"results": picks, "regime": data.get("regime", "NORMAL")}
+    except Exception as e:
+        print(f"[~] 读取 latest_picks.json 失败: {e}，重新筛选...")
+        return None
+
+
 def run_screener(query: str, top_n: int = 5) -> Optional[dict]:
+    # Try to reuse monitor's fresh scan results first (avoids double computation)
+    cached = _load_latest_picks(top_n)
+    if cached is not None:
+        return cached
+
     cmd = [sys.executable, str(SCRIPTS_DIR / "screener.py"), query, f"--top={top_n}"]
     try:
         result = subprocess.run(

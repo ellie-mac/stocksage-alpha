@@ -49,7 +49,8 @@ from common import (
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOLDINGS_PATH = os.path.join(_ROOT, "holdings.json")
 CONFIG_PATH   = os.path.join(_ROOT, "alert_config.json")
-SIGNALS_LOG_PATH = os.path.join(_ROOT, "data", "signals_log.json")
+SIGNALS_LOG_PATH  = os.path.join(_ROOT, "data", "signals_log.json")
+LATEST_PICKS_PATH = os.path.join(_ROOT, "data", "latest_picks.json")
 STATE_PATH    = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".monitor_state.json")
 
 
@@ -310,6 +311,30 @@ def _append_signals_log(buy_alerts: list[dict], sell_alerts: list[dict],
     log.append(entry)
     with open(SIGNALS_LOG_PATH, "w", encoding="utf-8") as f:
         json.dump(log, f, ensure_ascii=False, indent=2)
+
+    # Write latest_picks.json so xhs/writer.py can read results without re-running screener
+    if buy_alerts:
+        latest = {
+            "timestamp": datetime.now().isoformat(),
+            "source":    source,
+            "results": [
+                {
+                    "code":       b["code"],
+                    "name":       b.get("name", b["code"]),
+                    "score":      b.get("buy_score", 0),
+                    "change_pct": b.get("change_pct"),
+                    "buy_score":  b.get("buy_score"),
+                    "sell_score": b.get("sell_score"),
+                    "bullish":    b.get("bullish", []),
+                    "bearish":    b.get("bearish", []),
+                }
+                for b in buy_alerts
+            ],
+            "regime": source,
+        }
+        with open(LATEST_PICKS_PATH, "w", encoding="utf-8") as f:
+            json.dump(latest, f, ensure_ascii=False, indent=2)
+
     print(f"  Signals logged → signals_log.json "
           f"(buy={len(buy_alerts)}, sell={len(sell_alerts)})")
 
@@ -789,6 +814,7 @@ def run_loop(
     _watchlist_last_scan: Optional[datetime] = _restore_dt("watchlist_last_scan")
     _premarket_scan_date: Optional[object] = _restore_date("premarket_scan_date")
     _premarket_picks: list[str] = _state.get("premarket_picks", [])
+    _night_scan_date: Optional[object] = _restore_date("night_scan_date")
     _WATCHLIST_INTERVAL_MIN = 30
 
     # Holdings hot-reload: detect changes to holdings.json without restarting
@@ -902,6 +928,28 @@ def run_loop(
                 print(f"  Pre-market picks saved: {_premarket_picks}")
             except Exception as e:
                 print(f"  [ERROR] Pre-market scan failed: {e}")
+
+        # ── Night scan (22:00 — post-close, feeds xhs/writer.py night post) ─────
+        if (now.weekday() < 5
+                and now.hour == 22 and 0 <= now.minute < 5
+                and _night_scan_date != now.date()):
+            _night_scan_date = now.date()
+            print(f"[{run_time}] Night scan (22:00)...")
+            try:
+                _nt_regime = None
+                try:
+                    mkt = score_market_regime(fetcher.get_market_regime_data())
+                    if mkt:
+                        _nt_regime = (mkt.get("score", 5.0),
+                                      mkt.get("details", {}).get("signal", "unknown"))
+                except Exception:
+                    pass
+                _nt_universe = config.get("screener_universe", [])
+                run(dry_run=dry_run, sell_alert_state=sell_alert_state,
+                    _regime=_nt_regime, universe_override=_nt_universe,
+                    sell_only=False)
+            except Exception as e:
+                print(f"  [ERROR] Night scan failed: {e}")
 
         # ── Daily heartbeat + cache purge (09:00, before market open) ──────────
         if (now.weekday() < 5
@@ -1092,6 +1140,8 @@ def run_loop(
             "premarket_scan_date": _premarket_scan_date.isoformat()
                                    if _premarket_scan_date else None,
             "premarket_picks":     _premarket_picks,
+            "night_scan_date":     _night_scan_date.isoformat()
+                                   if _night_scan_date else None,
         })
 
         # ── Sleep until next fast interval ────────────────────────────────────
