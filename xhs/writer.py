@@ -3,6 +3,7 @@
 xhs/writer.py — 小红书文案生成器
 
 用法（从仓库根目录运行）:
+    python xhs/writer.py preauction                                  # 09:25 竞价文案
     python xhs/writer.py morning  [--query "低估值高成长"] [--top 5] [--style 1|2|3|all|auto]
     python xhs/writer.py midday   [--style ...]
     python xhs/writer.py evening  [--style ...] [--no-tomorrow]
@@ -593,6 +594,15 @@ NIGHT_CTA = [
     "\n明天开盘后来更新。",
 ]
 
+PREAUCTION_TITLES = [
+    "竞价开始，昨晚这批今天怎么开",
+    "竞价开始了，昨晚的方向看一下",
+    "竞价中，昨晚记录的这批来确认一下",
+    "开盘前竞价，看看昨晚那批方向",
+    "竞价开始，昨晚这批先看开盘方向",
+    "今早竞价，来看一下昨晚的结果",
+]
+
 NIGHT_TITLES = [
     "今晚模型跑完了，记一下明天的方向",
     "睡前把明天可能的方向先记下来",
@@ -969,6 +979,43 @@ Day {day}，连续记录实验。
 {closer}
 
 {cta}
+
+{hashtags}"""
+    return text.strip()
+
+
+# ---------------------------------------------------------------------------
+# Preauction post generator (09:25 — during call auction)
+# ---------------------------------------------------------------------------
+
+def generate_preauction_post(picks: list[dict], prices: dict[str, dict], day: int) -> str:
+    hashtags = _safe_hashtags("morning")
+    title = _pick_fresh_title(PREAUCTION_TITLES)
+
+    lines = []
+    for p in picks:
+        code = p.get("code", "")
+        name = obfuscate_stock_name(p.get("name", code))
+        q = prices.get(code)
+        if q:
+            chg   = q.get("change_pct", 0) or 0
+            open_ = q.get("open", 0) or 0
+            arrow = "↑" if chg > 0 else ("↓" if chg < 0 else "—")
+            lines.append(f"  {name}  {arrow}  {chg:+.2f}%（开 {open_:.2f}）")
+        else:
+            lines.append(f"  {name}  — 数据获取中")
+
+    picks_block = "\n".join(lines) if lines else "  （暂无数据）"
+
+    text = f"""{title}
+
+Day {day}，竞价阶段先看一下昨晚记录的方向。
+
+昨晚这批：
+
+{picks_block}
+
+竞价结束后来确认。
 
 {hashtags}"""
     return text.strip()
@@ -1450,8 +1497,52 @@ def _resolve_styles(style_arg: str, streak: dict, alpha: Optional[float] = None)
     return [int(style_arg)]
 
 
+def cmd_preauction(args):
+    ensure_dirs()
+    record = load_today()
+    if "preauction" in record:
+        print("[~] 今日竞价文案已生成，跳过（dedup guard）。")
+        return
+
+    # Load yesterday's night picks as the reference
+    yesterday = load_yesterday()
+    picks = yesterday.get("night_preview", {}).get("picks", []) if yesterday else []
+    if not picks:
+        # Fallback: try today's morning picks if available
+        picks = record.get("morning", {}).get("picks", [])
+
+    day = record.get("day") or get_day_number()
+    codes = [p["code"] for p in picks if "code" in p]
+
+    print("[+] 竞价阶段获取开盘行情...")
+    prices = fetch_current_prices(codes) if codes else {}
+
+    record.setdefault("date", str(date.today()))
+    record.setdefault("day",  day)
+    record["preauction"] = {
+        "timestamp": datetime.now().strftime("%H:%M:%S"),
+        "picks":     picks,
+    }
+    save_today(record)
+    print(f"[+] 竞价记录已保存 → xhs/records/{date.today()}.json  (Day {day})\n")
+
+    post  = generate_preauction_post(picks, prices, day)
+    saved = save_post_file(post, "preauction", "auto")
+    print(f"{'='*52}")
+    print(f"🔔 竞价文案  （已保存 → {saved.relative_to(REPO_ROOT)}）")
+    print(f"{'='*52}")
+    print(post)
+    print()
+    _send_wechat_notify(f"🔔 Day {day} 竞价文案｜09:25 发布", post)
+
+
 def cmd_morning(args):
     ensure_dirs()
+    record = load_today()
+    if "morning" in record:
+        print("[~] 今日早盘文案已生成，跳过（dedup guard）。")
+        return
+
     day  = get_day_number()
     meta = load_meta()
     query = args.query or meta.get("last_query") or "综合"
@@ -1532,6 +1623,11 @@ def cmd_morning(args):
 
 def cmd_night(args):
     ensure_dirs()
+    record = load_today()
+    if "night_preview" in record:
+        print("[~] 今日晚间文案已生成，跳过（dedup guard）。")
+        return
+
     day  = get_day_number()
     meta = load_meta()
     query = args.query or meta.get("last_query") or "综合"
@@ -1580,6 +1676,9 @@ def cmd_night(args):
 def cmd_midday(args):
     ensure_dirs()
     record = load_today()
+    if "midday" in record:
+        print("[~] 今日午盘文案已生成，跳过（dedup guard）。")
+        return
     if "morning" not in record:
         print("[!] 今天还没有早盘记录，请先运行: python xhs/writer.py morning")
         return
@@ -1613,6 +1712,9 @@ def cmd_midday(args):
 def cmd_evening(args):
     ensure_dirs()
     record = load_today()
+    if "evening" in record:
+        print("[~] 今日晚盘文案已生成，跳过（dedup guard）。")
+        return
     if "morning" not in record:
         print("[!] 今天还没有早盘记录，请先运行: python xhs/writer.py morning")
         return
@@ -1620,6 +1722,16 @@ def cmd_evening(args):
     day           = record.get("day", get_day_number())
     morning_picks = record["morning"].get("picks", [])
     query         = record["morning"].get("query", "综合")
+
+    # Merge preauction picks (deduplicated by code) so evening reviews all today's signals
+    preauction_picks = record.get("preauction", {}).get("picks", [])
+    if preauction_picks:
+        morning_codes = {p.get("code") for p in morning_picks if p.get("code")}
+        for p in preauction_picks:
+            if p.get("code") and p["code"] not in morning_codes:
+                morning_picks = morning_picks + [p]
+                morning_codes.add(p["code"])
+
     codes         = [p["code"] for p in morning_picks if "code" in p]
 
     print("[+] 正在获取收盘数据...")
@@ -1783,6 +1895,8 @@ def main():
     )
     sub = parser.add_subparsers(dest="cmd")
 
+    sub.add_parser("preauction", help="生成竞价文案（09:25，昨晚方向 + 实时开盘价）")
+
     p_morning = sub.add_parser("morning", help="生成早盘文案（竞价后，09:30 运行）")
     p_morning.add_argument("--query",  default="", help="筛选条件（留空则复用上次）")
     p_morning.add_argument("--top",    type=int, default=5, help="展示前N支股票（默认5）")
@@ -1809,6 +1923,7 @@ def main():
 
     args = parser.parse_args()
     dispatch = {
+        "preauction": cmd_preauction,
         "morning":   cmd_morning,
         "midday":    cmd_midday,
         "evening":   cmd_evening,

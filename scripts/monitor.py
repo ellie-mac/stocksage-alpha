@@ -435,6 +435,7 @@ def build_wechat_desp(
 # ── Trading session scan windows ───────────────────────────────────────────────
 _SCAN_WINDOWS = [
     ("morning",   (9, 25), (9, 55)),
+    ("midday",    (11, 45), (12, 5)),
     ("afternoon", (14, 30), (15, 0)),
 ]
 
@@ -795,6 +796,7 @@ def run_loop(
     sell_alert_state:   dict = {}   # code -> last sell-alert datetime (cross-tier dedup)
     t_trade_state:      dict = {}   # code -> {sell_price, cover_price, date}
     _error_notified:    dict = {}   # error_key -> last WeChat push datetime (1h rate limit)
+    _xhs_triggered_today: set = set()  # slots triggered today (resets on restart)
 
     # Restore scanned_sessions: stored as "YYYY-MM-DD|session" strings
     _scanned_sessions: set = set()
@@ -948,6 +950,7 @@ def run_loop(
                 run(dry_run=dry_run, sell_alert_state=sell_alert_state,
                     _regime=_nt_regime, universe_override=_nt_universe,
                     sell_only=False)
+                _trigger_xhs_post("night", dry_run)
             except Exception as e:
                 print(f"  [ERROR] Night scan failed: {e}")
 
@@ -1092,6 +1095,12 @@ def run_loop(
 
         if need_full:
             print(f"[{run_time}] Full factor check ({session_key} session)...")
+
+            # ── Preauction XHS trigger (fires at start of morning session) ────
+            if session_key == "morning" and "preauction" not in _xhs_triggered_today:
+                _xhs_triggered_today.add("preauction")
+                _trigger_xhs_post("preauction", dry_run)
+
             try:
                 _watchlist_set = set(config.get("watchlist", []))
                 _screener_universe = config.get("screener_universe", [])
@@ -1117,12 +1126,29 @@ def run_loop(
                         run(dry_run=dry_run, sell_alert_state=sell_alert_state,
                             _regime=_regime_this_iter,
                             universe_override=_remaining)
+                elif session_key == "midday":
+                    _full_universe = [c for c in _screener_universe
+                                      if c not in _watchlist_set]
+                    picked = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
+                                 _regime=_regime_this_iter, universe_override=_full_universe)
+                    if picked and "midday" not in _xhs_triggered_today:
+                        _xhs_triggered_today.add("midday")
+                        _trigger_xhs_post("midday", dry_run)
                 else:
                     _full_universe = [c for c in _screener_universe
                                       if c not in _watchlist_set]
                     run(dry_run=dry_run, sell_alert_state=sell_alert_state,
                         _regime=_regime_this_iter, universe_override=_full_universe)
                 _scanned_sessions.add(scan_id)
+
+                # ── Post-scan XHS triggers ────────────────────────────────────
+                if session_key == "morning" and "morning" not in _xhs_triggered_today:
+                    _xhs_triggered_today.add("morning")
+                    _trigger_xhs_post("morning", dry_run)
+                elif session_key == "afternoon" and "evening" not in _xhs_triggered_today:
+                    _xhs_triggered_today.add("evening")
+                    _trigger_xhs_post("evening", dry_run)
+
             except Exception as e:
                 print(f"  [ERROR] Full check failed: {e}")
                 _notify_error("full_scan", str(e))
@@ -1166,6 +1192,24 @@ def run_loop(
                                      if _night_scan_date else None,
         })
         print("\n[StockSage] 监控已停止（Ctrl+C）。状态已保存。")
+
+
+def _trigger_xhs_post(slot: str, dry_run: bool = False) -> None:
+    """Fire xhs/writer.py {slot} as a non-blocking background process."""
+    print(f"[XHS] Triggering writer.py {slot}...")
+    if dry_run:
+        print(f"[XHS] (dry-run — skipping actual subprocess)")
+        return
+    try:
+        writer = os.path.join(_ROOT, "xhs", "writer.py")
+        subprocess.Popen(
+            [sys.executable, writer, slot, "--style", "auto"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=_ROOT,
+        )
+    except Exception as e:
+        print(f"[XHS] Failed to trigger {slot}: {e}")
 
 
 def _register_scheduler_tasks(dry_run: bool = False) -> None:
