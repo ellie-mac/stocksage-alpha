@@ -1107,6 +1107,7 @@ def run_loop(
 
                 # Morning open: first confirm today's 1AM pre-market picks, then
                 # scan the full universe for any new signals after the auction.
+                _morning_signals = []
                 if (session_key == "morning"
                         and _premarket_picks
                         and _premarket_scan_date == now.date()):
@@ -1114,8 +1115,9 @@ def run_loop(
                                     if c not in _watchlist_set]
                     print(f"  Post-auction: confirming {len(_pm_universe)} "
                           f"pre-market picks...")
-                    run(dry_run=dry_run, sell_alert_state=sell_alert_state,
-                        _regime=_regime_this_iter, universe_override=_pm_universe)
+                    _picked1 = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
+                                   _regime=_regime_this_iter, universe_override=_pm_universe)
+                    _morning_signals.extend(_picked1 or [])
                     # Then scan the rest of the universe for new signals.
                     _pm_set = set(_premarket_picks)
                     _remaining = [c for c in _screener_universe
@@ -1123,9 +1125,10 @@ def run_loop(
                     if _remaining:
                         print(f"  Post-auction: scanning {len(_remaining)} "
                               f"remaining stocks...")
-                        run(dry_run=dry_run, sell_alert_state=sell_alert_state,
-                            _regime=_regime_this_iter,
-                            universe_override=_remaining)
+                        _picked2 = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
+                                       _regime=_regime_this_iter,
+                                       universe_override=_remaining)
+                        _morning_signals.extend(_picked2 or [])
                 elif session_key == "midday":
                     _full_universe = [c for c in _screener_universe
                                       if c not in _watchlist_set]
@@ -1141,8 +1144,10 @@ def run_loop(
                         _regime=_regime_this_iter, universe_override=_full_universe)
                 _scanned_sessions.add(scan_id)
 
-                # ── Post-scan XHS triggers ────────────────────────────────────
-                if session_key == "morning" and "morning" not in _xhs_triggered_today:
+                # ── Post-scan XHS triggers (only if signals found) ────────────
+                if (session_key == "morning"
+                        and _morning_signals
+                        and "morning" not in _xhs_triggered_today):
                     _xhs_triggered_today.add("morning")
                     _trigger_xhs_post("morning", dry_run)
                 elif session_key == "afternoon" and "evening" not in _xhs_triggered_today:
@@ -1226,7 +1231,13 @@ def _register_scheduler_tasks(dry_run: bool = False) -> None:
     result = _sp.run(cmd, encoding="utf-8", capture_output=True, text=True)
     print(result.stdout)
     if result.returncode != 0:
-        print(f"[WARN] setup_scheduler failed: {result.stderr[:200]}")
+        stderr = result.stderr[:300]
+        if "拒绝访问" in stderr or "Access is denied" in stderr or "ERROR: Access" in stderr:
+            print("[WARN] 注册定时任务需要管理员权限。")
+            print("       请用管理员身份运行 PowerShell，然后执行:")
+            print("       python xhs/setup_scheduler.py")
+        else:
+            print(f"[WARN] setup_scheduler failed: {stderr}")
 
 
 if __name__ == "__main__":
