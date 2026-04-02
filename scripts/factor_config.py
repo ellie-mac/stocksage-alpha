@@ -40,6 +40,8 @@ FACTOR_WEIGHTS: dict[str, float] = {
     # ── Tier 3: Weak-positive ─────────────────────────────────────────
     "divergence":          0.5,   # IC=+0.061, ICIR=0.348 — downgraded: IC fell from +0.130
     "quality":             0.2,   # IC=+0.035, ICIR=0.280 — weak, small tilt
+    "northbound":          0.3,   # IC=+0.086, ICIR=0.481 — 北向资金买入=外资看好; 接近阈值，小权重
+    "bollinger_position":  -0.3,  # IC=-0.084, ICIR=-0.435 — 均值回归信号，高位反转; 与price_volume_corr互补
 
     # ── Inverted (IC < 0, contrarian) ────────────────────────────────
     "growth":                -0.5,   # IC=-0.046, ICIR=-0.365 — A-share growth trap
@@ -187,7 +189,6 @@ REGIME_MA_LONG  = 60    # long  MA — price below this → CRISIS
 # ---------------------------------------------------------------------------
 EXCLUDED_FACTORS: dict[str, str] = {
     # Noise: |IC| < 0.02
-    "northbound":          "noise: IC=+0.086, ICIR=0.481 — moderate but unreliable; northbound data often delayed/revised",
     "ma_alignment":        "noise: IC=+0.029, ICIR=0.151",
     "reversal":            "noise: IC=-0.069, ICIR=-0.304 — weak, subsumed by price_inertia",
     "position_52w":        "weak: IC=+0.049, ICIR=0.353 — subsumed by nearness_to_high",
@@ -205,7 +206,6 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "momentum":            "weak negative: IC=-0.053, mean-reversion dominates in A-share",
     "rsi_signal":          "noise: IC~0 across periods",
     "macd_signal":         "noise: IC~0 across periods",
-    "bollinger_position":  "moderate negative IC=-0.084, ICIR=-0.435 — mean-reversion signal, subsumed by price_volume_corr inversion",
     "turnover_acceleration": "noise: IC=-0.033, ICIR=-0.142",
     "gross_margin_trend":  "no data: 毛利率 not in financial indicators API (balance-sheet item)",
     "ar_quality":          "no data: 应收账款 not in financial indicators API (balance-sheet item)",
@@ -225,4 +225,5 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "limit_open_rate":         "buy-side noise: IC=-0.047 weak; sell_score IC=-0.108 ICIR=-0.651 strong — high open-rate = distribution, use as sell filter only",
     "upper_shadow_reversal":   "pending: newly added 2026-04-02, run factor_analysis --rolling 6 to validate",
     "sector_sympathy":         "pending: newly added 2026-04-02, run factor_analysis --rolling 6 to validate",
+    "overhead_resistance":     "pending: newly added 2026-04-02, run factor_analysis --rolling 6 to validate",
 }

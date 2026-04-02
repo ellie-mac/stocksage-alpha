@@ -64,7 +64,7 @@ from factors_extended import (
     score_price_volume_corr, score_trend_linearity, score_gap_frequency,
     score_market_relative_strength, score_price_efficiency, score_intraday_vs_overnight,
     score_hammer_bottom, score_limit_open_rate, score_upper_shadow_reversal,
-    score_sector_sympathy,
+    score_sector_sympathy, score_overhead_resistance,
     # Group B
     score_shareholder_change, score_lhb, score_lockup_pressure,
     score_insider, score_institutional_visits, score_industry_momentum,
@@ -249,6 +249,14 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         _industry_sym = (_info_sym or {}).get("industry", "") if _info_sym is not None else ""
         scores["sector_sympathy"]      = _safe(score_sector_sympathy, code, _industry_sym, _spot_df_sym)
         scores["sell_score_sector_sympathy"] = _safe_sell(score_sector_sympathy, code, _industry_sym, _spot_df_sym)
+
+        # overhead_resistance: chip distribution overhead pressure (套牢盘)
+        try:
+            cyq_df = fetcher.get_cyq(code)
+        except Exception:
+            cyq_df = None
+        scores["overhead_resistance"]           = _safe(score_overhead_resistance, cyq_df, price_df)
+        scores["sell_score_overhead_resistance"] = _safe_sell(score_overhead_resistance, cyq_df, price_df)
 
         # Sell scores for Ext-A
         scores["sell_score_div_yield"]          = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df)
