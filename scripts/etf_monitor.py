@@ -45,10 +45,60 @@ import fetcher
 from common import is_trading_hours, next_session_seconds, send_wechat
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-_ROOT       = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_PATH = os.path.join(_ROOT, "alert_config.json")
+_ROOT            = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_PATH      = os.path.join(_ROOT, "alert_config.json")
+SIGNALS_LOG_PATH = os.path.join(_ROOT, "signals_log.json")
 
 # No cooldowns for ETF: T+0 means each signal can represent a new partial trade tranche.
+
+
+# ── Signals log ────────────────────────────────────────────────────────────────
+
+def _append_signals_log(buy_alerts: list[dict], sell_alerts: list[dict],
+                         run_time: str, regime_score: Optional[float] = None) -> None:
+    """Append ETF buy + sell signals to the shared signals_log.json for backtesting."""
+    if not buy_alerts and not sell_alerts:
+        return
+
+    def _common(s: dict) -> dict:
+        return {
+            "code":         s["code"],
+            "name":         s.get("name", s["code"]),
+            "signal_price": s.get("price"),
+            "change_pct":   s.get("change_pct"),
+            "buy_score":    s.get("buy_score"),
+            "sell_score":   s.get("sell_score"),
+            "bullish":      s.get("bullish", []),
+            "bearish":      s.get("bearish", []),
+        }
+
+    entry = {
+        "date":         datetime.now().strftime("%Y-%m-%d"),
+        "run_time":     run_time,
+        "regime_score": regime_score,
+        "source":       "etf_monitor",
+        "buy_signals": [_common(b) for b in buy_alerts],
+        "sell_signals": [
+            {
+                **_common(s),
+                "shares":     s.get("shares"),
+                "cost_price": s.get("cost_price"),
+                "pnl_pct":    s.get("pnl_pct"),
+                "reasons":    s.get("reasons", []),
+            }
+            for s in sell_alerts
+        ],
+    }
+    try:
+        with open(SIGNALS_LOG_PATH, "r", encoding="utf-8") as f:
+            log = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        log = []
+    log.append(entry)
+    with open(SIGNALS_LOG_PATH, "w", encoding="utf-8") as f:
+        json.dump(log, f, ensure_ascii=False, indent=2)
+    print(f"  Signals logged → signals_log.json "
+          f"(buy={len(buy_alerts)}, sell={len(sell_alerts)})")
 
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -67,20 +117,23 @@ def _score_etf(etf: dict) -> dict:
         result = research(code)
         buy_score  = round(result.get("total_score", 0) or 0, 1)
         sell_score = round(result.get("total_sell_score", 0) or 0, 1)
-        price      = (result.get("price") or {}).get("current") or 0
+        price_d    = result.get("price") or {}
+        price      = price_d.get("current") or 0
         cost       = etf.get("cost_price", 0) or 0
         pnl_pct    = ((price - cost) / cost * 100) if cost > 0 else 0.0
-        bearish    = result.get("signals_summary", {}).get("bearish_factors", [])[:3]
+        summary    = result.get("signals_summary", {})
         return {
             "code":       code,
             "name":       result.get("name") or etf.get("name", code),
             "shares":     etf.get("shares", 0),
             "cost_price": cost,
             "price":      price,
+            "change_pct": price_d.get("change_pct"),
             "pnl_pct":    round(pnl_pct, 2),
             "buy_score":  buy_score,
             "sell_score": sell_score,
-            "bearish":    bearish,
+            "bullish":    summary.get("top_bullish", [])[:3],
+            "bearish":    summary.get("top_bearish", [])[:3],
             "error":      None,
         }
     except Exception as e:
@@ -299,8 +352,8 @@ def run_loop(interval_min: int = 5, dry_run: bool = False) -> None:
             if mkt:
                 regime_score  = mkt.get("score", 5.0)
                 regime_signal = mkt.get("details", {}).get("signal", "unknown")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  [WARN] Regime fetch failed: {e}")
 
         # ── Score all ETFs concurrently ────────────────────────────────────────
         print(f"[{run_time}] Scanning {len(etf_list)} ETFs...", end=" ", flush=True)
@@ -357,6 +410,8 @@ def run_loop(interval_min: int = 5, dry_run: bool = False) -> None:
                 _send(title, desp, sendkey, dry_run)
             except Exception as e:
                 print(f"  [ERROR] 推送失败: {e}")
+            _append_signals_log(buy_alerts, sell_alerts, run_time,
+                                regime_score=regime_score)
         else:
             print(f"  No signals.")
 

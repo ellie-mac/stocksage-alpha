@@ -85,6 +85,31 @@ def load_holdings() -> list[dict]:
         return json.load(f)
 
 
+def _backfill_holding_names(scored_holdings: list[dict]) -> None:
+    """Write real company names back to holdings.json for entries where name == code.
+
+    Only rewrites the file if at least one name was updated, to avoid churn.
+    """
+    try:
+        with open(HOLDINGS_PATH, encoding="utf-8") as f:
+            holdings = json.load(f)
+    except Exception:
+        return
+
+    name_map = {s["code"]: s["name"] for s in scored_holdings
+                if s.get("name") and s["name"] != s["code"]}
+    updated = False
+    for h in holdings:
+        if h.get("name") == h["code"] and h["code"] in name_map:
+            h["name"] = name_map[h["code"]]
+            updated = True
+
+    if updated:
+        with open(HOLDINGS_PATH, "w", encoding="utf-8") as f:
+            json.dump(holdings, f, ensure_ascii=False, indent=2)
+        print(f"  holdings.json names updated ({sum(1 for h in holdings if h['name'] != h['code'])} resolved)")
+
+
 def load_config() -> dict:
     if not os.path.exists(CONFIG_PATH):
         raise FileNotFoundError(f"alert_config.json not found at {CONFIG_PATH}")
@@ -114,9 +139,8 @@ def _score_one(holding: dict) -> dict:
         cost       = holding.get("cost_price", 0) or 0
         pnl_pct    = ((price - cost) / cost * 100) if cost > 0 else 0.0
 
-        # Collect top sell signals from individual factors
-        signals_summary = result.get("signals_summary", {})
-        bearish = signals_summary.get("bearish_factors", [])
+        summary  = result.get("signals_summary", {})
+        price_d  = result.get("price") or {}
 
         return {
             "code":       code,
@@ -124,10 +148,12 @@ def _score_one(holding: dict) -> dict:
             "shares":     holding.get("shares", 0),
             "cost_price": cost,
             "price":      price,
+            "change_pct": price_d.get("change_pct"),
             "pnl_pct":    round(pnl_pct, 2),
             "buy_score":  round(buy_score, 1),
             "sell_score": round(sell_score, 1),
-            "bearish":    bearish[:3],  # top 3 sell signals
+            "bullish":    summary.get("top_bullish", [])[:3],
+            "bearish":    summary.get("top_bearish", [])[:3],
             "error":      None,
         }
     except Exception as e:
@@ -149,17 +175,23 @@ def _score_one_buy(code: str) -> dict:
     """Research a universe stock for buy screening."""
     try:
         result = research(code)
+        summary  = result.get("signals_summary", {})
+        price_d  = result.get("price") or {}
         return {
-            "code":      code,
-            "name":      result.get("name", code),
-            "price":     (result.get("price") or {}).get("current"),
-            "buy_score": round(result.get("total_score", 0) or 0, 1),
+            "code":       code,
+            "name":       result.get("name", code),
+            "price":      price_d.get("current"),
+            "change_pct": price_d.get("change_pct"),
+            "buy_score":  round(result.get("total_score", 0) or 0, 1),
             "sell_score": round(result.get("total_sell_score", 0) or 0, 1),
-            "error":     None,
+            "bullish":    summary.get("top_bullish", [])[:3],
+            "bearish":    summary.get("top_bearish", [])[:3],
+            "error":      None,
         }
     except Exception as e:
-        return {"code": code, "name": code, "price": None,
-                "buy_score": 0.0, "sell_score": 0.0, "error": str(e)}
+        return {"code": code, "name": code, "price": None, "change_pct": None,
+                "buy_score": 0.0, "sell_score": 0.0, "bullish": [], "bearish": [],
+                "error": str(e)}
 
 
 # ── Signal evaluation ──────────────────────────────────────────────────────────
@@ -225,37 +257,47 @@ def check_buy_signal(scored: dict, thresholds: dict, held_codes: set) -> bool:
 # ── Markdown formatting (Server酱 / WeChat) ────────────────────────────────────
 
 def _append_signals_log(buy_alerts: list[dict], sell_alerts: list[dict],
-                         run_time: str) -> None:
+                         run_time: str, regime_score: Optional[float] = None,
+                         source: str = "monitor") -> None:
     """Append one run's buy + sell signals to signals_log.json for backtesting.
 
-    Never touches holdings.json. Each entry records signal prices so future
-    accuracy can be evaluated by comparing signal_price to later close prices.
+    Both buy and sell entries carry the same rich fields so post-mortem analysis
+    is symmetric: signal_price, scores, intraday change, top bullish/bearish
+    factors, and market regime at the time of the signal.
+    Never touches holdings.json.
     """
     if not buy_alerts and not sell_alerts:
         return
+
+    def _common(s: dict) -> dict:
+        return {
+            "code":          s["code"],
+            "name":          s.get("name", s["code"]),
+            "signal_price":  s.get("price"),
+            "change_pct":    s.get("change_pct"),
+            "buy_score":     s.get("buy_score"),
+            "sell_score":    s.get("sell_score"),
+            "bullish":       s.get("bullish", []),
+            "bearish":       s.get("bearish", []),
+        }
+
     entry = {
-        "date":     datetime.now().strftime("%Y-%m-%d"),
-        "run_time": run_time,
+        "date":         datetime.now().strftime("%Y-%m-%d"),
+        "run_time":     run_time,
+        "regime_score": regime_score,
+        "source":       source,
         "buy_signals": [
-            {
-                "code":       b["code"],
-                "name":       b.get("name", b["code"]),
-                "signal_price": b.get("price"),
-                "buy_score":  b.get("buy_score"),
-                "sell_score": b.get("sell_score"),
-            }
+            _common(b)
             for b in buy_alerts
         ],
         "sell_signals": [
             {
-                "code":         s["code"],
-                "name":         s.get("name", s["code"]),
-                "signal_price": s.get("price"),
-                "cost_price":   s.get("cost_price"),
-                "pnl_pct":      s.get("pnl_pct"),
-                "sell_score":   s.get("sell_score"),
-                "buy_score":    s.get("buy_score"),
-                "reasons":      s.get("reasons", []),
+                **_common(s),
+                "shares":     s.get("shares"),
+                "cost_price": s.get("cost_price"),
+                "pnl_pct":    s.get("pnl_pct"),
+                "t1_locked":  s.get("t1_locked", False),
+                "reasons":    s.get("reasons", []),
             }
             for s in sell_alerts
         ],
@@ -566,6 +608,7 @@ def run(
             for fut in as_completed(futures):
                 scored_holdings.append(fut.result())
         scored_holdings.sort(key=lambda x: -x["sell_score"])
+        _backfill_holding_names(scored_holdings)
 
     # Build a lookup from code -> original holding dict (for T+1 check)
     holding_by_code = {h["code"]: h for h in holdings}
@@ -640,7 +683,7 @@ def run(
                 break
 
     # ── 3. Log signals for backtesting (separate from holdings) ─────────────
-    _append_signals_log(buy_alerts, sell_alerts, run_time)
+    _append_signals_log(buy_alerts, sell_alerts, run_time, regime_score=regime_score)
 
     # ── 4. Build + send email ─────────────────────────────────────────────────
     has_signal = bool(sell_alerts or buy_alerts)
@@ -726,16 +769,17 @@ def run_loop(
     t_trade_state:      dict = {}   # code -> {sell_price, cover_price, date}
     _error_notified:    dict = {}   # error_key -> last WeChat push datetime (1h rate limit)
 
-    # Restore scanned_sessions: set of "date|session" strings
-    _scanned_sessions: set = set(
-        tuple(s.split("|")) for s in _state.get("scanned_sessions", [])
-        if "|" in s
-    )
-    # Convert stored "date_str|session" back to (date, str) tuples
-    _scanned_sessions = {
-        (datetime.fromisoformat(d).date(), sess)
-        for d, sess in _scanned_sessions
-    }
+    # Restore scanned_sessions: stored as "YYYY-MM-DD|session" strings
+    _scanned_sessions: set = set()
+    for _s in _state.get("scanned_sessions", []):
+        _parts = _s.split("|", 1)   # maxsplit=1: never more than 2 parts
+        if len(_parts) == 2:
+            try:
+                _scanned_sessions.add(
+                    (datetime.fromisoformat(_parts[0]).date(), _parts[1])
+                )
+            except ValueError:
+                pass   # corrupt entry — skip silently
 
     _heartbeat_date = _restore_date("heartbeat_date")
     _closing_date   = None   # not persisted — harmless if fired twice on restart
