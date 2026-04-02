@@ -7217,3 +7217,176 @@ def score_sector_sympathy(
     except Exception:
         return {"score": 5.0, "sell_score": 5.0, "max": MAX,
                 "details": {"signal": "error, neutral"}}
+
+
+# ===========================================================================
+# score_overhead_resistance — 套牢盘压力 (chip distribution overhead resistance)
+# ===========================================================================
+
+def score_overhead_resistance(
+    cyq_df: Optional[pd.DataFrame],
+    price_df: Optional[pd.DataFrame] = None,
+) -> dict:
+    """
+    Measure overhead resistance (套牢盘压力) from East Money chip distribution data
+    (ak.stock_cyq_em).
+
+    Returns {"score": float, "sell_score": float, "max": 10, "details": dict}.
+    Neutral score is 4.0 (overhead pressure is slightly bearish by default).
+
+    Logic:
+      1. If cyq_df is None/empty → neutral {"score": 5.0, "sell_score": 5.0}.
+      2. Get current price from price_df (last close); fall back to inferring from cyq_df.
+      3. overhead_ratio = fraction of chips ABOVE current price (套牢盘比例).
+      4. Score inversely with overhead_ratio:
+           0–10%  → score=8.0  (little overhead, clean chart)
+           10–30% → linear 8.0→5.0
+           30–60% → linear 5.0→2.0
+           >60%   → score=1.0  (heavily trapped)
+      5. sell_score = 10.0 - score
+      6. Context cross: if overhead_ratio > 50% AND price is in lower 30% of 52w range
+         → subtract 1.5 from sell_score (bottoming pattern; trapped chips at historical
+           highs while price is at historical low = potential reversal).
+    """
+    MAX = 10
+    NEUTRAL_SCORE = 5.0
+    NEUTRAL_SELL  = 5.0
+
+    # ── 1. Guard: no data ───────────────────────────────────────────────────
+    if cyq_df is None or cyq_df.empty:
+        return {
+            "score": NEUTRAL_SCORE,
+            "sell_score": NEUTRAL_SELL,
+            "max": MAX,
+            "details": {"signal": "no cyq data, neutral"},
+        }
+
+    try:
+        # ── 2. Get current price ────────────────────────────────────────────
+        current_price: Optional[float] = None
+
+        if price_df is not None and not price_df.empty and "close" in price_df.columns:
+            closes = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+            if not closes.empty:
+                current_price = float(closes.iloc[-1])
+
+        # Fallback: try to infer current price from cyq_df itself.
+        # stock_cyq_em may return columns: price, percent (chip density per price level).
+        # Use the price with the highest chip density near the recent traded area, or
+        # just take the 获利比例-weighted average cost as a proxy.
+        if current_price is None:
+            # Try "平均成本" column
+            for col in ("平均成本", "average_cost"):
+                if col in cyq_df.columns:
+                    vals = pd.to_numeric(cyq_df[col], errors="coerce").dropna()
+                    if not vals.empty:
+                        current_price = float(vals.iloc[0])
+                        break
+
+        if current_price is None or current_price <= 0:
+            return {
+                "score": NEUTRAL_SCORE,
+                "sell_score": NEUTRAL_SELL,
+                "max": MAX,
+                "details": {"signal": "cannot determine current price, neutral"},
+            }
+
+        # ── 3. Calculate overhead_ratio ─────────────────────────────────────
+        # stock_cyq_em typically returns columns: price, percent
+        # (chip density at each price level; percent sums to ~100).
+        overhead_ratio: Optional[float] = None
+
+        if "price" in cyq_df.columns and "percent" in cyq_df.columns:
+            prices   = pd.to_numeric(cyq_df["price"],   errors="coerce")
+            percents = pd.to_numeric(cyq_df["percent"], errors="coerce")
+            valid    = prices.notna() & percents.notna()
+            if valid.sum() > 0:
+                total_pct    = float(percents[valid].sum())
+                overhead_pct = float(percents[valid & (prices > current_price)].sum())
+                if total_pct > 0:
+                    overhead_ratio = overhead_pct / total_pct
+
+        # Fallback: use 获利比例 column — fraction of chips currently at a profit.
+        # If 获利比例 = X%, then (100 - X)% of chips are above current price (trapped).
+        if overhead_ratio is None:
+            for col in ("获利比例", "profit_ratio"):
+                if col in cyq_df.columns:
+                    vals = pd.to_numeric(cyq_df[col], errors="coerce").dropna()
+                    if not vals.empty:
+                        profit_ratio   = float(vals.iloc[0]) / 100.0  # convert % → fraction
+                        overhead_ratio = max(0.0, min(1.0, 1.0 - profit_ratio))
+                        break
+
+        if overhead_ratio is None:
+            return {
+                "score": NEUTRAL_SCORE,
+                "sell_score": NEUTRAL_SELL,
+                "max": MAX,
+                "details": {"signal": "cannot compute overhead_ratio, neutral"},
+            }
+
+        overhead_ratio = max(0.0, min(1.0, float(overhead_ratio)))
+
+        # ── 4. Map overhead_ratio → buy score ──────────────────────────────
+        if overhead_ratio <= 0.10:
+            score = 8.0
+        elif overhead_ratio <= 0.30:
+            # linear 8.0 → 5.0 over [0.10, 0.30]
+            t     = (overhead_ratio - 0.10) / 0.20
+            score = 8.0 - t * 3.0
+        elif overhead_ratio <= 0.60:
+            # linear 5.0 → 2.0 over [0.30, 0.60]
+            t     = (overhead_ratio - 0.30) / 0.30
+            score = 5.0 - t * 3.0
+        else:
+            score = 1.0
+
+        score = round(max(0.0, min(10.0, score)), 2)
+
+        # ── 5. sell_score = mirror ──────────────────────────────────────────
+        sell_score = round(10.0 - score, 2)
+
+        # ── 6. Context cross: bottoming pattern ────────────────────────────
+        # High overhead (>50%) + price in lower 30% of 52w range
+        # → trapped chips are at historical highs, current low = potential reversal.
+        # Reduce sell pressure slightly.
+        price_pos_52w = _get_price_position(price_df)
+        bottoming     = False
+        if overhead_ratio > 0.50 and price_pos_52w is not None and price_pos_52w < 0.30:
+            sell_score = round(max(0.0, sell_score - 1.5), 2)
+            bottoming  = True
+
+        # Build signal label
+        overhead_pct_display = round(overhead_ratio * 100, 1)
+        if overhead_ratio <= 0.10:
+            signal = f"clean chart: only {overhead_pct_display}% overhead resistance"
+        elif overhead_ratio <= 0.30:
+            signal = f"moderate overhead: {overhead_pct_display}% chips trapped above"
+        elif overhead_ratio <= 0.60:
+            signal = f"heavy overhead: {overhead_pct_display}% chips trapped — breakout difficult"
+        else:
+            signal = f"extreme overhead: {overhead_pct_display}% chips trapped — avoid"
+        if bottoming:
+            signal += " | bottoming context: price at 52w low, sell_score reduced"
+
+        return {
+            "score":      score,
+            "sell_score": sell_score,
+            "max":        MAX,
+            "details": {
+                "signal":           signal,
+                "overhead_ratio":   overhead_pct_display,
+                "current_price":    round(current_price, 2),
+                "price_pos_52w":    round(price_pos_52w, 3) if price_pos_52w is not None else None,
+                "bottoming":        bottoming,
+                "sell_score":       sell_score,
+            },
+        }
+
+    except Exception:
+        return {
+            "score":      NEUTRAL_SCORE,
+            "sell_score": NEUTRAL_SELL,
+            "max":        MAX,
+            "details":    {"signal": "error, neutral"},
+        }

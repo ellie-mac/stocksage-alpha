@@ -300,6 +300,11 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             _hist_em_failed = True  # fail fast for all subsequent calls this session
 
     # ── Source 2: BaoStock (free, no V8, reliable) ───────────────────────
+    # BaoStock's Python client is NOT thread-safe: all concurrent callers share
+    # one TCP socket.  Without _bs_lock here, concurrent rs.next() calls in
+    # different threads consume each other's response bytes, leaving some threads
+    # blocked forever in socket.recv() — which deadlocks the executor across
+    # backtest periods.  Hold _bs_lock for the entire send+receive cycle.
     try:
         bs = _get_baostock()
         if bs is not None:
@@ -307,17 +312,18 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             bs_code = f"{prefix}.{code}"
             end = datetime.now()
             start = end - timedelta(days=fetch_days)
-            rs = bs.query_history_k_data_plus(
-                bs_code,
-                "date,open,high,low,close,volume,turn,pctChg",
-                start_date=start.strftime("%Y-%m-%d"),
-                end_date=end.strftime("%Y-%m-%d"),
-                frequency="d",
-                adjustflag="2",  # qfq
-            )
-            rows = []
-            while rs.error_code == "0" and rs.next():
-                rows.append(rs.get_row_data())
+            with _bs_lock:
+                rs = bs.query_history_k_data_plus(
+                    bs_code,
+                    "date,open,high,low,close,volume,turn,pctChg",
+                    start_date=start.strftime("%Y-%m-%d"),
+                    end_date=end.strftime("%Y-%m-%d"),
+                    frequency="d",
+                    adjustflag="2",  # qfq
+                )
+                rows = []
+                while rs.error_code == "0" and rs.next():
+                    rows.append(rs.get_row_data())
             if rows:
                 df = pd.DataFrame(rows, columns=rs.fields)
                 df = df.rename(columns={"turn": "turnover", "pctChg": "change_pct"})
@@ -452,6 +458,29 @@ def get_margin_data(code: str) -> Optional[pd.DataFrame]:
             return None
         df.columns = [c.strip() for c in df.columns]
         df = df.sort_values(df.columns[0]).tail(30).reset_index(drop=True)
+        cache.set_df(cache_key, df)
+        return df
+    except Exception:
+        return None
+
+
+def get_cyq(code: str) -> Optional[pd.DataFrame]:
+    """
+    Fetch chip distribution data (筹码分布) for a stock via East Money.
+    Uses ak.stock_cyq_em(symbol=code).
+    Cached for 4 hours (14400 seconds) — chip distribution is slow-moving intraday.
+    Returns the DataFrame or None on any error.
+    """
+    cache_key = f"cyq_{code}"
+    cached = cache.get_df(cache_key, 14400)
+    if cached is not None:
+        return cached
+    try:
+        df = ak.stock_cyq_em(symbol=code)
+        if df is None or df.empty:
+            return None
+        df.columns = [c.strip() for c in df.columns]
+        df = df.reset_index(drop=True)
         cache.set_df(cache_key, df)
         return df
     except Exception:
