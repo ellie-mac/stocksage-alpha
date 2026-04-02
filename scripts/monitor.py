@@ -49,7 +49,7 @@ from common import (
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOLDINGS_PATH = os.path.join(_ROOT, "holdings.json")
 CONFIG_PATH   = os.path.join(_ROOT, "alert_config.json")
-PICKS_LOG_PATH = os.path.join(_ROOT, "picks_log.json")
+SIGNALS_LOG_PATH = os.path.join(_ROOT, "signals_log.json")
 STATE_PATH    = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".monitor_state.json")
 
 
@@ -224,33 +224,52 @@ def check_buy_signal(scored: dict, thresholds: dict, held_codes: set) -> bool:
 
 # ── Markdown formatting (Server酱 / WeChat) ────────────────────────────────────
 
-def _append_picks_log(buy_alerts: list[dict], run_time: str) -> None:
-    """Append today's buy picks to picks_log.json (never overwrites holdings.json)."""
-    if not buy_alerts:
+def _append_signals_log(buy_alerts: list[dict], sell_alerts: list[dict],
+                         run_time: str) -> None:
+    """Append one run's buy + sell signals to signals_log.json for backtesting.
+
+    Never touches holdings.json. Each entry records signal prices so future
+    accuracy can be evaluated by comparing signal_price to later close prices.
+    """
+    if not buy_alerts and not sell_alerts:
         return
     entry = {
-        "date": datetime.now().strftime("%Y-%m-%d"),
+        "date":     datetime.now().strftime("%Y-%m-%d"),
         "run_time": run_time,
-        "picks": [
+        "buy_signals": [
             {
                 "code":       b["code"],
                 "name":       b.get("name", b["code"]),
-                "price":      b.get("price"),
+                "signal_price": b.get("price"),
                 "buy_score":  b.get("buy_score"),
                 "sell_score": b.get("sell_score"),
             }
             for b in buy_alerts
         ],
+        "sell_signals": [
+            {
+                "code":         s["code"],
+                "name":         s.get("name", s["code"]),
+                "signal_price": s.get("price"),
+                "cost_price":   s.get("cost_price"),
+                "pnl_pct":      s.get("pnl_pct"),
+                "sell_score":   s.get("sell_score"),
+                "buy_score":    s.get("buy_score"),
+                "reasons":      s.get("reasons", []),
+            }
+            for s in sell_alerts
+        ],
     }
     try:
-        with open(PICKS_LOG_PATH, "r", encoding="utf-8") as f:
+        with open(SIGNALS_LOG_PATH, "r", encoding="utf-8") as f:
             log = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         log = []
     log.append(entry)
-    with open(PICKS_LOG_PATH, "w", encoding="utf-8") as f:
+    with open(SIGNALS_LOG_PATH, "w", encoding="utf-8") as f:
         json.dump(log, f, ensure_ascii=False, indent=2)
-    print(f"  Picks logged → picks_log.json ({len(buy_alerts)} stocks)")
+    print(f"  Signals logged → signals_log.json "
+          f"(buy={len(buy_alerts)}, sell={len(sell_alerts)})")
 
 
 def _fmt_sell_section_md(sell_alerts: list[dict], stop_loss_pct: float = -8.0,
@@ -620,8 +639,8 @@ def run(
             if len(buy_alerts) >= top_n:
                 break
 
-    # ── 3. Log picks (separate from holdings) ────────────────────────────────
-    _append_picks_log(buy_alerts, run_time)
+    # ── 3. Log signals for backtesting (separate from holdings) ─────────────
+    _append_signals_log(buy_alerts, sell_alerts, run_time)
 
     # ── 4. Build + send email ─────────────────────────────────────────────────
     has_signal = bool(sell_alerts or buy_alerts)
