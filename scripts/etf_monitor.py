@@ -62,14 +62,19 @@ def _append_signals_log(buy_alerts: list[dict], sell_alerts: list[dict],
 
     def _common(s: dict) -> dict:
         return {
-            "code":         s["code"],
-            "name":         s.get("name", s["code"]),
-            "signal_price": s.get("price"),
-            "change_pct":   s.get("change_pct"),
-            "buy_score":    s.get("buy_score"),
-            "sell_score":   s.get("sell_score"),
-            "bullish":      s.get("bullish", []),
-            "bearish":      s.get("bearish", []),
+            "code":           s["code"],
+            "name":           s.get("name", s["code"]),
+            "signal_price":   s.get("price"),
+            "change_pct":     s.get("change_pct"),
+            "buy_score":      s.get("buy_score"),
+            "sell_score":     s.get("sell_score"),
+            "bullish":        s.get("bullish", []),
+            "bearish":        s.get("bearish", []),
+            # market context for backtesting
+            "turnover_rate":  s.get("turnover_rate"),
+            "volume_ratio":   s.get("volume_ratio"),
+            "volume_million": s.get("volume_million"),
+            "factor_scores":  s.get("factor_scores"),
         }
 
     entry = {
@@ -110,6 +115,16 @@ def load_config() -> dict:
 
 # ── Scoring ────────────────────────────────────────────────────────────────────
 
+def _compact_factor_scores(factors: dict) -> dict:
+    """Distill factors dict → {name: {buy, sell}} for compact logging."""
+    return {
+        name: {"buy": round(f.get("score") or 0, 1),
+               "sell": round(f.get("sell_score") or 0, 1)}
+        for name, f in factors.items()
+        if isinstance(f, dict)
+    }
+
+
 def _score_etf(etf: dict) -> dict:
     """Run full research on one ETF entry."""
     code = etf["code"]
@@ -123,18 +138,23 @@ def _score_etf(etf: dict) -> dict:
         pnl_pct    = ((price - cost) / cost * 100) if cost > 0 else 0.0
         summary    = result.get("signals_summary", {})
         return {
-            "code":       code,
-            "name":       result.get("name") or etf.get("name", code),
-            "shares":     etf.get("shares", 0),
-            "cost_price": cost,
-            "price":      price,
-            "change_pct": price_d.get("change_pct"),
-            "pnl_pct":    round(pnl_pct, 2),
-            "buy_score":  buy_score,
-            "sell_score": sell_score,
-            "bullish":    summary.get("top_bullish", [])[:3],
-            "bearish":    summary.get("top_bearish", [])[:3],
-            "error":      None,
+            "code":           code,
+            "name":           result.get("name") or etf.get("name", code),
+            "shares":         etf.get("shares", 0),
+            "cost_price":     cost,
+            "price":          price,
+            "change_pct":     price_d.get("change_pct"),
+            "pnl_pct":        round(pnl_pct, 2),
+            "buy_score":      buy_score,
+            "sell_score":     sell_score,
+            "bullish":        summary.get("top_bullish", [])[:3],
+            "bearish":        summary.get("top_bearish", [])[:3],
+            # backtesting context
+            "turnover_rate":  price_d.get("turnover_rate"),
+            "volume_ratio":   price_d.get("volume_ratio"),
+            "volume_million": price_d.get("volume_million"),
+            "factor_scores":  _compact_factor_scores(result.get("factors") or {}),
+            "error":          None,
         }
     except Exception as e:
         return {

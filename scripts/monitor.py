@@ -129,6 +129,16 @@ def _is_t1_locked(holding: dict) -> bool:
 # ── Score computation ──────────────────────────────────────────────────────────
 
 
+def _compact_factor_scores(factors: dict) -> dict:
+    """Distill factors dict → {name: {buy, sell}} for compact logging."""
+    return {
+        name: {"buy": round(f.get("score") or 0, 1),
+               "sell": round(f.get("sell_score") or 0, 1)}
+        for name, f in factors.items()
+        if isinstance(f, dict)
+    }
+
+
 def _score_one(holding: dict) -> dict:
     """Research a single holding; return enriched dict with scores and signals."""
     code = holding["code"]
@@ -142,20 +152,31 @@ def _score_one(holding: dict) -> dict:
 
         summary  = result.get("signals_summary", {})
         price_d  = result.get("price") or {}
+        basic    = result.get("basic") or {}
+        val      = result.get("valuation") or {}
 
         return {
-            "code":       code,
-            "name":       result.get("name", holding.get("name", code)),
-            "shares":     holding.get("shares", 0),
-            "cost_price": cost,
-            "price":      price,
-            "change_pct": price_d.get("change_pct"),
-            "pnl_pct":    round(pnl_pct, 2),
-            "buy_score":  round(buy_score, 1),
-            "sell_score": round(sell_score, 1),
-            "bullish":    summary.get("top_bullish", [])[:3],
-            "bearish":    summary.get("top_bearish", [])[:3],
-            "error":      None,
+            "code":             code,
+            "name":             result.get("name", holding.get("name", code)),
+            "shares":           holding.get("shares", 0),
+            "cost_price":       cost,
+            "price":            price,
+            "change_pct":       price_d.get("change_pct"),
+            "pnl_pct":          round(pnl_pct, 2),
+            "buy_score":        round(buy_score, 1),
+            "sell_score":       round(sell_score, 1),
+            "bullish":          summary.get("top_bullish", [])[:3],
+            "bearish":          summary.get("top_bearish", [])[:3],
+            # backtesting context
+            "industry":         basic.get("industry", "Unknown"),
+            "market_cap_b":     basic.get("market_cap_billion"),
+            "pe_ttm":           val.get("pe_ttm"),
+            "pb":               val.get("pb"),
+            "turnover_rate":    price_d.get("turnover_rate"),
+            "volume_ratio":     price_d.get("volume_ratio"),
+            "volume_million":   price_d.get("volume_million"),
+            "factor_scores":    _compact_factor_scores(result.get("factors") or {}),
+            "error":            None,
         }
     except Exception as e:
         return {
@@ -178,16 +199,27 @@ def _score_one_buy(code: str) -> dict:
         result = research(code)
         summary  = result.get("signals_summary", {})
         price_d  = result.get("price") or {}
+        basic    = result.get("basic") or {}
+        val      = result.get("valuation") or {}
         return {
-            "code":       code,
-            "name":       result.get("name", code),
-            "price":      price_d.get("current"),
-            "change_pct": price_d.get("change_pct"),
-            "buy_score":  round(result.get("total_score", 0) or 0, 1),
-            "sell_score": round(result.get("total_sell_score", 0) or 0, 1),
-            "bullish":    summary.get("top_bullish", [])[:3],
-            "bearish":    summary.get("top_bearish", [])[:3],
-            "error":      None,
+            "code":           code,
+            "name":           result.get("name", code),
+            "price":          price_d.get("current"),
+            "change_pct":     price_d.get("change_pct"),
+            "buy_score":      round(result.get("total_score", 0) or 0, 1),
+            "sell_score":     round(result.get("total_sell_score", 0) or 0, 1),
+            "bullish":        summary.get("top_bullish", [])[:3],
+            "bearish":        summary.get("top_bearish", [])[:3],
+            # backtesting context
+            "industry":       basic.get("industry", "Unknown"),
+            "market_cap_b":   basic.get("market_cap_billion"),
+            "pe_ttm":         val.get("pe_ttm"),
+            "pb":             val.get("pb"),
+            "turnover_rate":  price_d.get("turnover_rate"),
+            "volume_ratio":   price_d.get("volume_ratio"),
+            "volume_million": price_d.get("volume_million"),
+            "factor_scores":  _compact_factor_scores(result.get("factors") or {}),
+            "error":          None,
         }
     except Exception as e:
         return {"code": code, "name": code, "price": None, "change_pct": None,
@@ -272,14 +304,23 @@ def _append_signals_log(buy_alerts: list[dict], sell_alerts: list[dict],
 
     def _common(s: dict) -> dict:
         return {
-            "code":          s["code"],
-            "name":          s.get("name", s["code"]),
-            "signal_price":  s.get("price"),
-            "change_pct":    s.get("change_pct"),
-            "buy_score":     s.get("buy_score"),
-            "sell_score":    s.get("sell_score"),
-            "bullish":       s.get("bullish", []),
-            "bearish":       s.get("bearish", []),
+            "code":           s["code"],
+            "name":           s.get("name", s["code"]),
+            "signal_price":   s.get("price"),
+            "change_pct":     s.get("change_pct"),
+            "buy_score":      s.get("buy_score"),
+            "sell_score":     s.get("sell_score"),
+            "bullish":        s.get("bullish", []),
+            "bearish":        s.get("bearish", []),
+            # market context for backtesting
+            "industry":       s.get("industry"),
+            "market_cap_b":   s.get("market_cap_b"),
+            "pe_ttm":         s.get("pe_ttm"),
+            "pb":             s.get("pb"),
+            "turnover_rate":  s.get("turnover_rate"),
+            "volume_ratio":   s.get("volume_ratio"),
+            "volume_million": s.get("volume_million"),
+            "factor_scores":  s.get("factor_scores"),
         }
 
     entry = {
@@ -1224,7 +1265,7 @@ def _register_scheduler_tasks(dry_run: bool = False) -> None:
     if not os.path.exists(_setup):
         print("[WARN] xhs/setup_scheduler.py not found — skipping task registration")
         return
-    cmd = [sys.executable, _setup]
+    cmd = [sys.executable, "-X", "utf8", _setup]
     if dry_run:
         cmd.append("--status")
     print("[StockSage] Registering Windows scheduled tasks...")
