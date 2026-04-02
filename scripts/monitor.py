@@ -49,7 +49,7 @@ from common import (
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOLDINGS_PATH = os.path.join(_ROOT, "holdings.json")
 CONFIG_PATH   = os.path.join(_ROOT, "alert_config.json")
-SIGNALS_LOG_PATH = os.path.join(_ROOT, "signals_log.json")
+SIGNALS_LOG_PATH = os.path.join(_ROOT, "data", "signals_log.json")
 STATE_PATH    = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".monitor_state.json")
 
 

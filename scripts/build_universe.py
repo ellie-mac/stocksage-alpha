@@ -24,7 +24,7 @@ import akshare as ak
 
 _ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(_ROOT, "alert_config.json")
-MD_PATH     = os.path.join(_ROOT, "screener_universe.md")
+MD_PATH     = os.path.join(_ROOT, "docs", "screener_universe.md")
 
 # ── Sector list ────────────────────────────────────────────────────────────────
 # Organised by theme; used both for fetching and for MD section headers.
