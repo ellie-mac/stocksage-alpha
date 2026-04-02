@@ -223,7 +223,8 @@ def check_buy_signal(scored: dict, thresholds: dict, held_codes: set) -> bool:
 
 # ── Markdown formatting (Server酱 / WeChat) ────────────────────────────────────
 
-def _fmt_sell_section_md(sell_alerts: list[dict], stop_loss_pct: float = -8.0) -> str:
+def _fmt_sell_section_md(sell_alerts: list[dict], stop_loss_pct: float = -8.0,
+                          sell_trigger: float = 60, stall_score: float = 40) -> str:
     if not sell_alerts:
         return "无卖出信号触发。\n"
     lines = []
@@ -236,7 +237,8 @@ def _fmt_sell_section_md(sell_alerts: list[dict], stop_loss_pct: float = -8.0) -
             f"现价 **{s['price']}** | 成本 {cost} | "
             f"浮盈 {pnl_sign} **{s['pnl_pct']:+.1f}%**  \n"
             f"卖出评分: **{s['sell_score']:.0f}/100** | 买入评分: {s['buy_score']:.0f}/100  \n"
-            f"参考止损价: **{stop_price}**（成本 × {1 + stop_loss_pct/100:.2f}）\n"
+            f"参考止损价: **{stop_price}**（成本 × {1 + stop_loss_pct/100:.2f}）  \n"
+            f"*{_sell_position_hint(s['sell_score'], sell_trigger, stall_score)}*\n"
         )
         for r in s["reasons"]:
             lines.append(f"- {r}")
@@ -251,6 +253,14 @@ def _buy_position_hint(score: float) -> str:
     if score >= 75:
         return "建议仓位参考 5–8%"
     return "建议仓位参考 3–5%（轻仓试探）"
+
+
+def _sell_position_hint(sell_score: float, sell_trigger: float = 60,
+                        stall_score: float = 40) -> str:
+    """Rough trim-size suggestion based on sell score tier."""
+    if sell_score >= sell_trigger:
+        return "建议减仓参考 50–100%（强卖出信号）"
+    return "建议减仓参考 30–50%（动能减弱，逢高减仓）"
 
 
 def _fmt_buy_section_md(buy_alerts: list[dict]) -> str:
@@ -290,10 +300,13 @@ def build_wechat_desp(
     scored_holdings: list[dict],
     run_time: str,
     stop_loss_pct: float = -8.0,
+    sell_trigger: float = 60,
+    stall_score: float = 40,
 ) -> str:
     parts = [f"*{run_time}*\n"]
     parts.append("## 卖出信号\n")
-    parts.append(_fmt_sell_section_md(sell_alerts, stop_loss_pct=stop_loss_pct))
+    parts.append(_fmt_sell_section_md(sell_alerts, stop_loss_pct=stop_loss_pct,
+                                      sell_trigger=sell_trigger, stall_score=stall_score))
     parts.append("## 买入机会（未持仓）\n")
     parts.append(_fmt_buy_section_md(buy_alerts))
     if scored_holdings:
@@ -358,6 +371,8 @@ def fast_check_holdings(
     now = datetime.now()
 
     for h in holdings:
+        if not h.get("shares", 0):   # skip zero-share / watchlist entries
+            continue
         code = h["code"]
         quote = fetcher.get_realtime_quote(code)
         if not quote or "error" in quote:
@@ -552,9 +567,9 @@ def run(
     if not sell_only and universe:
         held_codes = {h["code"] for h in holdings}
         print(f"  Screening {len(universe)} stocks for buy signals...")
-        # Pre-warm the realtime quote cache (one API call covers all ~5000 stocks).
-        # Without this, the first get_realtime_quote() in each thread would race to
-        # trigger the same full-market fetch; pre-warming serialises that single call.
+        # Pre-warm the realtime quote cache (no-op cache hit when called from
+        # run_loop(), which pre-warms at the top of each iteration; kept here
+        # as a fallback for standalone `python monitor.py` invocations).
         try:
             fetcher.get_realtime_quote("000001")
         except Exception:
@@ -600,7 +615,9 @@ def run(
     title = f"[StockSage] {' | '.join(subject_parts)}"
 
     desp = build_wechat_desp(sell_alerts, buy_alerts, scored_holdings, run_time,
-                             stop_loss_pct=thresholds.get("stop_loss_pct", -8.0))
+                             stop_loss_pct=thresholds.get("stop_loss_pct", -8.0),
+                             sell_trigger=thresholds.get("sell_score_trigger", 60),
+                             stall_score=thresholds.get("stall_sell_score", 40))
 
     try:
         send_wechat(title, desp, sendkey, dry_run=dry_run)
@@ -840,6 +857,14 @@ def run_loop(
         except Exception:
             pass
 
+        # ── Pre-warm realtime quote cache (shared by fast check + run()) ────────
+        # One full-market fetch; subsequent get_realtime_quote() calls within the
+        # same 30s TTL window are instant cache hits — no redundant API calls.
+        try:
+            fetcher.get_realtime_quote("000001")
+        except Exception:
+            pass
+
         # ── Fast check ────────────────────────────────────────────────────────
         print(f"[{run_time}] Fast check ({len(holdings)} holdings)...", end=" ", flush=True)
         fast_alerts = fast_check_holdings(
@@ -897,8 +922,12 @@ def run_loop(
         if need_full:
             print(f"[{run_time}] Full factor check ({session_key} session)...")
             try:
+                # Dedup: skip stocks already covered by watchlist scan this cycle
+                _watchlist_set = set(config.get("watchlist", []))
+                _full_universe = [c for c in config.get("screener_universe", [])
+                                  if c not in _watchlist_set]
                 run(dry_run=dry_run, sell_alert_state=sell_alert_state,
-                    _regime=_regime_this_iter)
+                    _regime=_regime_this_iter, universe_override=_full_universe)
                 _scanned_sessions.add(scan_id)
             except Exception as e:
                 print(f"  [ERROR] Full check failed: {e}")

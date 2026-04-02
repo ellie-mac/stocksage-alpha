@@ -155,16 +155,23 @@ def _build_desp(
     lines = [f"*{run_time}*  市场体制: {regime_score}/10 — {regime_signal}\n"]
 
     stop_loss_pct = thresholds.get("stop_loss_pct", -8.0) if isinstance(thresholds, dict) else -8.0
+    sell_trigger  = thresholds.get("sell_score_trigger", 60) if isinstance(thresholds, dict) else 60
+    stall_score   = thresholds.get("stall_sell_score", 40)   if isinstance(thresholds, dict) else 40
     if sell_alerts:
         lines.append("## 卖出信号 🔴\n")
         for a in sell_alerts:
             pnl_icon = "🔴" if a["pnl_pct"] < 0 else "🟢"
             cost = a.get("cost_price") or 0
             stop_price = round(cost * (1 + stop_loss_pct / 100), 3) if cost > 0 else "—"
+            if a["sell_score"] >= sell_trigger:
+                pos_hint = "建议减仓参考 50–100%（强卖出信号）"
+            else:
+                pos_hint = "建议减仓参考 30–50%（动能减弱，逢高减仓）"
             lines.append(
                 f"### {a['name']} ({a['code']})\n"
                 f"现价 **{a['price']}** | 浮盈 {pnl_icon} **{a['pnl_pct']:+.1f}%**  \n"
-                f"卖出评分: **{a['sell_score']:.0f}/100** | 参考止损价: **{stop_price}**\n"
+                f"卖出评分: **{a['sell_score']:.0f}/100** | 参考止损价: **{stop_price}**  \n"
+                f"*{pos_hint}*\n"
             )
             for r in a["reasons"]:
                 lines.append(f"- {r}")
@@ -176,10 +183,17 @@ def _build_desp(
             price = a.get("price") or 0
             entry_lo = round(price * 0.998, 3)
             entry_hi = round(price * 1.003, 3)
+            if a["buy_score"] >= 85:
+                pos_hint = "建议仓位参考 8–12%"
+            elif a["buy_score"] >= 75:
+                pos_hint = "建议仓位参考 5–8%"
+            else:
+                pos_hint = "建议仓位参考 3–5%（轻仓试探）"
             lines.append(
                 f"### {a['name']} ({a['code']})\n"
                 f"现价 **{price}** | 参考区间: **{entry_lo} ~ {entry_hi}**  \n"
-                f"买入评分: **{a['buy_score']:.0f}/100**\n"
+                f"买入评分: **{a['buy_score']:.0f}/100**  \n"
+                f"*{pos_hint}*\n"
             )
 
     if today_activity:
