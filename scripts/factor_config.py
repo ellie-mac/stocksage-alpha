@@ -2,7 +2,7 @@
 Factor configuration — IC-based weights, excluded factor registry,
 and regime-adaptive weight sets.
 
-Based on rolling 6-period IC analysis (20d forward, Group A, 50 stocks, 2026-04-01).
+Based on rolling 6-period IC analysis (20d forward, Group A, 50 stocks, 2026-04-02).
 Re-run factor_analysis.py --rolling 6 periodically to refresh.
 
 To re-activate an excluded factor: move it from EXCLUDED_FACTORS back to FACTOR_WEIGHTS.
@@ -19,36 +19,35 @@ Regime logic (CSI 300 MA signal):
 # ---------------------------------------------------------------------------
 FACTOR_WEIGHTS: dict[str, float] = {
     # ── Tier 1: IC ≥ 0.10, ICIR ≥ 0.55 (full 2× weight) ────────────
-    "low_volatility":      2.0,   # IC=+0.234, ICIR=0.560
-    "idiosyncratic_vol":   2.0,   # IC=+0.229, ICIR=0.578 — residual vol; A股彩票效应反转
-    "cash_flow_quality":   2.0,   # IC=+0.164, ICIR=0.894 — earnings backed by cash
-    "momentum_concavity":  2.0,   # IC=+0.135, ICIR=0.566 — momentum acceleration
-    "divergence":          2.0,   # IC=+0.130, ICIR=0.810 — multi-indicator confluence
-    "price_inertia":       2.0,   # IC=+0.107, ICIR=0.787 — most stable momentum signal
-    "asset_growth":        2.0,   # IC=+0.109, ICIR=0.585
-    "atr_normalized":      2.0,   # IC=+0.249, ICIR=0.802 — low ATR = low realised risk; co-linear w/ low_vol but additive
-    "gap_frequency":       2.0,   # IC=+0.250, ICIR=0.717 — low overnight gap frequency = stable, predictable; inverted in score
+    "low_volatility":      2.0,   # IC=+0.279, ICIR=0.738
+    "idiosyncratic_vol":   2.0,   # IC=+0.273, ICIR=0.723 — residual vol; A股彩票效应反转
+    "cash_flow_quality":   2.0,   # IC=+0.181, ICIR=0.732 — earnings backed by cash
+    "price_inertia":       2.0,   # IC=+0.136, ICIR=0.712 — most stable momentum signal
+    "asset_growth":        2.0,   # IC=+0.132, ICIR=0.688
+    "atr_normalized":      2.0,   # IC=+0.226, ICIR=0.721 — low ATR = low realised risk; co-linear w/ low_vol but additive
+    "gap_frequency":       2.0,   # IC=+0.232, ICIR=0.791 — low overnight gap frequency = stable, predictable; inverted in score
+    "bb_squeeze":          2.0,   # IC=+0.152, ICIR=0.987 — volatility squeeze: strongest ICIR in tier 1
+    "nearness_to_high":    2.0,   # IC=+0.151, ICIR=0.801 — proximity to 20d high, breakout momentum
+    "volume":              2.0,   # IC=+0.133, ICIR=0.994 — high turnover = institutional participation
 
-    # ── Tier 2: IC ≥ 0.05 (1× weight) ───────────────────────────────
-    "volume":              1.0,   # IC=+0.090, ICIR=0.432
-    "piotroski":           1.0,   # IC=+0.067, ICIR=1.006 — highest ICIR of all
-    "ma60_deviation":      1.0,   # IC=+0.098, ICIR=0.668 — mean-reversion: stocks below MA60 outperform
-    "nearness_to_high":    0.5,   # IC=+0.106, ICIR=0.378 — proximity to 20d high, breakout momentum
-    "main_inflow":         0.5,   # IC=+0.060, ICIR=0.239 — institutional flow, low ICIR
-    "bb_squeeze":          0.5,   # IC=+0.064, ICIR=0.399 — volatility squeeze signal
-    "roe_trend":           0.5,   # IC=+0.053, ICIR=0.362 — ROE direction
+    # ── Tier 2: IC ≥ 0.05, ICIR ≥ 0.50 (1× weight) ──────────────────
+    "turnover_percentile": 1.0,   # IC=+0.128, ICIR=0.560 — re-activated: was excluded as noise (IC=+0.005), now strong
+    "piotroski":           1.0,   # IC=+0.058, ICIR=0.583 — financial health score
+    "main_inflow":         0.5,   # IC=+0.102, ICIR=0.399 — institutional flow, moderate ICIR
+    "roe_trend":           0.5,   # IC=+0.053, ICIR=0.355 — ROE direction
 
     # ── Tier 3: Weak-positive ─────────────────────────────────────────
-    "quality":             0.5,   # IC=+0.025, ICIR=0.232
+    "divergence":          0.5,   # IC=+0.061, ICIR=0.348 — downgraded: IC fell from +0.130; moderate only
+    "quality":             0.2,   # IC=+0.035, ICIR=0.280 — weak signal, kept as small tilt
 
     # ── Inverted (IC < 0, contrarian) ────────────────────────────────
-    "growth":                -0.5,   # IC=-0.073, ICIR=-0.721 — A-share growth trap
-    "limit_hits":            -0.5,   # IC=-0.060, ICIR=-0.362 — post-limit-up reversal
-    "obv_trend":             -1.0,   # IC=-0.115, ICIR=-0.479 — OBV积累=零售追涨=反转信号
-    "medium_term_momentum":  -1.0,   # IC=-0.108, ICIR=-0.352 — 中期动量在A股均值回归
-    "amihud_illiquidity":    -0.5,   # IC=-0.062, ICIR=-0.275 — 非流动性溢价短期无效
-    "price_volume_corr":     -0.5,   # IC=-0.066, ICIR=-0.624 — 量价配合=散户追涨=反转信号 (inverted)
-    "intraday_vs_overnight": -0.5,   # IC=-0.103, ICIR=-0.461 — A股日内追涨=散户=反转; 非隔夜跳空=弱势 (inverted)
+    "growth":                -0.5,   # IC=-0.046, ICIR=-0.365 — A-share growth trap
+    "limit_hits":            -0.5,   # IC=-0.072, ICIR=-0.514 — post-limit-up reversal
+    "obv_trend":             -0.3,   # IC=-0.035, ICIR=-0.196 — weakened; reduced from -1.0
+    "medium_term_momentum":  -0.5,   # IC=-0.084, ICIR=-0.290 — 中期动量在A股均值回归; reduced from -1.0
+    "amihud_illiquidity":    -0.3,   # IC=-0.065, ICIR=-0.265 — weak; reduced from -0.5
+    "price_volume_corr":     -0.5,   # IC=-0.078, ICIR=-0.665 — 量价配合=散户追涨=反转信号 (inverted)
+    "intraday_vs_overnight": -0.5,   # IC=-0.067, ICIR=-0.382 — A股日内追涨=散户=反转; 非隔夜跳空=弱势 (inverted)
 }
 
 # Alias so code can refer to it by regime name
@@ -189,11 +188,12 @@ REGIME_MA_LONG  = 60    # long  MA — price below this → CRISIS
 # ---------------------------------------------------------------------------
 EXCLUDED_FACTORS: dict[str, str] = {
     # Noise: |IC| < 0.02
-    "northbound":          "noise: IC=+0.001 — fund flow signal absent",
-    "turnover_percentile": "noise: IC=+0.005",
-    "ma_alignment":        "noise: IC=+0.010",
-    "reversal":            "noise: IC=+0.012",
-    "position_52w":        "noise: IC=-0.025",
+    "northbound":          "noise: IC=+0.086, ICIR=0.481 — moderate but unreliable; northbound data often delayed/revised",
+    "ma_alignment":        "noise: IC=+0.029, ICIR=0.151",
+    "reversal":            "noise: IC=-0.069, ICIR=-0.304 — weak, subsumed by price_inertia",
+    "position_52w":        "weak: IC=+0.049, ICIR=0.353 — subsumed by nearness_to_high",
+    "momentum_concavity":  "degraded: IC=+0.028, ICIR=0.162 — was IC=+0.135 in prior run; signal decayed to noise",
+    "ma60_deviation":      "degraded: IC=+0.019, ICIR=0.141 — was IC=+0.098; decayed to noise",
 
     # Data unavailable (East Money blocked — real-time PE/PB missing)
     "value":               "no data: EM quote blocked, PE/PB=0 -> NaN score",

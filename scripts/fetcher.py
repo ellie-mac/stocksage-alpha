@@ -12,6 +12,39 @@ import cache
 
 _spot_lock = threading.Lock()
 _spot_em_failed = False  # once set True, skip all subsequent stock_zh_a_spot_em calls
+_hist_em_failed = False  # once set True, skip stock_zh_a_hist and go straight to fallback
+
+# stock_zh_a_daily and stock_fund_flow_individual both use py_mini_racer's V8 engine.
+# Concurrent initialisation of V8 from multiple threads causes a fatal crash:
+#   "Check failed: !IsConfigurablePoolInitialized()"
+# Only the *first* call needs to be serialised (V8 init); once initialised, concurrent
+# calls are safe.  Use an Event to signal that V8 is ready after the first call.
+_v8_lock = threading.Lock()
+_v8_initialised = threading.Event()
+
+_bs_module = None        # baostock module, None if unavailable
+_bs_lock = threading.Lock()
+
+
+def _get_baostock():
+    """Return the logged-in baostock module, logging in once per process."""
+    global _bs_module
+    if _bs_module is not None:
+        return _bs_module
+    with _bs_lock:
+        if _bs_module is not None:
+            return _bs_module
+        try:
+            import baostock as bs
+            lg = bs.login()
+            if lg.error_code != "0":
+                return None
+            import atexit
+            atexit.register(bs.logout)
+            _bs_module = bs
+            return bs
+        except Exception:
+            return None
 
 
 def _call_with_timeout(fn, timeout: float = 20.0, *args, **kwargs):
@@ -143,57 +176,99 @@ def get_stock_info(code: str) -> Optional[dict]:
 def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     """Fetch daily OHLCV history (qfq adjusted). Cached for 1 hour.
 
-    Primary source: East Money (stock_zh_a_hist).
-    Fallback: stock_zh_a_daily (163/Netease source) when primary is unavailable.
+    Source priority:
+      1. East Money  (stock_zh_a_hist)   — best adjusted data; skipped if known-failed
+      2. BaoStock                         — free, reliable, no V8
+      3. 163/Netease (stock_zh_a_daily)  — V8-based; last resort
     """
+    global _hist_em_failed
     cache_key = f"price_{code}_{days}"
     cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY)
     if cached is not None:
         return cached
+
+    # ── Source 1: East Money ─────────────────────────────────────────────
+    if not _hist_em_failed:
+        try:
+            end = datetime.now()
+            start = end - timedelta(days=days)
+            df = ak.stock_zh_a_hist(
+                symbol=code,
+                period="daily",
+                start_date=start.strftime("%Y%m%d"),
+                end_date=end.strftime("%Y%m%d"),
+                adjust="qfq",
+            )
+            df.columns = [c.strip() for c in df.columns]
+            df = df.rename(columns={
+                "日期": "date", "开盘": "open", "收盘": "close",
+                "最高": "high", "最低": "low", "成交量": "volume",
+                "成交额": "amount", "振幅": "amplitude",
+                "涨跌幅": "change_pct", "涨跌额": "change_amt", "换手率": "turnover",
+            })
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values("date").reset_index(drop=True)
+            cache.set_df(cache_key, df)
+            return df
+        except Exception:
+            _hist_em_failed = True  # fail fast for all subsequent calls this session
+
+    # ── Source 2: BaoStock (free, no V8, reliable) ───────────────────────
     try:
-        end = datetime.now()
-        start = end - timedelta(days=days)
-        df = ak.stock_zh_a_hist(
-            symbol=code,
-            period="daily",
-            start_date=start.strftime("%Y%m%d"),
-            end_date=end.strftime("%Y%m%d"),
-            adjust="qfq",
-        )
-        df.columns = [c.strip() for c in df.columns]
-        df = df.rename(columns={
-            "日期": "date", "开盘": "open", "收盘": "close",
-            "最高": "high", "最低": "low", "成交量": "volume",
-            "成交额": "amount", "振幅": "amplitude",
-            "涨跌幅": "change_pct", "涨跌额": "change_amt", "换手率": "turnover",
-        })
-        df["date"] = pd.to_datetime(df["date"])
-        df = df.sort_values("date").reset_index(drop=True)
-        cache.set_df(cache_key, df)
-        return df
+        bs = _get_baostock()
+        if bs is not None:
+            prefix = "sh" if code.startswith("6") else "sz"
+            bs_code = f"{prefix}.{code}"
+            end = datetime.now()
+            start = end - timedelta(days=days)
+            rs = bs.query_history_k_data_plus(
+                bs_code,
+                "date,open,high,low,close,volume,turn,pctChg",
+                start_date=start.strftime("%Y-%m-%d"),
+                end_date=end.strftime("%Y-%m-%d"),
+                frequency="d",
+                adjustflag="2",  # qfq
+            )
+            rows = []
+            while rs.error_code == "0" and rs.next():
+                rows.append(rs.get_row_data())
+            if rows:
+                df = pd.DataFrame(rows, columns=rs.fields)
+                df = df.rename(columns={"turn": "turnover", "pctChg": "change_pct"})
+                df["date"] = pd.to_datetime(df["date"])
+                for col in ["open", "high", "low", "close", "volume", "turnover", "change_pct"]:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors="coerce")
+                df["change_amt"] = df["close"].diff()
+                df = df.sort_values("date").reset_index(drop=True)
+                if not df.empty:
+                    cache.set_df(cache_key, df)
+                    return df
     except Exception:
         pass
 
-    # Fallback: 163/Netease source via stock_zh_a_daily
+    # ── Source 3: 163/Netease via stock_zh_a_daily (V8 — last resort) ───
     try:
         prefix = "sh" if code.startswith("6") else "sz"
-        df = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust="qfq")
+        if not _v8_initialised.is_set():
+            with _v8_lock:
+                df = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust="qfq")
+                _v8_initialised.set()
+        else:
+            df = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust="qfq")
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").reset_index(drop=True)
-        # Trim to requested window
         cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
         df = df[df["date"] >= cutoff].reset_index(drop=True)
         if df.empty:
             return None
-        # Compute change_pct and change_amt from close if not present
         if "change_pct" not in df.columns:
             df["change_pct"] = df["close"].pct_change() * 100
         if "change_amt" not in df.columns:
             df["change_amt"] = df["close"].diff()
-        # turnover from stock_zh_a_daily is a decimal ratio; convert to percentage
         if "turnover" in df.columns:
             df["turnover"] = df["turnover"] * 100
         cache.set_df(cache_key, df)
@@ -254,7 +329,12 @@ def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
         return cached
     try:
         market = _market_from_code(code)
-        df = ak.stock_individual_fund_flow(stock=code, market=market)
+        if not _v8_initialised.is_set():
+            with _v8_lock:
+                df = ak.stock_individual_fund_flow(stock=code, market=market)
+                _v8_initialised.set()
+        else:
+            df = ak.stock_individual_fund_flow(stock=code, market=market)
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
