@@ -154,7 +154,7 @@ REGIME_EXPOSURE: dict[str, float] = {
     "CAUTION":      0.7,   # prior-20d < -3%  (mild decline)
     "CRISIS":       0.4,   # prior-20d < -6%  (severe decline)
     "BULL":         0.8,   # prior-20d > +2.5% (moderate-to-strong rally)
-    "EXTREME_BULL": 0.55,  # prior-20d > +6%  (extreme/parabolic rally — hard to catch)
+    "EXTREME_BULL": 0.70,  # prior-20d > +6%  (extreme rally — raised 0.55->0.70 on 2026-04-03: P8 lost -8% alpha at 55% when bench+10.9%; small-sample caution but structural)
     # Trend-filter overlay (applied on top of return-based regime)
     "BEAR":         0.15,  # CSI 300 < MA60 (structural downtrend) — near-cash, avoid drawdown
 }
@@ -226,4 +226,17 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "upper_shadow_reversal":   "pending: newly added 2026-04-02, run factor_analysis --rolling 6 to validate",
     "sector_sympathy":         "pending: newly added 2026-04-02, run factor_analysis --rolling 6 to validate",
     "overhead_resistance":     "pending: newly added 2026-04-02, run factor_analysis --rolling 6 to validate",
+
+    # ── Group B factors (require --group AB; not yet IC-tested in rolling mode) ──
+    "shareholder_change":   "Group B pending: quarterly shareholder count change; no IC data yet",
+    "lhb":                  "Group B pending: 龙虎榜 net inflow; no IC data yet",
+    "lockup_pressure":      "Group B pending: 解禁压力 from lock-up expiry calendar; no IC data yet",
+    "insider":              "Group B pending: 内部人交易 insider buy/sell; no IC data yet",
+    "institutional_visits": "Group B pending: 机构调研 frequency as interest proxy; no IC data yet",
+    "northbound_actual":    "Group B pending: 北向实际持股变动 (陆股通); no IC data yet",
+    "social_heat":          "Group B pending: 小红书/雪球 热度; no IC data yet",
+    "market_regime":        "Group B: macro regime score used in regime filter, not as stock factor",
+    "earnings_revision":    "Group B pending: 分析师预期修正; no IC data yet",
+    "concept_momentum":     "Group B pending: 概念板块动量; no IC data yet",
+    "industry_momentum":    "Group B pending: 行业动量; no IC data yet",
 }

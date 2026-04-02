@@ -46,12 +46,39 @@ def _get_baostock():
             lg = bs.login()
             if lg.error_code != "0":
                 return None
+            # Best-effort: set a 30s recv timeout on the underlying socket so
+            # rs.next() raises socket.timeout rather than blocking forever when
+            # the server connection becomes stale (e.g. after hours of running).
+            try:
+                # baostock stores its socket as BaoStockSdk.__socket (name-mangled).
+                # The module exposes the singleton's private attrs at module level.
+                for _attr in ("_BaoStockSdk__socket", "_BaoStockSdk__client",
+                              "_socket", "_client"):
+                    _sock_candidate = getattr(bs, _attr, None)
+                    if _sock_candidate is not None and hasattr(_sock_candidate, "settimeout"):
+                        _sock_candidate.settimeout(30.0)
+                        break
+            except Exception:
+                pass  # socket timeout is a best-effort optimisation; proceed without it
             import atexit
             atexit.register(bs.logout)
             _bs_module = bs
             return bs
         except Exception:
             return None
+
+
+def _reset_baostock() -> None:
+    """Force a fresh BaoStock login on the next _get_baostock() call.
+    Called when a query times out, indicating a stale connection."""
+    global _bs_module
+    with _bs_lock:
+        try:
+            if _bs_module is not None:
+                _bs_module.logout()
+        except Exception:
+            pass
+        _bs_module = None
 
 
 def _call_with_timeout(fn, timeout: float = 20.0, *args, **kwargs):
@@ -305,6 +332,10 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     # different threads consume each other's response bytes, leaving some threads
     # blocked forever in socket.recv() — which deadlocks the executor across
     # backtest periods.  Hold _bs_lock for the entire send+receive cycle.
+    #
+    # After long runs the TCP connection can become stale (server-side timeout).
+    # We wrap the query in _call_with_timeout so rs.next() cannot block forever:
+    # on timeout _reset_baostock() forces a fresh login for the next caller.
     try:
         bs = _get_baostock()
         if bs is not None:
@@ -312,32 +343,44 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             bs_code = f"{prefix}.{code}"
             end = datetime.now()
             start = end - timedelta(days=fetch_days)
-            with _bs_lock:
-                rs = bs.query_history_k_data_plus(
-                    bs_code,
-                    "date,open,high,low,close,volume,turn,pctChg",
-                    start_date=start.strftime("%Y-%m-%d"),
-                    end_date=end.strftime("%Y-%m-%d"),
-                    frequency="d",
-                    adjustflag="2",  # qfq
-                )
-                rows = []
-                while rs.error_code == "0" and rs.next():
-                    rows.append(rs.get_row_data())
-            if rows:
-                df = pd.DataFrame(rows, columns=rs.fields)
-                df = df.rename(columns={"turn": "turnover", "pctChg": "change_pct"})
-                df["date"] = pd.to_datetime(df["date"])
-                for col in ["open", "high", "low", "close", "volume", "turnover", "change_pct"]:
-                    if col in df.columns:
-                        df[col] = pd.to_numeric(df[col], errors="coerce")
-                df["change_amt"] = df["close"].diff()
-                df = df.sort_values("date").reset_index(drop=True)
-                if not df.empty:
-                    cache.set_df(cache_key, df)
-                    if len(df) > days:
-                        return df.tail(days).reset_index(drop=True)
-                    return df
+
+            _bs_rows: list = []
+
+            def _do_bs_query():
+                with _bs_lock:
+                    rs = bs.query_history_k_data_plus(
+                        bs_code,
+                        "date,open,high,low,close,volume,turn,pctChg",
+                        start_date=start.strftime("%Y-%m-%d"),
+                        end_date=end.strftime("%Y-%m-%d"),
+                        frequency="d",
+                        adjustflag="2",  # qfq
+                    )
+                    result = []
+                    while rs.error_code == "0" and rs.next():
+                        result.append(rs.get_row_data())
+                    return result, rs.fields
+
+            _bs_result = _call_with_timeout(_do_bs_query, timeout=60.0)
+            if _bs_result is None:
+                # Timed out — connection likely stale; reset for next caller
+                _reset_baostock()
+            else:
+                rows, _bs_fields = _bs_result
+                if rows:
+                    df = pd.DataFrame(rows, columns=_bs_fields)
+                    df = df.rename(columns={"turn": "turnover", "pctChg": "change_pct"})
+                    df["date"] = pd.to_datetime(df["date"])
+                    for col in ["open", "high", "low", "close", "volume", "turnover", "change_pct"]:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors="coerce")
+                    df["change_amt"] = df["close"].diff()
+                    df = df.sort_values("date").reset_index(drop=True)
+                    if not df.empty:
+                        cache.set_df(cache_key, df)
+                        if len(df) > days:
+                            return df.tail(days).reset_index(drop=True)
+                        return df
     except Exception:
         pass
 
