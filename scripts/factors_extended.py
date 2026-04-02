@@ -3215,6 +3215,296 @@ def score_earnings_revision(
 # GROUP C — New behavioral / market-context factors
 # ===========================================================================
 
+def score_limit_open_rate(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """涨停开板率因子 — limit-up break (开板) rate over recent trading days.
+
+    Detects when a stock touched the limit-up price intraday but failed to
+    close there, i.e., the limit was "broken" (开板).  High open-board rate =
+    heavy supply at the limit price = distribution, bearish.
+
+    Detection (per day, using OHLC):
+      prev_limit = prev_close × 1.099  (≈ +10% limit, with tolerance)
+      touched    = high  ≥ prev_limit  (price reached limit intraday)
+      broke      = touched AND close < prev_limit  (couldn't hold limit by close)
+
+    Lookback windows:
+      - 20-day window (medium-term signal)
+      - 5-day recency window (recent sell pressure amplifier)
+
+    Score (MAX = 10):
+      touched == 0  → neutral (no limit events, factor not applicable)
+      break_rate == 0  → 8 (all limits held, solid momentum)
+      break_rate 0–30% → 6–8 (mostly held)
+      break_rate 30–60% → 3–6 (mixed / weakening)
+      break_rate > 60%  → 0–3 (heavy distribution)
+
+    Sell score: mirrors break_rate; amplified if recent (5d) break rate is high.
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 6:
+        return _neutral(MAX)
+
+    required_cols = {"close", "open", "high", "low"}
+    if not required_cols.issubset(price_df.columns):
+        return _neutral(MAX)
+
+    try:
+        df = price_df.copy()
+        for col in ("close", "open", "high", "low"):
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.dropna(subset=["close", "high"]).tail(25).reset_index(drop=True)
+        if len(df) < 5:
+            return _neutral(MAX)
+
+        prev_close = df["close"].shift(1)
+        limit_price = prev_close * 1.099  # ≈ +10% limit threshold
+
+        touched = (df["high"] >= limit_price) & (prev_close.notna())
+        broke   = touched & (df["close"] < limit_price)
+
+        # 20-day window
+        window20 = slice(max(0, len(df) - 20), len(df))
+        n_touched20 = int(touched.iloc[window20].sum())
+        n_broke20   = int(broke.iloc[window20].sum())
+
+        # 5-day recency window
+        window5 = slice(max(0, len(df) - 5), len(df))
+        n_touched5 = int(touched.iloc[window5].sum())
+        n_broke5   = int(broke.iloc[window5].sum())
+
+        if n_touched20 == 0:
+            # No limit-up events — factor not applicable, return neutral
+            return _neutral(MAX)
+
+        break_rate20 = n_broke20 / n_touched20  # 0.0–1.0
+        break_rate5  = (n_broke5 / n_touched5) if n_touched5 > 0 else break_rate20
+
+        # Score: low break rate = good (momentum intact); high = bad (distribution)
+        score = float(np.clip((1.0 - break_rate20) * 10.0, 0.0, 10.0))
+
+        # Sell score: break rate + recency amplifier
+        base_sell = float(np.clip(break_rate20 * 10.0, 0.0, 10.0))
+        recency_boost = 0.0
+        if n_touched5 > 0 and break_rate5 > break_rate20 + 0.2:
+            # Recent break rate significantly worse than 20d average
+            recency_boost = min(2.0, (break_rate5 - break_rate20) * 5.0)
+        sell_score = float(np.clip(base_sell + recency_boost, 0.0, 10.0))
+
+        # Signal text
+        if break_rate20 == 0.0:
+            signal = f"all {n_touched20} limit(s) held — solid momentum, no distribution"
+        elif break_rate20 < 0.3:
+            signal = (
+                f"low break rate {break_rate20:.0%} ({n_broke20}/{n_touched20}) "
+                f"— mostly holding, minor supply"
+            )
+        elif break_rate20 < 0.6:
+            signal = (
+                f"moderate break rate {break_rate20:.0%} ({n_broke20}/{n_touched20}) "
+                f"— supply pressure building"
+            )
+        else:
+            signal = (
+                f"high break rate {break_rate20:.0%} ({n_broke20}/{n_touched20}) "
+                f"— distribution at limit, bearish"
+            )
+
+        if recency_boost > 0:
+            signal += f" | recent 5d rate {break_rate5:.0%} — worsening"
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":         signal,
+                "n_touched_20d":  n_touched20,
+                "n_broke_20d":    n_broke20,
+                "break_rate_20d": round(break_rate20, 3),
+                "n_touched_5d":   n_touched5,
+                "n_broke_5d":     n_broke5,
+                "break_rate_5d":  round(break_rate5, 3),
+                "recency_boost":  round(recency_boost, 2),
+                "sell_score":     round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+def score_upper_shadow_reversal(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """上涨中长上影线因子 — bearish reversal signal in uptrend.
+
+    Detects shooting-star / gravestone-doji candles that appear during a
+    recent uptrend.  The pattern signals distribution: price tested higher
+    intraday but sellers pushed it back down — supply is heavy at these levels.
+
+    Upper-shadow candle criteria (per candle):
+      - upper_shadow  ≥ 50% of total range   (明显上引线)
+      - upper_shadow  ≥ 2× real body          (引线远超实体)
+      - lower_shadow  ≤ 20% of total range    (无明显下引线, 排除十字星)
+      - real body     ≥ 3% of total range     (非无量空心)
+      - total_range   > 0.3% of close price   (排除无波动日)
+
+    Uptrend context (required to generate a signal):
+      - 10-day return > +3%  OR  close > MA10
+
+    Strength bonuses (each +1 quality point, up to 4):
+      - Bear body: close < open  (阴线上影 更危险)
+      - Very long shadow: upper_shadow ≥ 3× body
+      - Recent (within last 3 days)
+      - Strong prior uptrend: 10d return > +8%  (上涨越猛, 反转越危险)
+
+    Score (MAX = 10):
+      No pattern in 10d OR no uptrend context  → neutral (4.0)
+      Pattern present, quality 0–4             → sell_score 5–9
+      Multiple patterns in 10d                 → sell_score +1 (capped 10)
+
+    This is primarily a SELL signal.  Buy score is inverted (absence of
+    upper shadows in uptrend = clean trend = slight buy signal).
+    """
+    MAX = 10
+    if price_df is None or len(price_df) < 15:
+        return _neutral(MAX)
+
+    required = {"close", "open", "high", "low"}
+    if not required.issubset(price_df.columns):
+        return _neutral(MAX)
+
+    try:
+        df = price_df.copy().tail(25)
+        for col in ("close", "open", "high", "low"):
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.dropna(subset=["close", "open", "high", "low"]).reset_index(drop=True)
+        if len(df) < 10:
+            return _neutral(MAX)
+
+        close_arr = df["close"].values
+
+        # ── Uptrend check (using last 10 candles before the window) ────
+        if len(close_arr) >= 10:
+            ret_10d = (close_arr[-1] - close_arr[-10]) / max(close_arr[-10], 1e-8) * 100
+        else:
+            ret_10d = 0.0
+        ma10 = float(pd.Series(close_arr).rolling(10).mean().iloc[-1]) if len(close_arr) >= 10 else close_arr[-1]
+        in_uptrend = ret_10d > 3.0 or close_arr[-1] > ma10
+
+        # ── Scan last 10 candles for upper-shadow pattern ──────────────
+        window = df.tail(10).reset_index(drop=True)
+        shadow_days: list[dict] = []
+
+        for i in range(len(window)):
+            row  = window.iloc[i]
+            o, h, l, c = float(row["open"]), float(row["high"]), float(row["low"]), float(row["close"])
+
+            body  = abs(c - o)
+            upper = h - max(o, c)
+            lower = min(o, c) - l
+            rng   = h - l
+
+            if rng < 1e-8 or rng < 0.003 * c:
+                continue
+
+            body_r  = body  / rng
+            upper_r = upper / rng
+            lower_r = lower / rng
+
+            if (
+                upper_r >= 0.50
+                and upper >= 2.0 * max(body, 1e-8)
+                and lower_r <= 0.20
+                and body_r >= 0.03
+            ):
+                quality = 0
+                notes   = []
+
+                if c < o:
+                    quality += 1
+                    notes.append("阴线上影")
+                if upper >= 3.0 * max(body, 1e-8):
+                    quality += 1
+                    notes.append(f"超长上影({upper_r:.0%})")
+                if i >= len(window) - 3:
+                    quality += 1
+                    notes.append("近期出现")
+                if ret_10d > 8.0:
+                    quality += 1
+                    notes.append(f"强势上涨后({ret_10d:+.1f}%)")
+
+                shadow_days.append({
+                    "day_index": i,
+                    "quality":   quality,
+                    "upper_r":   upper_r,
+                    "notes":     notes,
+                })
+
+        # ── Scoring ────────────────────────────────────────────────────
+        if not shadow_days or not in_uptrend:
+            # No pattern or not in uptrend → no sell signal
+            # Clean uptrend without upper shadows is slightly bullish
+            if in_uptrend and not shadow_days:
+                score      = 6.0  # clean uptrend, no distribution candles
+                sell_score = 0.0
+                signal     = f"clean uptrend ({ret_10d:+.1f}% 10d) — no upper-shadow distribution"
+            else:
+                score      = float(MAX) * 0.4   # neutral
+                sell_score = float(MAX) * 0.2
+                signal     = "no upper-shadow pattern in uptrend — neutral"
+            return {
+                "score":      round(score, 1),
+                "sell_score": round(sell_score, 1),
+                "max":        MAX,
+                "details": {
+                    "signal":        signal,
+                    "in_uptrend":    in_uptrend,
+                    "ret_10d":       round(ret_10d, 2),
+                    "shadow_count":  0,
+                    "sell_score":    round(sell_score, 1),
+                },
+            }
+
+        best    = max(shadow_days, key=lambda x: x["quality"])
+        quality = min(best["quality"], 4)
+
+        sell_score = float(np.clip(5.0 + quality, 0.0, 9.0))
+        if len(shadow_days) >= 2:
+            sell_score = min(sell_score + 1.0, float(MAX))
+
+        # Buy score inversely reflects distribution risk
+        score = float(np.clip(float(MAX) - sell_score, 0.0, float(MAX)))
+
+        notes_str  = " + ".join(best["notes"]) if best["notes"] else "basic upper shadow"
+        multi_note = f" ({len(shadow_days)} patterns in 10d)" if len(shadow_days) >= 2 else ""
+        signal = (
+            f"上涨中长上影线{multi_note}: {notes_str}, "
+            f"shadow={best['upper_r']:.0%}, trend={ret_10d:+.1f}%"
+        )
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":        signal,
+                "in_uptrend":    in_uptrend,
+                "ret_10d":       round(ret_10d, 2),
+                "shadow_count":  len(shadow_days),
+                "best_quality":  quality,
+                "best_upper_r":  round(best["upper_r"], 3),
+                "best_notes":    best["notes"],
+                "sell_score":    round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
 def score_limit_hits(
     price_df: Optional[pd.DataFrame],
     financial_df: Optional[pd.DataFrame] = None,
@@ -6488,6 +6778,221 @@ def score_price_efficiency(
                 "net_change": round(net_change, 3),
                 "total_path": round(total_path, 3),
                 "sell_score": round(sell_score, 1),
+            },
+        }
+
+    except Exception:
+        return _neutral(MAX)
+
+
+def score_hammer_bottom(
+    price_df: Optional[pd.DataFrame],
+) -> dict:
+    """金针探底因子 — hammer / dragonfly-doji candlestick pattern.
+
+    Detects candles where the stock tested significantly lower intraday but
+    recovered strongly by close, leaving a long lower shadow (下引线).
+
+    Hammer criteria (per candle):
+      - lower_shadow  ≥ 55% of total range  (主要特征)
+      - lower_shadow  ≥ 2× real body        (引线远长于实体)
+      - upper_shadow  ≤ 20% of total range  (无上影或极短)
+      - real body     ≥ 5% of total range   (排除十字星/无量)
+      - total_range   > 0.5% of close price (排除无交易日)
+
+    Strength bonuses (each +1 quality point):
+      - Bullish body: close ≥ open  (阳线金针 更强)
+      - Very long wick: lower_shadow ≥ 3× body
+      - Volume spike: hammer-day volume ≥ 1.5× 20d average (机构托底)
+      - Near support: hammer close within 3% of MA20 or MA60 (支撑位金针)
+      - Recovery confirmed: next-day close > hammer-day close (次日验证)
+
+    Score (MAX=12):
+      - 0 hammers in 10d → neutral (4.8)
+      - 1 hammer (quality 0–5) → score 5–10
+      - 2+ hammers in 10d → extra +2 (反复探底后支撑更强)
+      - Max quality bonus capped at 5 pts per best hammer
+
+    Sell score: detects shooting stars (上影线长, 下影线短 = 头部信号).
+    """
+    MAX = 12
+    if price_df is None or len(price_df) < 22:
+        return _neutral(MAX)
+
+    required = {"close", "open", "high", "low"}
+    if not required.issubset(price_df.columns):
+        return _neutral(MAX)
+
+    try:
+        df = price_df.copy().tail(22)
+        for col in ("close", "open", "high", "low"):
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.dropna(subset=["close", "open", "high", "low"])
+        if len(df) < 5:
+            return _neutral(MAX)
+
+        # Volume column (optional — used for quality bonus only)
+        vol_col = None
+        for c in ["volume", "成交量", "vol"]:
+            if c in df.columns:
+                vol_col = c
+                break
+        if vol_col is not None:
+            df[vol_col] = pd.to_numeric(df[vol_col], errors="coerce")
+            avg_vol = float(df[vol_col].iloc[:-1].mean())  # 20d avg excluding today
+        else:
+            avg_vol = None
+
+        # MA20 and MA60 for support check
+        close_series = df["close"]
+        ma20 = float(close_series.rolling(20).mean().iloc[-1]) if len(close_series) >= 20 else None
+        ma60_series = close_series.rolling(60).mean()
+        ma60 = float(ma60_series.iloc[-1]) if len(close_series) >= 60 else None
+
+        # Analyse last 10 candles for hammer patterns
+        window = df.tail(10).reset_index(drop=True)
+
+        hammer_days: list[dict] = []   # list of qualifying hammer candles
+        shooting_star_days: list[dict] = []
+
+        for i in range(len(window)):
+            row   = window.iloc[i]
+            o, h, l, c_price = float(row["open"]), float(row["high"]), float(row["low"]), float(row["close"])
+
+            body   = abs(c_price - o)
+            lower  = min(o, c_price) - l     # lower shadow length
+            upper  = h - max(o, c_price)     # upper shadow length
+            rng    = h - l                    # total range
+
+            if rng < 1e-8 or rng < 0.005 * c_price:  # skip zero-range / flat days
+                continue
+            if c_price < 1e-4:
+                continue
+
+            body_ratio  = body  / rng
+            lower_ratio = lower / rng
+            upper_ratio = upper / rng
+
+            # ── Hammer detection ───────────────────────────────────────
+            if (
+                lower_ratio >= 0.55
+                and lower >= 2.0 * max(body, 1e-8)
+                and upper_ratio <= 0.20
+                and body_ratio >= 0.05
+            ):
+                quality = 0
+                notes   = []
+
+                # Bullish body
+                if c_price >= o:
+                    quality += 1
+                    notes.append("阳线金针")
+
+                # Very long lower wick
+                if lower >= 3.0 * max(body, 1e-8):
+                    quality += 1
+                    notes.append(f"超长下引线({lower_ratio:.0%})")
+
+                # Volume spike
+                if vol_col is not None and avg_vol and avg_vol > 0:
+                    day_vol = float(row[vol_col]) if not pd.isna(row[vol_col]) else 0
+                    if day_vol >= 1.5 * avg_vol:
+                        quality += 1
+                        notes.append("放量金针")
+
+                # Near support (MA20 or MA60)
+                if ma20 and abs(c_price - ma20) / ma20 <= 0.03:
+                    quality += 1
+                    notes.append("MA20支撑金针")
+                elif ma60 and abs(c_price - ma60) / ma60 <= 0.03:
+                    quality += 1
+                    notes.append("MA60支撑金针")
+
+                # Recovery confirmation (check next day if available)
+                if i + 1 < len(window):
+                    next_close = float(window.iloc[i + 1]["close"])
+                    if next_close > c_price:
+                        quality += 1
+                        notes.append("次日上涨确认")
+
+                hammer_days.append({
+                    "day_index": i,
+                    "quality":   quality,
+                    "lower_ratio": lower_ratio,
+                    "notes":     notes,
+                    "close":     c_price,
+                })
+
+            # ── Shooting star detection (sell signal) ──────────────────
+            if (
+                upper_ratio >= 0.55
+                and upper >= 2.0 * max(body, 1e-8)
+                and lower_ratio <= 0.20
+                and body_ratio >= 0.05
+            ):
+                shooting_star_days.append({
+                    "day_index": i,
+                    "upper_ratio": upper_ratio,
+                })
+
+        # ── Score calculation ──────────────────────────────────────────
+        if not hammer_days:
+            sell_bonus = min(len(shooting_star_days) * 3, 8)
+            score      = 0.0
+            sell_score = min(sell_bonus, float(MAX))
+            if shooting_star_days:
+                signal = f"shooting star detected ({len(shooting_star_days)} in 10d) — distribution risk"
+            else:
+                signal = "no hammer or shooting star in 10d — neutral"
+            return {
+                "score":      round(max(score, 0.0), 1),
+                "sell_score": round(sell_score, 1),
+                "max":        MAX,
+                "details": {
+                    "signal":          signal,
+                    "hammer_count":    0,
+                    "shooting_stars":  len(shooting_star_days),
+                    "sell_score":      round(sell_score, 1),
+                },
+            }
+
+        # Find the best hammer (highest quality in the window)
+        best = max(hammer_days, key=lambda x: x["quality"])
+        quality = min(best["quality"], 5)  # cap quality bonus at 5
+
+        base_score  = 5.0 + quality   # range: 5–10
+        multi_bonus = 2.0 if len(hammer_days) >= 2 else 0.0
+        score       = min(base_score + multi_bonus, float(MAX))
+
+        # Sell score: shooting stars partially offset hammer signal
+        sell_score = max(0.0, min(len(shooting_star_days) * 2.0, 6.0))
+
+        # Signal text
+        recency   = "recent" if best["day_index"] >= len(window) - 3 else "earlier"
+        notes_str = " + ".join(best["notes"]) if best["notes"] else "basic hammer"
+        if len(hammer_days) >= 2:
+            signal = (
+                f"{len(hammer_days)} hammer patterns in 10d — repeated support test "
+                f"({recency} best: {notes_str}, wick={best['lower_ratio']:.0%})"
+            )
+        else:
+            signal = (
+                f"金针探底 ({recency}): {notes_str}, "
+                f"lower shadow={best['lower_ratio']:.0%} of range"
+            )
+
+        return {
+            "score":      round(score, 1),
+            "sell_score": round(sell_score, 1),
+            "max":        MAX,
+            "details": {
+                "signal":           signal,
+                "hammer_count":     len(hammer_days),
+                "best_quality":     quality,
+                "best_lower_ratio": round(best["lower_ratio"], 3),
+                "best_notes":       best["notes"],
+                "shooting_stars":   len(shooting_star_days),
+                "sell_score":       round(sell_score, 1),
             },
         }
 

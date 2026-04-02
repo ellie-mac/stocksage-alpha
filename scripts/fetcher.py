@@ -173,8 +173,13 @@ def get_stock_info(code: str) -> Optional[dict]:
         return {}
 
 
+_PRICE_FETCH_DAYS = 550  # Always fetch this many days so all rolling periods share one cache entry
+
 def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     """Fetch daily OHLCV history (qfq adjusted). Cached for 1 hour.
+
+    Always fetches _PRICE_FETCH_DAYS (550d) so that rolling-period IC tests
+    with different `days` values share a single cache entry per stock.
 
     Source priority:
       1. East Money  (stock_zh_a_hist)   — best adjusted data; skipped if known-failed
@@ -182,9 +187,13 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
       3. 163/Netease (stock_zh_a_daily)  — V8-based; last resort
     """
     global _hist_em_failed
-    cache_key = f"price_{code}_{days}"
+    fetch_days = max(days, _PRICE_FETCH_DAYS)
+    cache_key = f"price_{code}_{fetch_days}"
     cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY)
     if cached is not None:
+        # Caller may ask for fewer rows — slice to requested window
+        if len(cached) > days:
+            return cached.tail(days).reset_index(drop=True)
         return cached
 
     # ── Source 1: East Money ─────────────────────────────────────────────
@@ -220,7 +229,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             prefix = "sh" if code.startswith("6") else "sz"
             bs_code = f"{prefix}.{code}"
             end = datetime.now()
-            start = end - timedelta(days=days)
+            start = end - timedelta(days=fetch_days)
             rs = bs.query_history_k_data_plus(
                 bs_code,
                 "date,open,high,low,close,volume,turn,pctChg",
@@ -243,6 +252,8 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                 df = df.sort_values("date").reset_index(drop=True)
                 if not df.empty:
                     cache.set_df(cache_key, df)
+                    if len(df) > days:
+                        return df.tail(days).reset_index(drop=True)
                     return df
     except Exception:
         pass
