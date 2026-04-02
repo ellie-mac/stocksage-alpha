@@ -1046,20 +1046,34 @@ def run_loop(
             print(f"[{run_time}] Full factor check ({session_key} session)...")
             try:
                 _watchlist_set = set(config.get("watchlist", []))
-                # Morning open: re-check today's 1AM pre-market picks after auction.
-                # Afternoon close: fall back to full screener universe.
+                _screener_universe = config.get("screener_universe", [])
+
+                # Morning open: first confirm today's 1AM pre-market picks, then
+                # scan the full universe for any new signals after the auction.
                 if (session_key == "morning"
                         and _premarket_picks
                         and _premarket_scan_date == now.date()):
-                    _full_universe = [c for c in _premarket_picks
-                                      if c not in _watchlist_set]
-                    print(f"  Using {len(_full_universe)} pre-market picks "
-                          f"(post-auction confirmation)")
+                    _pm_universe = [c for c in _premarket_picks
+                                    if c not in _watchlist_set]
+                    print(f"  Post-auction: confirming {len(_pm_universe)} "
+                          f"pre-market picks...")
+                    run(dry_run=dry_run, sell_alert_state=sell_alert_state,
+                        _regime=_regime_this_iter, universe_override=_pm_universe)
+                    # Then scan the rest of the universe for new signals.
+                    _pm_set = set(_premarket_picks)
+                    _remaining = [c for c in _screener_universe
+                                  if c not in _pm_set and c not in _watchlist_set]
+                    if _remaining:
+                        print(f"  Post-auction: scanning {len(_remaining)} "
+                              f"remaining stocks...")
+                        run(dry_run=dry_run, sell_alert_state=sell_alert_state,
+                            _regime=_regime_this_iter,
+                            universe_override=_remaining)
                 else:
-                    _full_universe = [c for c in config.get("screener_universe", [])
+                    _full_universe = [c for c in _screener_universe
                                       if c not in _watchlist_set]
-                run(dry_run=dry_run, sell_alert_state=sell_alert_state,
-                    _regime=_regime_this_iter, universe_override=_full_universe)
+                    run(dry_run=dry_run, sell_alert_state=sell_alert_state,
+                        _regime=_regime_this_iter, universe_override=_full_universe)
                 _scanned_sessions.add(scan_id)
             except Exception as e:
                 print(f"  [ERROR] Full check failed: {e}")

@@ -66,6 +66,12 @@ def load_today() -> dict:
     return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
 
 
+def load_yesterday() -> dict:
+    from datetime import timedelta
+    f = RECORDS_DIR / f"{date.today() - timedelta(days=1)}.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+
+
 def save_today(record: dict):
     today_record_file().write_text(
         json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -552,6 +558,37 @@ MILESTONE_CTA = [
     "\n你觉得再跑一个月会怎样？",
 ]
 
+NIGHT_CTA = [
+    "\n你觉得这批明天会怎么走？",
+    "\n明早竞价后来看确认结果。",
+    "\n先记着，明早看开盘再说。",
+    "\n明天开盘后来更新。",
+]
+
+NIGHT_TITLES = [
+    "今晚模型跑完了，记一下明天的方向",
+    "睡前把明天可能的方向先记下来",
+    "晚上10点，今晚的输出出来了",
+    "今晚跑了一遍，明早竞价后再确认",
+    "今晚的筛选结果，先留个记录",
+    "今晚出来的方向，明天关注一下",
+]
+
+NIGHT_OPENERS = [
+    "今晚跑了一遍模型，把明天可能关注的方向先记下来。",
+    "收盘后的数据稳了，今晚跑出来了一批。",
+    "今晚的模型输出，先记录下来。",
+    "睡前把筛选结果跑出来，明早竞价后再核对一遍。",
+    "今晚跑完了，这是结果。",
+]
+
+NIGHT_CLOSERS = [
+    "明早9点半竞价结束后会来确认，\n看看开盘后信号有没有变化。",
+    "这是今晚收盘数据的输出，\n竞价可能改变状态，明早更新。",
+    "先记着，明早看开盘再做判断。\n\n明天见。",
+    "竞价结束后来确认，\n有变化会及时更新。",
+]
+
 
 # ---------------------------------------------------------------------------
 # Morning post templates
@@ -760,6 +797,7 @@ def generate_morning_post(
     regime: str,
     streak: dict,
     style: int = 1,
+    night_context: str = "",
 ) -> str:
     # --- Empty picks: no strong signal today ---
     if not picks:
@@ -815,13 +853,14 @@ Day {day}，连续记录实验。{series_decl}
 
     signal_line = f"\n{signal_hook}" if signal_hook else ""
     streak_line = f"\n{streak_note}" if streak_note else ""
+    night_line  = f"\n（{night_context}）" if night_context else ""
 
     # Style 3: human vs model battle format
     if style == 3:
         skeptic = _human_skeptic_angle(picks)
         text = f"""{title}
 
-Day {day}，连续记录实验。{series_decl}
+Day {day}，连续记录实验。{series_decl}{night_line}
 
 今天我的直觉：{skeptic}。
 模型的判断：
@@ -841,7 +880,7 @@ Day {day}，连续记录实验。{series_decl}
         closer = random.choice(MORNING_CLOSERS[style])
         text = f"""{title}
 
-Day {day}，连续记录实验。{series_decl}
+Day {day}，连续记录实验。{series_decl}{night_line}
 
 {opener}{streak_line}
 
@@ -856,6 +895,54 @@ Day {day}，连续记录实验。{series_decl}
 
 {hashtags}"""
 
+    return text.strip()
+
+
+# ---------------------------------------------------------------------------
+# Night post generator (22:00 — pre-select tomorrow's candidates)
+# ---------------------------------------------------------------------------
+
+def generate_night_post(
+    picks: list[dict],
+    day: int,
+    query: str,
+    style: int = 1,
+) -> str:
+    hashtags = _safe_hashtags("morning")
+    if not picks:
+        return f"""今晚没有跑出符合条件的方向
+
+Day {day}，连续记录实验。
+
+今晚模型跑了一遍，没有达到门槛的标的输出。
+
+记录一个「无信号」。
+
+明天继续。
+
+{hashtags}""".strip()
+
+    title   = _pick_fresh_title(NIGHT_TITLES)
+    opener  = random.choice(NIGHT_OPENERS)
+    closer  = random.choice(NIGHT_CLOSERS)
+    cta     = random.choice(NIGHT_CTA)
+    picks_block = format_picks_morning(picks, show_score=(style == 2))
+
+    text = f"""{title}
+
+Day {day}，连续记录实验。
+
+{opener}
+
+这批是今晚的结果：
+
+{picks_block}
+
+{closer}
+
+{cta}
+
+{hashtags}"""
     return text.strip()
 
 
@@ -895,22 +982,33 @@ def generate_midday_post(
         if p.get("code") in prices
     ]
 
-    # Check for dramatic movers (|change| > 3%)
-    dramatic = [
-        p for p in morning_picks
-        if p.get("code") in prices
-        and abs(prices[p["code"]]["change_pct"]) > 3.0
-    ]
+    # Classify movers: 涨停 (≥9.9%), strong (≥5%), dramatic (≥3%), down (≤-3%)
+    limit_up  = [p for p in morning_picks if p.get("code") in prices
+                 and prices[p["code"]]["change_pct"] >= 9.9]
+    strong_up = [p for p in morning_picks if p.get("code") in prices
+                 and 5.0 <= prices[p["code"]]["change_pct"] < 9.9]
+    dramatic  = [p for p in morning_picks if p.get("code") in prices
+                 and abs(prices[p["code"]]["change_pct"]) > 3.0]
 
-    if dramatic:
+    if dramatic or limit_up:
         title = random.choice(MIDDAY_TITLES_DRAMATIC)
-        mover = dramatic[0]
+        mover = (limit_up or strong_up or dramatic)[0]
         chg   = prices[mover["code"]]["change_pct"]
-        arrow = "大涨" if chg > 0 else "大跌"
-        drama_note = (
-            f"{mover.get('name', '?')}中场{arrow}{abs(chg):.1f}%，"
-            f"{'比早上预期的方向强' if chg > 0 else '和早上的方向反了'}。"
-        )
+        name  = obfuscate_stock_name(mover.get("name", mover.get("code", "?")))
+        if chg >= 9.9:
+            drama_note = random.choice([
+                f"{name}中场封板了，模型这次方向对了。",
+                f"{name}直接封板，中场情况不错。",
+                f"{name}涨停，今天这个方向跑出来了。",
+            ])
+        elif chg >= 5.0:
+            drama_note = f"{name}中场涨幅{chg:.1f}%，方向基本对了。"
+        else:
+            arrow = "大涨" if chg > 0 else "大跌"
+            drama_note = (
+                f"{name}中场{arrow}{abs(chg):.1f}%，"
+                f"{'比早上预期的方向强' if chg > 0 else '和早上的方向反了'}。"
+            )
         body = f"{drama_note}\n\n其余的：\n\n{picks_block}"
     else:
         title = random.choice(MIDDAY_TITLES_NORMAL)
@@ -1072,6 +1170,30 @@ def generate_evening_post(
     streak_note    = streak_narrative(streak, "evening")
     cta            = random.choice(EVENING_CTA)
 
+    # Highlight 涨停 or strong movers (understated — just factual)
+    highlight_note = ""
+    if prices:
+        limit_up = [p for p in morning_picks if p.get("code") in prices
+                    and prices[p["code"]]["change_pct"] >= 9.9]
+        strong   = [p for p in morning_picks if p.get("code") in prices
+                    and 5.0 <= prices[p["code"]]["change_pct"] < 9.9]
+        if limit_up:
+            names_lu = "、".join(
+                obfuscate_stock_name(p.get("name", p.get("code", "?")))
+                for p in limit_up
+            )
+            highlight_note = random.choice([
+                f"\n{names_lu}今天封板了，这个结果还不错。",
+                f"\n{names_lu}涨停，方向对了。",
+                f"\n其中{names_lu}封板，今天这批跑出来了。",
+            ])
+        elif strong:
+            names_s = obfuscate_stock_name(
+                strong[0].get("name", strong[0].get("code", "?"))
+            )
+            chg_s = prices[strong[0]["code"]]["change_pct"]
+            highlight_note = f"\n{names_s}今天涨了{chg_s:.1f}%，表现不错。"
+
     # Verdict-aware opener (replaces the fixed "更新一下今天的记录")
     opener_pool = EVENING_OPENERS.get(verdict, EVENING_OPENERS["偏了"])
     ev_opener   = random.choice(opener_pool)
@@ -1108,7 +1230,7 @@ Day {day}，来更新今天的结果。
 
 今天的表现是：
 
-{picks_block}{benchmark_note}
+{picks_block}{benchmark_note}{highlight_note}
 
 目前来看：
 {verdict_line}
@@ -1306,7 +1428,12 @@ def cmd_morning(args):
     meta = load_meta()
     query = args.query or meta.get("last_query") or "综合"
 
-    print(f"[+] 正在运行模型筛选（query='{query}', top={args.top}）...")
+    # Load yesterday's night picks for confirmation context
+    yesterday = load_yesterday()
+    night_preview_picks = yesterday.get("night_preview", {}).get("picks", []) if yesterday else []
+    night_codes = {p.get("code") for p in night_preview_picks if p.get("code")}
+
+    print(f"[+] 正在运行模型筛选（竞价后确认，query='{query}', top={args.top}）...")
     screener_output = run_screener(query, args.top)
 
     if screener_output is None:
@@ -1318,15 +1445,22 @@ def cmd_morning(args):
         meta["last_query"] = query
         save_meta(meta)
 
+    # Compute night-pick confirmation stats for the post
+    confirmed_codes = {p.get("code") for p in picks if p.get("code") in night_codes}
+    if night_codes and confirmed_codes:
+        print(f"[+] 昨晚 night picks 确认率: {len(confirmed_codes)}/{len(night_codes)}")
+
     record = load_today()
     record.update({
         "date": str(date.today()),
         "day":  day,
         "morning": {
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
-            "query":     query,
-            "regime":    regime,
-            "picks":     picks,
+            "timestamp":      datetime.now().strftime("%H:%M:%S"),
+            "query":          query,
+            "regime":         regime,
+            "picks":          picks,
+            "night_confirmed": len(confirmed_codes),
+            "night_total":     len(night_codes),
         },
     })
     save_today(record)
@@ -1339,9 +1473,23 @@ def cmd_morning(args):
     streak  = compute_streak(history)
     styles  = _resolve_styles(args.style, streak)
 
+    # Build a brief night-confirmation note to inject into morning post
+    if night_codes and confirmed_codes:
+        n_conf = len(confirmed_codes)
+        n_total = len(night_codes)
+        if n_conf == n_total:
+            night_context = f"昨晚预判的{n_total}个方向，今早竞价后全部确认。"
+        else:
+            night_context = f"昨晚{n_total}个方向，今早竞价后确认了{n_conf}个。"
+    elif night_codes and not confirmed_codes:
+        night_context = "昨晚的预判方向今早竞价后有变化，更新如下。"
+    else:
+        night_context = ""
+
     first_post = None
     for s in styles:
-        post  = generate_morning_post(picks, day, query, regime, streak, style=s)
+        post  = generate_morning_post(picks, day, query, regime, streak, style=s,
+                                      night_context=night_context)
         saved = save_post_file(post, "morning", s)
         print(f"{'='*52}")
         print(f"🌅 早盘文案 — 风格{s}  （已保存 → {saved.relative_to(REPO_ROOT)}）")
@@ -1351,7 +1499,54 @@ def cmd_morning(args):
         if first_post is None:
             first_post = post
     if first_post:
-        _send_wechat_notify(f"📊 Day {day} 早盘文案｜09:05–09:15 发布", first_post)
+        _send_wechat_notify(f"📊 Day {day} 早盘文案｜09:30–09:40 发布", first_post)
+
+
+def cmd_night(args):
+    ensure_dirs()
+    day  = get_day_number()
+    meta = load_meta()
+    query = args.query or meta.get("last_query") or "综合"
+
+    print(f"[+] 晚间筛选明日候选方向（query='{query}', top={args.top}）...")
+    screener_output = run_screener(query, args.top)
+
+    if screener_output is None:
+        print("[!] screener 未返回结果，生成占位文案。")
+        picks = []
+    else:
+        picks = screener_output.get("results", [])[:args.top]
+        meta["last_query"] = query
+        save_meta(meta)
+
+    record = load_today()
+    record.setdefault("date", str(date.today()))
+    record.setdefault("day",  day)
+    record["night_preview"] = {
+        "timestamp": datetime.now().strftime("%H:%M:%S"),
+        "query":     query,
+        "picks":     picks,
+    }
+    save_today(record)
+    print(f"[+] 晚间预告已保存 → xhs/records/{date.today()}.json  (Day {day})\n")
+
+    history = load_recent_history(14)
+    streak  = compute_streak(history)
+    styles  = _resolve_styles(args.style, streak)
+
+    first_post = None
+    for s in styles:
+        post  = generate_night_post(picks, day, query, style=s)
+        saved = save_post_file(post, "night", s)
+        print(f"{'='*52}")
+        print(f"🌙 晚间文案 — 风格{s}  （已保存 → {saved.relative_to(REPO_ROOT)}）")
+        print(f"{'='*52}")
+        print(post)
+        print()
+        if first_post is None:
+            first_post = post
+    if first_post:
+        _send_wechat_notify(f"🌙 Day {day} 晚间文案｜22:00 发布", first_post)
 
 
 def cmd_midday(args):
@@ -1560,13 +1755,18 @@ def main():
     )
     sub = parser.add_subparsers(dest="cmd")
 
-    p_morning = sub.add_parser("morning", help="生成早盘文案（运行模型筛选）")
+    p_morning = sub.add_parser("morning", help="生成早盘文案（竞价后，09:30 运行）")
     p_morning.add_argument("--query",  default="", help="筛选条件（留空则复用上次）")
     p_morning.add_argument("--top",    type=int, default=5, help="展示前N支股票（默认5）")
     p_morning.add_argument("--style",  default="all", help="文风 1/2/3/all/auto（默认all）")
 
     p_midday = sub.add_parser("midday", help="生成午盘中场更新文案")
     p_midday.add_argument("--style", default="all")
+
+    p_night = sub.add_parser("night", help="生成晚间预告文案（22:00，筛明日候选方向）")
+    p_night.add_argument("--query", default="", help="筛选条件（留空则复用上次）")
+    p_night.add_argument("--top",   type=int, default=5, help="展示前N支股票（默认5）")
+    p_night.add_argument("--style", default="auto", help="文风 1/2/3/all/auto（默认auto）")
 
     p_evening = sub.add_parser("evening", help="生成晚盘复盘+明日预告文案")
     p_evening.add_argument("--style", default="all")
@@ -1584,6 +1784,7 @@ def main():
         "morning":   cmd_morning,
         "midday":    cmd_midday,
         "evening":   cmd_evening,
+        "night":     cmd_night,
         "milestone": cmd_milestone,
         "status":    cmd_status,
         "history":   cmd_history,
