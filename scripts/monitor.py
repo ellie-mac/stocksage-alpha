@@ -49,6 +49,7 @@ from common import (
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOLDINGS_PATH = os.path.join(_ROOT, "holdings.json")
 CONFIG_PATH   = os.path.join(_ROOT, "alert_config.json")
+PICKS_LOG_PATH = os.path.join(_ROOT, "picks_log.json")
 STATE_PATH    = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".monitor_state.json")
 
 
@@ -222,6 +223,35 @@ def check_buy_signal(scored: dict, thresholds: dict, held_codes: set) -> bool:
 
 
 # ── Markdown formatting (Server酱 / WeChat) ────────────────────────────────────
+
+def _append_picks_log(buy_alerts: list[dict], run_time: str) -> None:
+    """Append today's buy picks to picks_log.json (never overwrites holdings.json)."""
+    if not buy_alerts:
+        return
+    entry = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "run_time": run_time,
+        "picks": [
+            {
+                "code":       b["code"],
+                "name":       b.get("name", b["code"]),
+                "price":      b.get("price"),
+                "buy_score":  b.get("buy_score"),
+                "sell_score": b.get("sell_score"),
+            }
+            for b in buy_alerts
+        ],
+    }
+    try:
+        with open(PICKS_LOG_PATH, "r", encoding="utf-8") as f:
+            log = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        log = []
+    log.append(entry)
+    with open(PICKS_LOG_PATH, "w", encoding="utf-8") as f:
+        json.dump(log, f, ensure_ascii=False, indent=2)
+    print(f"  Picks logged → picks_log.json ({len(buy_alerts)} stocks)")
+
 
 def _fmt_sell_section_md(sell_alerts: list[dict], stop_loss_pct: float = -8.0,
                           sell_trigger: float = 60, stall_score: float = 40) -> str:
@@ -590,7 +620,10 @@ def run(
             if len(buy_alerts) >= top_n:
                 break
 
-    # ── 3. Build + send email ─────────────────────────────────────────────────
+    # ── 3. Log picks (separate from holdings) ────────────────────────────────
+    _append_picks_log(buy_alerts, run_time)
+
+    # ── 4. Build + send email ─────────────────────────────────────────────────
     has_signal = bool(sell_alerts or buy_alerts)
     if not has_signal and not always_send:
         print("  No signals triggered. No email sent.")
