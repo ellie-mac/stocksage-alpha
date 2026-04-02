@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""
+Shared utilities for StockSage monitor scripts.
+
+Centralises:
+  - A-share trading calendar (holiday-aware)
+  - Trading hours helpers
+  - WeChat push (Server酱)
+  - ETF / T+0 identification
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import time
+from datetime import datetime, timedelta
+from typing import Optional
+
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+import cache as _cache
+
+# ── Trading session windows ────────────────────────────────────────────────────
+_MORNING_OPEN    = (9, 25)
+_MORNING_CLOSE   = (11, 35)
+_AFTERNOON_OPEN  = (12, 55)
+_AFTERNOON_CLOSE = (15, 5)
+
+
+# ── Trading calendar ───────────────────────────────────────────────────────────
+
+def _load_trade_dates() -> set[str]:
+    """
+    Load A-share trading dates from Sina.  Cached for 24 h.
+    Returns a set of 'YYYY-MM-DD' strings.
+    On failure returns an empty set (callers should degrade gracefully).
+    """
+    cached = _cache.get("trade_dates_sina", _cache.TTL_VALUATION)  # 24 h
+    if cached is not None:
+        return set(cached)
+    try:
+        import akshare as ak
+        df = ak.tool_trade_date_hist_sina()
+        dates = df["trade_date"].astype(str).tolist()
+        _cache.set("trade_dates_sina", dates)
+        return set(dates)
+    except Exception as e:
+        print(f"  [WARN] trading calendar fetch failed: {e}")
+        return set()
+
+
+def is_trading_day(dt: Optional[datetime] = None) -> bool:
+    """True if `dt` (default: now) is a scheduled A-share trading day."""
+    if dt is None:
+        dt = datetime.now()
+    if dt.weekday() >= 5:          # weekend
+        return False
+    dates = _load_trade_dates()
+    if not dates:                  # calendar unavailable → trust weekday check
+        return True
+    return dt.strftime("%Y-%m-%d") in dates
+
+
+def is_trading_hours(dt: Optional[datetime] = None) -> bool:
+    """True if `dt` (default: now) falls within an A-share trading window."""
+    if dt is None:
+        dt = datetime.now()
+    if not is_trading_day(dt):
+        return False
+    hm = (dt.hour, dt.minute)
+    return (_MORNING_OPEN <= hm <= _MORNING_CLOSE or
+            _AFTERNOON_OPEN <= hm <= _AFTERNOON_CLOSE)
+
+
+def next_session_seconds() -> int:
+    """Seconds until the next trading session opens."""
+    now = datetime.now()
+    # Try today's morning open
+    today_open = now.replace(hour=_MORNING_OPEN[0], minute=_MORNING_OPEN[1],
+                              second=0, microsecond=0)
+    if now < today_open and is_trading_day(now):
+        return max(0, int((today_open - now).total_seconds()))
+    # Try today's afternoon open
+    aftn_open = now.replace(hour=_AFTERNOON_OPEN[0], minute=_AFTERNOON_OPEN[1],
+                             second=0, microsecond=0)
+    if now < aftn_open and is_trading_day(now):
+        return max(0, int((aftn_open - now).total_seconds()))
+    # Find next trading day morning open
+    candidate = now + timedelta(days=1)
+    for _ in range(10):           # guard against long holiday gaps
+        candidate = candidate.replace(hour=_MORNING_OPEN[0],
+                                      minute=_MORNING_OPEN[1],
+                                      second=0, microsecond=0)
+        if is_trading_day(candidate):
+            return max(0, int((candidate - now).total_seconds()))
+        candidate += timedelta(days=1)
+    # Fallback: 16 hours
+    return 16 * 3600
+
+
+# ── WeChat push ────────────────────────────────────────────────────────────────
+
+def send_wechat(title: str, desp: str, sendkey: str, dry_run: bool = False) -> None:
+    if dry_run:
+        print(f"[DRY-RUN] 微信推送: {title}")
+        print(f"[DRY-RUN] 内容预览:\n{desp[:300]}{'...' if len(desp) > 300 else ''}")
+        return
+    from serverchan_sdk import sc_send
+    resp = sc_send(sendkey, title, desp)
+    if resp.get("code") == 0:
+        print(f"[OK] 微信推送成功: {title}")
+    else:
+        print(f"[WARN] 微信推送: code={resp.get('code')} msg={resp.get('message')}")
+
+
+# ── ETF / T+0 identification ───────────────────────────────────────────────────
+
+def is_etf(code: str, name: str = "", is_t0_override: Optional[bool] = None) -> bool:
+    """
+    True for exchange-listed ETFs eligible for T+0 secondary-market trading.
+
+    Priority:
+      1. Explicit `is_t0` flag in the holding dict (set by user — most reliable).
+      2. Unambiguous ETF code ranges (510xxx-518xxx, 588xxx, 159xxx).
+      3. All other ranges → conservatively T+1 unless explicitly flagged.
+    """
+    if is_t0_override is not None:
+        return is_t0_override
+    c = str(code).zfill(6)
+    return c.startswith("51") or c.startswith("159") or c.startswith("588")
+
+
+def is_t1_locked(holding: dict) -> bool:
+    """True if holding was bought today and is subject to T+1 restriction."""
+    flag = holding.get("is_t0")
+    if is_etf(holding.get("code", ""), holding.get("name", ""), flag):
+        return False
+    bought_date = holding.get("bought_date")
+    if not bought_date:
+        return False
+    return bought_date == datetime.now().strftime("%Y-%m-%d")

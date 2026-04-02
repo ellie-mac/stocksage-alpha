@@ -24,27 +24,54 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from serverchan_sdk import sc_send
-
-# Windows: force UTF-8 stdout so Chinese characters don't crash cp1252
-if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
 sys.path.insert(0, os.path.dirname(__file__))
 
 from research import research
+from factors_extended import score_market_regime
 import fetcher
+import cache
+from common import (
+    is_trading_hours  as _is_trading_hours,
+    next_session_seconds as _next_session_seconds,
+    send_wechat,
+    is_etf   as _is_etf,
+    is_t1_locked as _is_t1_locked_common,
+)
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOLDINGS_PATH = os.path.join(_ROOT, "holdings.json")
 CONFIG_PATH   = os.path.join(_ROOT, "alert_config.json")
+STATE_PATH    = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".monitor_state.json")
+
+
+# ── State persistence ──────────────────────────────────────────────────────────
+
+def _load_state() -> dict:
+    """Load persisted loop state from disk (survives restarts)."""
+    try:
+        if os.path.exists(STATE_PATH):
+            with open(STATE_PATH, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def _save_state(state: dict) -> None:
+    """Persist loop state to disk (best-effort, never raises)."""
+    try:
+        with open(STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False)
+    except Exception:
+        pass
 
 
 # ── Config loading ─────────────────────────────────────────────────────────────
@@ -64,7 +91,16 @@ def load_config() -> dict:
         return json.load(f)
 
 
+
+# ── ETF / T+1 helpers ──────────────────────────────────────────────────────────
+
+def _is_t1_locked(holding: dict) -> bool:
+    """Thin wrapper — delegates to common.is_t1_locked."""
+    return _is_t1_locked_common(holding)
+
+
 # ── Score computation ──────────────────────────────────────────────────────────
+
 
 def _score_one(holding: dict) -> dict:
     """Research a single holding; return enriched dict with scores and signals."""
@@ -127,8 +163,13 @@ def _score_one_buy(code: str) -> dict:
 
 # ── Signal evaluation ──────────────────────────────────────────────────────────
 
-def check_sell_signals(scored: dict, thresholds: dict) -> list[str]:
-    """Return list of human-readable sell reasons, empty if no trigger."""
+def check_sell_signals(scored: dict, thresholds: dict,
+                       holding: Optional[dict] = None) -> list[str]:
+    """Return list of human-readable sell reasons, empty if no trigger.
+
+    If `holding` is provided and the position is T+1-locked (bought today, non-ETF),
+    reasons are prefixed with a T+1 warning so the user knows they can't act today.
+    """
     reasons = []
     sell_trigger = thresholds.get("sell_score_trigger", 60)
     stop_loss    = thresholds.get("stop_loss_pct", -8.0)
@@ -146,32 +187,56 @@ def check_sell_signals(scored: dict, thresholds: dict) -> list[str]:
         if ss >= 7:
             reasons.append(f"[{factor}] {sig} (卖出分={ss:.0f})")
 
+    # Soft sell: momentum stalling regardless of P&L.
+    # Fires when sell_score is in the [stall_threshold, sell_trigger) range —
+    # i.e., model sees early weakness but hasn't hit the full sell trigger yet.
+    # No profit/loss condition: a position showing weakness should be trimmed
+    # whether it's up 30% or down 10%.
+    stall_score = thresholds.get("stall_sell_score", 40)
+    if stall_score <= scored.get("sell_score", 0) < sell_trigger:
+        reasons.append(
+            f"逢高减仓参考: 卖出信号 **{scored['sell_score']:.0f}** 显示动能减弱"
+            f"（阈值 {stall_score}–{sell_trigger}）"
+        )
+
+    if reasons and holding and _is_t1_locked(holding):
+        reasons = [f"⚠️[T+1今日买入/明日可操作] {r}" for r in reasons]
+
     return reasons
 
 
 def check_buy_signal(scored: dict, thresholds: dict, held_codes: set) -> bool:
     buy_trigger  = thresholds.get("buy_score_trigger", 65)
     sell_trigger = thresholds.get("sell_score_trigger", 60)
+    bear_sell_cap = thresholds.get("_bear_sell_cap")   # set in bear regime only
     if scored["code"] in held_codes:
         return False
-    if scored["buy_score"] >= buy_trigger and scored["sell_score"] < sell_trigger * 0.7:
-        return True
-    return False
+    if scored["buy_score"] < buy_trigger:
+        return False
+    if scored["sell_score"] >= sell_trigger * 0.7:
+        return False
+    # Bear regime: additionally require sell_score below cap (rule out falling knives)
+    if bear_sell_cap is not None and scored["sell_score"] >= bear_sell_cap:
+        return False
+    return True
 
 
 # ── Markdown formatting (Server酱 / WeChat) ────────────────────────────────────
 
-def _fmt_sell_section_md(sell_alerts: list[dict]) -> str:
+def _fmt_sell_section_md(sell_alerts: list[dict], stop_loss_pct: float = -8.0) -> str:
     if not sell_alerts:
         return "无卖出信号触发。\n"
     lines = []
     for s in sell_alerts:
         pnl_sign = "🔴" if s["pnl_pct"] < 0 else "🟢"
+        cost = s.get("cost_price") or 0
+        stop_price = round(cost * (1 + stop_loss_pct / 100), 2) if cost > 0 else "—"
         lines.append(
             f"### ⚠️ {s['name']} ({s['code']})\n"
-            f"现价 **{s['price']}** | 成本 {s['cost_price']} | "
+            f"现价 **{s['price']}** | 成本 {cost} | "
             f"浮盈 {pnl_sign} **{s['pnl_pct']:+.1f}%**  \n"
-            f"卖出评分: **{s['sell_score']:.0f}/100** | 买入评分: {s['buy_score']:.0f}/100\n"
+            f"卖出评分: **{s['sell_score']:.0f}/100** | 买入评分: {s['buy_score']:.0f}/100  \n"
+            f"参考止损价: **{stop_price}**（成本 × {1 + stop_loss_pct/100:.2f}）\n"
         )
         for r in s["reasons"]:
             lines.append(f"- {r}")
@@ -179,15 +244,28 @@ def _fmt_sell_section_md(sell_alerts: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _buy_position_hint(score: float) -> str:
+    """Rough position-size suggestion based on buy score."""
+    if score >= 85:
+        return "建议仓位参考 8–12%"
+    if score >= 75:
+        return "建议仓位参考 5–8%"
+    return "建议仓位参考 3–5%（轻仓试探）"
+
+
 def _fmt_buy_section_md(buy_alerts: list[dict]) -> str:
     if not buy_alerts:
         return "无新买入机会。\n"
     lines = []
     for b in buy_alerts:
+        price = b.get("price") or 0
+        entry_lo = round(price * 0.998, 2)
+        entry_hi = round(price * 1.003, 2)
         lines.append(
             f"### ✅ {b['name']} ({b['code']})\n"
-            f"现价 **{b['price']}**  \n"
-            f"买入评分: **{b['buy_score']:.0f}/100** | 卖出评分: {b['sell_score']:.0f}/100\n"
+            f"现价 **{price}** | 参考买入区间: **{entry_lo} ~ {entry_hi}**  \n"
+            f"买入评分: **{b['buy_score']:.0f}/100** | 卖出评分: {b['sell_score']:.0f}/100  \n"
+            f"*{_buy_position_hint(b['buy_score'])}*\n"
         )
     return "\n".join(lines)
 
@@ -211,10 +289,11 @@ def build_wechat_desp(
     buy_alerts:  list[dict],
     scored_holdings: list[dict],
     run_time: str,
+    stop_loss_pct: float = -8.0,
 ) -> str:
     parts = [f"*{run_time}*\n"]
     parts.append("## 卖出信号\n")
-    parts.append(_fmt_sell_section_md(sell_alerts))
+    parts.append(_fmt_sell_section_md(sell_alerts, stop_loss_pct=stop_loss_pct))
     parts.append("## 买入机会（未持仓）\n")
     parts.append(_fmt_buy_section_md(buy_alerts))
     if scored_holdings:
@@ -224,61 +303,20 @@ def build_wechat_desp(
     return "\n".join(parts)
 
 
-# ── Server酱推送 ───────────────────────────────────────────────────────────────
-
-def send_wechat(title: str, desp: str, sendkey: str, dry_run: bool = False) -> None:
-    if dry_run:
-        print(f"[DRY-RUN] 微信推送标题: {title}")
-        print(f"[DRY-RUN] 内容预览:\n{desp[:300]}{'...' if len(desp) > 300 else ''}")
-        return
-    resp = sc_send(sendkey, title, desp)
-    if resp.get("code") == 0:
-        print(f"[OK] 微信推送成功: {title}")
-    else:
-        print(f"[WARN] 微信推送返回: code={resp.get('code')} msg={resp.get('message')}")
+# ── Trading session scan windows ───────────────────────────────────────────────
+_SCAN_WINDOWS = [
+    ("morning",   (9, 25), (9, 55)),
+    ("afternoon", (14, 30), (15, 0)),
+]
 
 
-# ── Trading hours ──────────────────────────────────────────────────────────────
-
-# CST offsets (hours, minutes) for session windows
-_MORNING_OPEN  = (9, 25)
-_MORNING_CLOSE = (11, 35)
-_AFTERNOON_OPEN  = (12, 55)
-_AFTERNOON_CLOSE = (15, 5)
-
-
-def _is_trading_hours() -> bool:
-    """Return True if current CST time is within A-share trading windows."""
-    now = datetime.now()
-    if now.weekday() >= 5:   # Saturday=5, Sunday=6
-        return False
+def _current_scan_session(now: datetime) -> Optional[str]:
+    """Return session key if now falls inside a universe-scan window, else None."""
     hm = (now.hour, now.minute)
-    morning   = _MORNING_OPEN   <= hm <= _MORNING_CLOSE
-    afternoon = _AFTERNOON_OPEN <= hm <= _AFTERNOON_CLOSE
-    return morning or afternoon
-
-
-def _next_session_seconds() -> int:
-    """Seconds until the next trading session opens (for sleep-until-open)."""
-    now = datetime.now()
-    # Try today's morning open
-    today_open = now.replace(hour=_MORNING_OPEN[0], minute=_MORNING_OPEN[1],
-                              second=0, microsecond=0)
-    if now < today_open and now.weekday() < 5:
-        return max(0, int((today_open - now).total_seconds()))
-    # Try today's afternoon open
-    aftn_open = now.replace(hour=_AFTERNOON_OPEN[0], minute=_AFTERNOON_OPEN[1],
-                             second=0, microsecond=0)
-    if now < aftn_open and now.weekday() < 5:
-        return max(0, int((aftn_open - now).total_seconds()))
-    # Tomorrow morning (skip weekends)
-    days_ahead = 1
-    while (now.weekday() + days_ahead) % 7 >= 5:
-        days_ahead += 1
-    from datetime import timedelta
-    next_open = (now + timedelta(days=days_ahead)).replace(
-        hour=_MORNING_OPEN[0], minute=_MORNING_OPEN[1], second=0, microsecond=0)
-    return max(0, int((next_open - now).total_seconds()))
+    for key, start, end in _SCAN_WINDOWS:
+        if start <= hm <= end:
+            return key
+    return None
 
 
 # ── Fast path (realtime quotes only) ───────────────────────────────────────────
@@ -286,17 +324,35 @@ def _next_session_seconds() -> int:
 def fast_check_holdings(
     holdings: list[dict],
     thresholds: dict,
-    alert_state: dict,
+    alert_state: dict,                          # 急涨 / 做T: normal cooldown
+    t_trade_state: Optional[dict] = None,       # {code: {sell_price, cover_price, date}}
+    urgent_alert_state: Optional[dict] = None,  # 止损 / 急跌: separate shorter cooldown
 ) -> list[dict]:
     """
     Quick scan using only realtime quotes.  Returns list of alert dicts with:
       code, name, price, pnl_pct, change_pct, reasons
-    Deduplicates: won't re-alert same code+reason within `cooldown_min` minutes.
+
+    Two independent cooldown buckets:
+      urgent_alert_state — 止损 / 日内急跌: uses `fast_urgent_cooldown_min` (default 15 min).
+        These are risk-critical and must never be blocked by a prior 做T alert.
+      alert_state        — 日内急涨 / 做T suggestions: uses `fast_alert_cooldown_min` (default 30 min).
+
+    做T logic (opt-in per holding via t_trade_enabled=True):
+      Phase 1 — Sell high: when intraday change_pct ≥ t_trade_sell_pct, suggest
+        selling a tranche at current price and set a target buy-back price.
+      Phase 2 — Buy back: when price drops back to ≤ cover_price, suggest covering.
+      Requires pre-existing shares (use holdings with shares bought before today).
     """
-    cooldown_min = thresholds.get("fast_alert_cooldown_min", 30)
-    stop_loss    = thresholds.get("stop_loss_pct", -8.0)
-    intraday_drop_trigger = thresholds.get("intraday_drop_trigger_pct", -5.0)
+    cooldown_min        = thresholds.get("fast_alert_cooldown_min", 30)
+    urgent_cooldown_min = thresholds.get("fast_urgent_cooldown_min", 15)
+    stop_loss           = thresholds.get("stop_loss_pct", -8.0)
+    intraday_drop_trigger  = thresholds.get("intraday_drop_trigger_pct", -5.0)
     intraday_surge_trigger = thresholds.get("intraday_surge_trigger_pct", 7.0)
+    t_sell_trigger = thresholds.get("t_trade_sell_pct", 3.0)
+    t_cover_pct    = thresholds.get("t_trade_cover_pct", 1.5)  # drop % from T-sell price
+
+    if urgent_alert_state is None:
+        urgent_alert_state = {}  # fallback: won't persist across calls, but won't crash
 
     alerts = []
     now = datetime.now()
@@ -309,28 +365,64 @@ def fast_check_holdings(
 
         price = quote.get("price") or 0
         cost  = h.get("cost_price", 0) or 0
-        pnl_pct     = ((price - cost) / cost * 100) if cost > 0 else 0.0
-        change_pct  = quote.get("change_pct") or 0.0
+        pnl_pct    = ((price - cost) / cost * 100) if cost > 0 else 0.0
+        change_pct = quote.get("change_pct") or 0.0
 
-        reasons = []
+        # ── Urgent reasons (止损 + 急跌) — own cooldown bucket ─────────────────
+        urgent_reasons = []
         if pnl_pct <= stop_loss:
-            reasons.append(f"止损触发: 浮亏 {pnl_pct:+.1f}%")
+            urgent_reasons.append(f"止损触发: 浮亏 {pnl_pct:+.1f}%")
         if change_pct <= intraday_drop_trigger:
-            reasons.append(f"日内急跌 {change_pct:+.1f}%")
-        if change_pct >= intraday_surge_trigger:
-            reasons.append(f"日内急涨 {change_pct:+.1f}% — 考虑止盈")
+            urgent_reasons.append(f"日内急跌 {change_pct:+.1f}%")
 
+        last_urgent = urgent_alert_state.get(code)
+        if last_urgent and (now - last_urgent).total_seconds() / 60 < urgent_cooldown_min:
+            urgent_reasons = []   # within cooldown — suppress but don't block normal reasons
+        elif urgent_reasons:
+            urgent_alert_state[code] = now
+
+        # ── Normal reasons (急涨 + 做T) — shared cooldown bucket ───────────────
+        normal_reasons = []
+        if change_pct >= intraday_surge_trigger:
+            normal_reasons.append(f"日内急涨 {change_pct:+.1f}% — 考虑止盈")
+
+        # 做T logic
+        if t_trade_state is not None and h.get("t_trade_enabled", False):
+            ts = t_trade_state.get(code, {})
+            if ts.get("date") != now.date():
+                ts = {}   # reset each new trading day
+
+            if not ts and change_pct >= t_sell_trigger:
+                # Phase 1: intraday high → suggest T-sell
+                cover_price = round(price * (1 - t_cover_pct / 100), 2)
+                normal_reasons.append(
+                    f"📈 做T卖出参考: 涨幅 {change_pct:+.1f}%，"
+                    f"建议目标买回价 ≤ **{cover_price}**"
+                )
+                t_trade_state[code] = {
+                    "sell_price":  price,
+                    "cover_price": cover_price,
+                    "date":        now.date(),
+                }
+            elif ts and price <= ts["cover_price"]:
+                # Phase 2: price retraced to target → suggest T-buy
+                drop = (price - ts["sell_price"]) / ts["sell_price"] * 100
+                normal_reasons.append(
+                    f"📉 做T买回参考: 现价 **{price}** 已回落至目标价 "
+                    f"{ts['cover_price']}（较卖出 {drop:+.1f}%）"
+                )
+                t_trade_state.pop(code, None)   # reset after cover suggestion
+
+        last_normal = alert_state.get(code)
+        if last_normal and (now - last_normal).total_seconds() / 60 < cooldown_min:
+            normal_reasons = []
+        elif normal_reasons:
+            alert_state[code] = now
+
+        reasons = urgent_reasons + normal_reasons
         if not reasons:
             continue
 
-        # Cooldown: skip if same code alerted within cooldown_min
-        last_alert = alert_state.get(code)
-        if last_alert:
-            elapsed = (now - last_alert).total_seconds() / 60
-            if elapsed < cooldown_min:
-                continue
-
-        alert_state[code] = now
         alerts.append({
             "code":       code,
             "name":       quote.get("name") or h.get("name", code),
@@ -344,16 +436,20 @@ def fast_check_holdings(
     return alerts
 
 
-def build_fast_wechat_desp(fast_alerts: list[dict], run_time: str) -> str:
+def build_fast_wechat_desp(fast_alerts: list[dict], run_time: str,
+                           stop_loss_pct: float = -8.0) -> str:
     lines = [f"*{run_time}*\n"]
     for a in fast_alerts:
         pnl_icon = "🔴" if a["pnl_pct"] < 0 else "🟢"
         chg_icon = "📉" if a["change_pct"] < 0 else "📈"
+        cost = a.get("cost_price") or 0
+        stop_price = round(cost * (1 + stop_loss_pct / 100), 2) if cost > 0 else "—"
         lines.append(
             f"### ⚡ {a['name']} ({a['code']})\n"
             f"现价 **{a['price']}** | "
             f"今日 {chg_icon} **{a['change_pct']:+.1f}%** | "
-            f"浮盈 {pnl_icon} **{a['pnl_pct']:+.1f}%**\n"
+            f"浮盈 {pnl_icon} **{a['pnl_pct']:+.1f}%**  \n"
+            f"参考止损价: **{stop_price}**\n"
         )
         for r in a["reasons"]:
             lines.append(f"- {r}")
@@ -364,16 +460,38 @@ def build_fast_wechat_desp(fast_alerts: list[dict], run_time: str) -> str:
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
-def run(dry_run: bool = False, buy_only: bool = False, sell_only: bool = False,
-        always_send: bool = False) -> None:
+def run(
+    dry_run: bool = False,
+    buy_only: bool = False,
+    sell_only: bool = False,
+    always_send: bool = False,
+    universe_override: Optional[list] = None,      # pass watchlist to skip full screener_universe
+    sell_alert_state: Optional[dict] = None,        # cross-tier sell dedup {code: last_datetime}
+    _regime: Optional[tuple] = None,               # (score, signal) pre-fetched by run_loop
+) -> None:
     config     = load_config()
     holdings   = load_holdings()
     thresholds = config.get("thresholds", {})
     sendkey    = config.get("serverchan", {}).get("sendkey", "")
-    universe   = config.get("screener_universe", [])
+    universe   = universe_override if universe_override is not None else config.get("screener_universe", [])
     run_time   = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     print(f"[{run_time}] StockSage Monitor starting...")
+
+    # ── 0. Market regime ──────────────────────────────────────────────────────
+    if _regime is not None:
+        regime_score, regime_signal = _regime
+    else:
+        regime_score  = 5.0   # neutral fallback
+        regime_signal = "unknown"
+        try:
+            mkt = score_market_regime(fetcher.get_market_regime_data())
+            if mkt:
+                regime_score  = mkt.get("score", 5.0)
+                regime_signal = mkt.get("details", {}).get("signal", "unknown")
+        except Exception as e:
+            print(f"  [WARN] Regime fetch failed: {e}")
+    print(f"  Market regime: {regime_score}/10 — {regime_signal}")
 
     # ── 1. Score holdings (sell signal check) ─────────────────────────────────
     scored_holdings: list[dict] = []
@@ -385,24 +503,64 @@ def run(dry_run: bool = False, buy_only: bool = False, sell_only: bool = False,
                 scored_holdings.append(fut.result())
         scored_holdings.sort(key=lambda x: -x["sell_score"])
 
+    # Build a lookup from code -> original holding dict (for T+1 check)
+    holding_by_code = {h["code"]: h for h in holdings}
+
+    sell_cooldown_min = thresholds.get("sell_alert_cooldown_min", 90)
+    now_dt = datetime.now()
+
     sell_alerts = []
     if not buy_only:
         for s in scored_holdings:
             if s["error"]:
                 print(f"  [WARN] {s['code']}: {s['error']}")
                 continue
-            reasons = check_sell_signals(s, thresholds)
-            if reasons:
-                sell_alerts.append({**s, "reasons": reasons})
-                print(f"  SELL SIGNAL: {s['name']} ({s['code']}) — {reasons[0]}")
+            holding = holding_by_code.get(s["code"])
+            reasons = check_sell_signals(s, thresholds, holding)
+            if not reasons:
+                continue
+            # Cross-tier dedup: skip if same stock already alerted recently
+            if sell_alert_state is not None:
+                last = sell_alert_state.get(s["code"])
+                if last and (now_dt - last).total_seconds() / 60 < sell_cooldown_min:
+                    continue
+                sell_alert_state[s["code"]] = now_dt
+            sell_alerts.append({**s, "reasons": reasons,
+                                "t1_locked": _is_t1_locked(holding) if holding else False})
+            print(f"  SELL SIGNAL: {s['name']} ({s['code']}) — {reasons[0]}")
 
     # ── 2. Score universe (buy signal check) ──────────────────────────────────
     buy_alerts = []
     if not sell_only and universe:
+        # Regime gate: raise bar proportionally to market weakness.
+        # Bear market is NOT suppressed — oversold bounces are valid bottom-fishing ops.
+        # Instead, require higher conviction (score) + low sell signal (not a falling knife).
+        _orig_buy = thresholds.get("buy_score_trigger", 65)
+        if regime_score <= 2:
+            # Bear (CSI300 < MA60): +25% threshold + sell_score must be < 25
+            thresholds = {**thresholds,
+                          "buy_score_trigger": round(_orig_buy * 1.25, 1),
+                          "_bear_sell_cap": 25}
+            print(f"  [BEAR] Regime={regime_score}/10 — buy threshold raised to "
+                  f"{thresholds['buy_score_trigger']}, sell_score cap=25 (bottom-fishing only)")
+        elif regime_score <= 4:
+            # Caution (CSI300 < MA20): +15% threshold, no sell_score cap
+            thresholds = {**thresholds, "buy_score_trigger": round(_orig_buy * 1.15, 1)}
+            print(f"  [CAUTION] Regime={regime_score}/10 — buy threshold raised to "
+                  f"{thresholds['buy_score_trigger']}")
+
+    if not sell_only and universe:
         held_codes = {h["code"] for h in holdings}
         print(f"  Screening {len(universe)} stocks for buy signals...")
+        # Pre-warm the realtime quote cache (one API call covers all ~5000 stocks).
+        # Without this, the first get_realtime_quote() in each thread would race to
+        # trigger the same full-market fetch; pre-warming serialises that single call.
+        try:
+            fetcher.get_realtime_quote("000001")
+        except Exception:
+            pass
         scored_universe: list[dict] = []
-        with ThreadPoolExecutor(max_workers=4) as ex:
+        with ThreadPoolExecutor(max_workers=8) as ex:
             futures = {ex.submit(_score_one_buy, code): code for code in universe}
             for fut in as_completed(futures):
                 scored_universe.append(fut.result())
@@ -410,9 +568,10 @@ def run(dry_run: bool = False, buy_only: bool = False, sell_only: bool = False,
 
         top_n = thresholds.get("buy_universe_top_n", 5)
         for s in scored_universe[:top_n * 3]:  # check top candidates
-            if check_buy_signal(s, thresholds, held_codes):
-                buy_alerts.append(s)
-                print(f"  BUY SIGNAL:  {s['name']} ({s['code']}) score={s['buy_score']}")
+            if not check_buy_signal(s, thresholds, held_codes):
+                continue
+            buy_alerts.append(s)
+            print(f"  BUY SIGNAL:  {s['name']} ({s['code']}) score={s['buy_score']}")
             if len(buy_alerts) >= top_n:
                 break
 
@@ -422,16 +581,26 @@ def run(dry_run: bool = False, buy_only: bool = False, sell_only: bool = False,
         print("  No signals triggered. No email sent.")
         return
 
+    _sell_trigger = thresholds.get("sell_score_trigger", 60)
+    _stall_score  = thresholds.get("stall_sell_score", 40)
+    _STRONG_BUY   = 80   # aligns with _buy_position_hint upper tiers (75+)
+
+    strong_sells = [s for s in sell_alerts if s["sell_score"] >= _sell_trigger]
+    stall_sells  = [s for s in sell_alerts if _stall_score <= s["sell_score"] < _sell_trigger]
+    strong_buys  = [b for b in buy_alerts  if b["buy_score"] >= _STRONG_BUY]
+    add_buys     = [b for b in buy_alerts  if b["buy_score"] < _STRONG_BUY]
+
     subject_parts = []
-    if sell_alerts:
-        subject_parts.append(f"⚠️ {len(sell_alerts)} 卖出信号")
-    if buy_alerts:
-        subject_parts.append(f"✅ {len(buy_alerts)} 买入机会")
+    if strong_sells: subject_parts.append(f"🔴 {len(strong_sells)} 强卖")
+    if stall_sells:  subject_parts.append(f"⚠️ {len(stall_sells)} 减仓参考")
+    if strong_buys:  subject_parts.append(f"✅ {len(strong_buys)} 强买")
+    if add_buys:     subject_parts.append(f"💡 {len(add_buys)} 加仓参考")
     if not subject_parts:
         subject_parts.append("持仓日报")
     title = f"[StockSage] {' | '.join(subject_parts)}"
 
-    desp = build_wechat_desp(sell_alerts, buy_alerts, scored_holdings, run_time)
+    desp = build_wechat_desp(sell_alerts, buy_alerts, scored_holdings, run_time,
+                             stop_loss_pct=thresholds.get("stop_loss_pct", -8.0))
 
     try:
         send_wechat(title, desp, sendkey, dry_run=dry_run)
@@ -449,24 +618,204 @@ def run_loop(
 
     - Every `interval_min` minutes: fast check (realtime quotes only).
       Alerts on stop-loss / intraday drop ≥ 5% / intraday surge ≥ 7%.
-    - Every `full_interval_min` minutes: full factor check (all factors + buy screen).
+    - Full factor check runs twice per day: 09:25–09:55 (morning open) and
+      14:30–15:00 (afternoon close). Factor scores don't meaningfully change
+      every 30 min, so fixed-interval scanning is wasteful.
+    - Buy signals have a 2-hour cooldown per stock to prevent repetition.
+    - Bear regime (CSI300 < MA60): buy threshold +25% and sell_score must be
+      < 25 (only genuine oversold/bottom-fishing signals pass through).
+    - Caution regime (CSI300 < MA20): buy threshold +15%.
     - Automatically waits when outside trading hours.
-    - Per-stock cooldown prevents repeat alerts within 30 min.
+    - Every Monday pre-market: auto-refreshes screener_universe via build_universe.py.
+    - Holdings are hot-reloaded if holdings.json changes (no restart needed).
     """
     config     = load_config()
     holdings   = load_holdings()
     thresholds = config.get("thresholds", {})
     sendkey    = config.get("serverchan", {}).get("sendkey", "")
 
-    alert_state: dict = {}          # code -> last alert datetime
-    last_full_run: Optional[datetime] = None
+    # ── Restore persisted state (survives restarts) ───────────────────────────
+    _state = _load_state()
 
-    print(f"[StockSage Loop] interval={interval_min}min  full_every={full_interval_min}min")
+    def _restore_dt(key: str) -> Optional[datetime]:
+        v = _state.get(key)
+        try:
+            return datetime.fromisoformat(v) if v else None
+        except Exception:
+            return None
+
+    def _restore_date(key: str):
+        v = _state.get(key)
+        try:
+            return datetime.fromisoformat(v).date() if v else None
+        except Exception:
+            return None
+
+    alert_state:        dict = {}   # code -> last fast-alert datetime (急涨/做T, normal cooldown)
+    urgent_alert_state: dict = {}   # code -> last fast-alert datetime (止损/急跌, short cooldown)
+    sell_alert_state:   dict = {}   # code -> last sell-alert datetime (cross-tier dedup)
+    t_trade_state:      dict = {}   # code -> {sell_price, cover_price, date}
+    _error_notified:    dict = {}   # error_key -> last WeChat push datetime (1h rate limit)
+
+    # Restore scanned_sessions: set of "date|session" strings
+    _scanned_sessions: set = set(
+        tuple(s.split("|")) for s in _state.get("scanned_sessions", [])
+        if "|" in s
+    )
+    # Convert stored "date_str|session" back to (date, str) tuples
+    _scanned_sessions = {
+        (datetime.fromisoformat(d).date(), sess)
+        for d, sess in _scanned_sessions
+    }
+
+    _heartbeat_date = _restore_date("heartbeat_date")
+    _closing_date   = None   # not persisted — harmless if fired twice on restart
+    last_universe_refresh_date = _restore_date("universe_refresh_date")
+    _watchlist_last_scan: Optional[datetime] = _restore_dt("watchlist_last_scan")
+    _WATCHLIST_INTERVAL_MIN = 30
+
+    # Holdings hot-reload: detect changes to holdings.json without restarting
+    _holdings_mtime: float = (
+        os.path.getmtime(HOLDINGS_PATH) if os.path.exists(HOLDINGS_PATH) else 0.0
+    )
+
+    _build_universe_script = os.path.join(os.path.dirname(__file__), "build_universe.py")
+
+    # ── Startup universe check: refresh immediately if empty or stale (>7 days) ──
+    _startup_age = (
+        (datetime.now().date() - last_universe_refresh_date).days
+        if last_universe_refresh_date else 999
+    )
+    if not config.get("screener_universe") or _startup_age > 7:
+        print(f"[StockSage] screener_universe empty or stale ({_startup_age}d) — refreshing now...")
+        try:
+            result = subprocess.run(
+                [sys.executable, "-X", "utf8", _build_universe_script],
+                capture_output=True, text=True, timeout=600,
+            )
+            if result.returncode == 0:
+                config     = load_config()
+                holdings   = load_holdings()
+                thresholds = config.get("thresholds", {})
+                last_universe_refresh_date = datetime.now().date()
+                print(f"  Universe ready: {len(config.get('screener_universe', []))} stocks")
+            else:
+                print(f"  [WARN] build_universe failed:\n{result.stderr[:300]}")
+        except Exception as e:
+            print(f"  [WARN] build_universe error: {e}")
+
+    def _notify_error(key: str, msg: str) -> None:
+        """Push a WeChat error alert — rate-limited to once per hour per key."""
+        last = _error_notified.get(key)
+        if last and (datetime.now() - last).total_seconds() < 3600:
+            return
+        _error_notified[key] = datetime.now()
+        try:
+            send_wechat(
+                f"[StockSage] ⚠️ 扫描异常",
+                f"**{key}** 发生错误:\n\n```\n{msg[:400]}\n```\n\n"
+                f"> {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                sendkey, dry_run=dry_run,
+            )
+        except Exception:
+            pass  # never let error notification crash the loop
+
+    print(f"[StockSage Loop] interval={interval_min}min  "
+          f"watchlist=30min  full_scan=open+close  "
+          f"buy_cooldown=120min(A股)/20min(ETF)")
     print(f"  Holdings: {[h['code'] for h in holdings]}")
     print("  Press Ctrl+C to stop.\n")
 
-    while True:
+    try:
+      while True:
         now = datetime.now()
+
+        # ── Weekly universe refresh (every Monday, before market open) ───────────
+        if (now.weekday() == 0  # Monday
+                and last_universe_refresh_date != now.date()
+                and not _is_trading_hours()):
+            print(f"[{now.strftime('%H:%M')}] Monday pre-market: refreshing screener universe...")
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-X", "utf8", _build_universe_script],
+                    capture_output=True, text=True, timeout=600,
+                )
+                if result.returncode == 0:
+                    config   = load_config()  # reload to pick up new universe
+                    holdings = load_holdings()
+                    thresholds = config.get("thresholds", {})
+                    last_universe_refresh_date = now.date()
+                    n = len(config.get('screener_universe', []))
+                    print(f"  Universe refreshed: {n} stocks")
+                    try:
+                        send_wechat(
+                            "[StockSage] 股票池已更新 🔄",
+                            f"本周 screener_universe 刷新完成\n\n"
+                            f"- 股票数量: **{n}** 只\n"
+                            f"- 自选池: {len(config.get('watchlist', []))} 只\n\n"
+                            f"> {now.strftime('%Y-%m-%d')} 周一开盘前自动刷新",
+                            sendkey, dry_run=dry_run,
+                        )
+                    except Exception:
+                        pass
+                else:
+                    print(f"  [WARN] build_universe failed:\n{result.stderr[:300]}")
+            except Exception as e:
+                print(f"  [WARN] build_universe error: {e}")
+
+        # ── Daily heartbeat + cache purge (09:00, before market open) ──────────
+        if (now.weekday() < 5
+                and now.hour == 9 and 0 <= now.minute < 5
+                and _heartbeat_date != now.date()):
+            _heartbeat_date = now.date()
+            # Purge expired cache entries (keeps disk usage bounded)
+            try:
+                deleted = cache.purge_expired()
+                if deleted:
+                    print(f"  [Cache] Purged {deleted} expired file(s)")
+            except Exception as e:
+                print(f"  [WARN] Cache purge failed: {e}")
+            desp = (
+                f"监控进程正常运行中\n\n"
+                f"- 持仓: {len(holdings)} 只 — {[h['code'] for h in holdings]}\n"
+                f"- 自选池: {len(config.get('watchlist', []))} 只\n"
+                f"- ETF 监控: {len(config.get('etf_watchlist', []))} 只\n\n"
+                f"> {now.strftime('%Y-%m-%d')} 开盘前自检"
+            )
+            try:
+                send_wechat("[StockSage] 今日监控在线 ✅", desp, sendkey, dry_run=dry_run)
+            except Exception as e:
+                print(f"  [WARN] Heartbeat push failed: {e}")
+
+        # ── Daily closing summary (15:05) ─────────────────────────────────────
+        if (now.weekday() < 5
+                and now.hour == 15 and 5 <= now.minute < 10
+                and _closing_date != now.date()):
+            _closing_date = now.date()
+            rows = ["| 股票 | 今日涨跌 | 浮盈 |", "|------|----------|------|"]
+            for h in holdings:
+                try:
+                    q    = fetcher.get_realtime_quote(h["code"])
+                    chg  = q.get("change_pct") or 0.0
+                    price = q.get("price") or 0
+                    cost = h.get("cost_price") or 0
+                    pnl  = ((price - cost) / cost * 100) if cost > 0 else 0.0
+                    rows.append(
+                        f"| {h.get('name', h['code'])} "
+                        f"| {'📈' if chg >= 0 else '📉'} {chg:+.1f}% "
+                        f"| {'🟢' if pnl >= 0 else '🔴'} {pnl:+.1f}% |"
+                    )
+                except Exception:
+                    rows.append(f"| {h.get('name', h['code'])} | — | — |")
+            closing_desp = (
+                f"**{now.strftime('%Y-%m-%d')} 收盘快报**\n\n"
+                + "\n".join(rows)
+                + "\n\n> 仅供参考，不构成投资建议"
+            )
+            try:
+                send_wechat("[StockSage] 今日收盘 📊", closing_desp, sendkey, dry_run=dry_run)
+            except Exception as e:
+                print(f"  [WARN] Closing summary push failed: {e}")
 
         if not _is_trading_hours():
             wait_sec = _next_session_seconds()
@@ -480,36 +829,110 @@ def run_loop(
 
         run_time = now.strftime("%Y-%m-%d %H:%M")
 
+        # ── Holdings hot-reload ────────────────────────────────────────────────
+        try:
+            mtime = os.path.getmtime(HOLDINGS_PATH) if os.path.exists(HOLDINGS_PATH) else 0.0
+            if mtime != _holdings_mtime:
+                holdings = load_holdings()
+                _holdings_mtime = mtime
+                print(f"[{run_time}] holdings.json changed — reloaded "
+                      f"({[h['code'] for h in holdings]})")
+        except Exception:
+            pass
+
         # ── Fast check ────────────────────────────────────────────────────────
         print(f"[{run_time}] Fast check ({len(holdings)} holdings)...", end=" ", flush=True)
-        fast_alerts = fast_check_holdings(holdings, thresholds, alert_state)
+        fast_alerts = fast_check_holdings(
+            holdings, thresholds, alert_state, t_trade_state,
+            urgent_alert_state=urgent_alert_state,
+        )
         print(f"{len(fast_alerts)} alert(s)")
 
         if fast_alerts:
             title = f"[StockSage ⚡] {len(fast_alerts)} 实时预警"
-            desp  = build_fast_wechat_desp(fast_alerts, run_time)
+            desp  = build_fast_wechat_desp(fast_alerts, run_time,
+                                           stop_loss_pct=thresholds.get("stop_loss_pct", -8.0))
             try:
                 send_wechat(title, desp, sendkey, dry_run=dry_run)
             except Exception as e:
                 print(f"  [ERROR] 微信推送失败: {e}")
 
-        # ── Full check (every full_interval_min) ──────────────────────────────
-        need_full = (
-            last_full_run is None or
-            (now - last_full_run).total_seconds() >= full_interval_min * 60
+        # ── Watchlist scan (every 30 min, medium frequency) ──────────────────
+        watchlist = config.get("watchlist", [])
+        need_watchlist = (
+            watchlist and (
+                _watchlist_last_scan is None or
+                (now - _watchlist_last_scan).total_seconds() >= _WATCHLIST_INTERVAL_MIN * 60
+            )
         )
-        if need_full:
-            print(f"[{run_time}] Full factor check...")
+
+        # ── Full check (session-based: morning open + afternoon close) ────────
+        session_key = _current_scan_session(now)
+        scan_id = (now.date(), session_key) if session_key else None
+        need_full = scan_id is not None and scan_id not in _scanned_sessions
+
+        # Fetch regime once if either scan will run this iteration
+        _regime_this_iter = None
+        if need_watchlist or need_full:
             try:
-                run(dry_run=dry_run)
+                mkt = score_market_regime(fetcher.get_market_regime_data())
+                if mkt:
+                    _regime_this_iter = (
+                        mkt.get("score", 5.0),
+                        mkt.get("details", {}).get("signal", "unknown"),
+                    )
+            except Exception:
+                pass
+
+        if need_watchlist:
+            print(f"[{run_time}] Watchlist scan ({len(watchlist)} stocks)...")
+            try:
+                run(dry_run=dry_run, universe_override=watchlist,
+                    sell_alert_state=sell_alert_state, _regime=_regime_this_iter)
+                _watchlist_last_scan = now
+            except Exception as e:
+                print(f"  [ERROR] Watchlist scan failed: {e}")
+                _notify_error("watchlist_scan", str(e))
+
+        if need_full:
+            print(f"[{run_time}] Full factor check ({session_key} session)...")
+            try:
+                run(dry_run=dry_run, sell_alert_state=sell_alert_state,
+                    _regime=_regime_this_iter)
+                _scanned_sessions.add(scan_id)
             except Exception as e:
                 print(f"  [ERROR] Full check failed: {e}")
-            last_full_run = datetime.now()
+                _notify_error("full_scan", str(e))
+
+        # ── Persist state (survives restarts) ────────────────────────────────
+        _save_state({
+            "scanned_sessions": [
+                f"{d.isoformat()}|{sess}" for d, sess in _scanned_sessions
+            ],
+            "heartbeat_date":      _heartbeat_date.isoformat() if _heartbeat_date else None,
+            "universe_refresh_date": last_universe_refresh_date.isoformat()
+                                     if last_universe_refresh_date else None,
+            "watchlist_last_scan": _watchlist_last_scan.isoformat()
+                                   if _watchlist_last_scan else None,
+        })
 
         # ── Sleep until next fast interval ────────────────────────────────────
         sleep_sec = interval_min * 60
         for _ in range(sleep_sec):
             time.sleep(1)
+
+    except KeyboardInterrupt:
+        _save_state({
+            "scanned_sessions": [
+                f"{d.isoformat()}|{sess}" for d, sess in _scanned_sessions
+            ],
+            "heartbeat_date":        _heartbeat_date.isoformat() if _heartbeat_date else None,
+            "universe_refresh_date": last_universe_refresh_date.isoformat()
+                                     if last_universe_refresh_date else None,
+            "watchlist_last_scan":   _watchlist_last_scan.isoformat()
+                                     if _watchlist_last_scan else None,
+        })
+        print("\n[StockSage] 监控已停止（Ctrl+C）。状态已保存。")
 
 
 if __name__ == "__main__":

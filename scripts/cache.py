@@ -80,3 +80,33 @@ TTL_REALTIME = 30
 TTL_PRICE_HISTORY = 3600
 TTL_VALUATION = 86400
 TTL_FINANCIAL = 604800
+
+
+def purge_expired(max_age_seconds: int = TTL_FINANCIAL) -> int:
+    """
+    Delete cache files whose timestamp is older than `max_age_seconds`.
+    Defaults to 7 days (the longest TTL), so no still-valid data is ever removed.
+    Returns the number of files deleted.
+    """
+    if not os.path.isdir(CACHE_DIR):
+        return 0
+    deleted = 0
+    now = time.time()
+    for fname in os.listdir(CACHE_DIR):
+        if not fname.endswith(".json"):
+            continue
+        path = os.path.join(CACHE_DIR, fname)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                entry = json.load(f)
+            if now - entry.get("ts", 0) > max_age_seconds:
+                os.remove(path)
+                deleted += 1
+        except Exception:
+            # Corrupted file — remove it too
+            try:
+                os.remove(path)
+                deleted += 1
+            except OSError:
+                pass
+    return deleted
