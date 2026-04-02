@@ -6,3 +6,6 @@ scripts/.cache/
 *.egg-info/
 dist/
 build/
+xhs/config.json
+xhs/records/
+xhs/run_*.bat

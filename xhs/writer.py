@@ -98,6 +98,31 @@ def save_post_file(content: str, slot: str, style: int | str) -> Path:
     return fname
 
 
+def _send_wechat_notify(title: str, content: str):
+    """Push a WeChat message via Server酱·Turbo. Silently skips if config missing."""
+    try:
+        config_file = XHS_DIR / "config.json"
+        if not config_file.exists():
+            return
+        cfg = json.loads(config_file.read_text(encoding="utf-8"))
+        sendkey = cfg.get("sendkey", "").strip()
+        if not sendkey:
+            return
+        import urllib.request
+        import urllib.parse
+        url  = f"https://sctapi.ftqq.com/{sendkey}.send"
+        data = urllib.parse.urlencode({"title": title, "desp": content}).encode()
+        req  = urllib.request.Request(url, data=data, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read().decode())
+        if result.get("code") == 0:
+            print(f"[+] 微信通知已发送 ✅")
+        else:
+            print(f"[!] 微信通知返回异常: {result}", file=sys.stderr)
+    except Exception as e:
+        print(f"[!] 微信通知发送失败: {e}", file=sys.stderr)
+
+
 # ---------------------------------------------------------------------------
 # Screener integration
 # ---------------------------------------------------------------------------
@@ -1314,6 +1339,7 @@ def cmd_morning(args):
     streak  = compute_streak(history)
     styles  = _resolve_styles(args.style, streak)
 
+    first_post = None
     for s in styles:
         post  = generate_morning_post(picks, day, query, regime, streak, style=s)
         saved = save_post_file(post, "morning", s)
@@ -1322,6 +1348,10 @@ def cmd_morning(args):
         print(f"{'='*52}")
         print(post)
         print()
+        if first_post is None:
+            first_post = post
+    if first_post:
+        _send_wechat_notify(f"📊 Day {day} 早盘文案｜09:05–09:15 发布", first_post)
 
 
 def cmd_midday(args):
@@ -1342,6 +1372,7 @@ def cmd_midday(args):
     streak  = compute_streak(history)
     styles  = _resolve_styles(args.style, streak)
 
+    first_post = None
     for s in styles:
         post  = generate_midday_post(morning_picks, prices, day, style=s)
         saved = save_post_file(post, "midday", s)
@@ -1350,6 +1381,10 @@ def cmd_midday(args):
         print(f"{'='*52}")
         print(post)
         print()
+        if first_post is None:
+            first_post = post
+    if first_post:
+        _send_wechat_notify(f"☀️ Day {day} 午盘文案｜11:50–12:00 发布", first_post)
 
 
 def cmd_evening(args):
@@ -1405,6 +1440,7 @@ def cmd_evening(args):
     streak  = compute_streak(history)
     styles  = _resolve_styles(args.style, streak, alpha)
 
+    first_post = None
     for s in styles:
         post  = generate_evening_post(
             morning_picks, prices, benchmark, verdict,
@@ -1416,6 +1452,13 @@ def cmd_evening(args):
         print(f"{'='*52}")
         print(post)
         print()
+        if first_post is None:
+            first_post = post
+    if first_post:
+        _send_wechat_notify(
+            f"🌙 Day {day} 晚盘文案｜{verdict_emoji(verdict)} {verdict}｜15:35–15:45 发布",
+            first_post,
+        )
 
 
 def cmd_status(args):
