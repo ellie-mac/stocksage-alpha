@@ -202,17 +202,11 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "short_interest":      "no data: margin data often missing",
     "accruals":            "insufficient signal: IC near 0",
 
-    # Degraded to noise (were active, now removed)
-    "volume":              "degraded: IC 0.090→0.019, ICIR=0.104 — noise as of 2026-04",
-    "quality":             "degraded: IC 0.025→0.019, noise",
-    "bb_squeeze":          "degraded: IC 0.064→0.024, noise",
-    "roe_trend":           "degraded: IC 0.053→0.032, ICIR=0.202 — noise/weak",
-
     # Weak or directionally unstable
     "momentum":            "weak negative: IC=-0.053, mean-reversion dominates in A-share",
     "rsi_signal":          "noise: IC~0 across periods",
     "macd_signal":         "noise: IC~0 across periods",
-    "bollinger_position":  "wrong direction: IC=-0.009 — noise",
+    "bollinger_position":  "moderate negative IC=-0.084, ICIR=-0.435 — mean-reversion signal, subsumed by price_volume_corr inversion",
     "turnover_acceleration": "noise: IC=-0.033, ICIR=-0.142",
     "gross_margin_trend":  "no data: 毛利率 not in financial indicators API (balance-sheet item)",
     "ar_quality":          "no data: 应收账款 not in financial indicators API (balance-sheet item)",
@@ -230,4 +224,5 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "hammer_bottom":           "inverted: IC=-0.057 ICIR=-0.641 — A股金针探底后续反而偏弱，弱势反弹失败信号; sell_score同向 IC=-0.062 ICIR=-1.115",
     "limit_open_rate":         "buy-side noise: IC=-0.047 weak; sell_score IC=-0.108 ICIR=-0.651 strong — high open-rate = distribution, use as sell filter only",
     "upper_shadow_reversal":   "pending: newly added 2026-04-02, run factor_analysis --rolling 6 to validate",
+    "sector_sympathy":         "pending: newly added 2026-04-02, run factor_analysis --rolling 6 to validate",
 }

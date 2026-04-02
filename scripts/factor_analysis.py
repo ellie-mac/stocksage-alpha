@@ -64,6 +64,7 @@ from factors_extended import (
     score_price_volume_corr, score_trend_linearity, score_gap_frequency,
     score_market_relative_strength, score_price_efficiency, score_intraday_vs_overnight,
     score_hammer_bottom, score_limit_open_rate, score_upper_shadow_reversal,
+    score_sector_sympathy,
     # Group B
     score_shareholder_change, score_lhb, score_lockup_pressure,
     score_insider, score_institutional_visits, score_industry_momentum,
@@ -242,6 +243,13 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["limit_open_rate"]          = _safe(score_limit_open_rate, price_df)
         scores["upper_shadow_reversal"]    = _safe(score_upper_shadow_reversal, price_df)
 
+        # sector_sympathy: uses full-market spot data + stock's industry
+        _spot_df_sym  = fetcher._get_spot_df()
+        _info_sym     = fetcher.get_stock_info(code) if "B" not in group.upper() else None
+        _industry_sym = (_info_sym or {}).get("industry", "") if _info_sym is not None else ""
+        scores["sector_sympathy"]      = _safe(score_sector_sympathy, code, _industry_sym, _spot_df_sym)
+        scores["sell_score_sector_sympathy"] = _safe_sell(score_sector_sympathy, code, _industry_sym, _spot_df_sym)
+
         # Sell scores for Ext-A
         scores["sell_score_div_yield"]          = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df)
         scores["sell_score_volume_ratio"]       = _safe_sell(score_volume_ratio, quote.get("volume_ratio", 0), quote.get("change_pct", 0))
@@ -405,6 +413,10 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
                 # Re-compute div_yield with industry context
                 scores["div_yield"]                 = _safe(score_dividend_yield, quote.get("div_yield", 0), financial_df, _regime_float, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
                 scores["sell_score_div_yield"]      = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df, _regime_float, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
+                # Re-compute sector_sympathy with confirmed industry name
+                _spot_df_b = fetcher._get_spot_df()
+                scores["sector_sympathy"]            = _safe(score_sector_sympathy, code, ind, _spot_df_b)
+                scores["sell_score_sector_sympathy"] = _safe_sell(score_sector_sympathy, code, ind, _spot_df_b)
             except Exception:
                 scores["industry_momentum"] = np.nan
                 scores["sell_score_industry_momentum"] = np.nan

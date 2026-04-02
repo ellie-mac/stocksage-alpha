@@ -7078,3 +7078,142 @@ def score_intraday_vs_overnight(
 
     except Exception:
         return _neutral(MAX)
+
+
+# ===========================================================================
+# score_sector_sympathy — added 2026-04-02
+# ===========================================================================
+
+def score_sector_sympathy(
+    code: str,
+    industry: str,
+    spot_df,            # full-market spot DataFrame from fetcher._get_spot_df()
+    price_df=None,      # optional, reserved for future board-type detection
+) -> dict:
+    """
+    Sector sympathy play score.
+
+    Logic:
+    1. Filter spot_df for stocks in the same industry, excluding self.
+    2. Count stocks up > 5% (strong movers) and > 3% (moderate movers).
+    3. Base score = f(count of movers, avg gain of movers).
+    4. Board multiplier: 创业板 (300x) and 科创板 (688x) get 1.3x —
+       higher retail beta, stronger sympathy effect.
+    5. Sell score: if sector is down heavily (multiple -5%), flag reversal risk.
+
+    Returns score 0-10 and sell_score 0-10.
+    """
+    MAX = 10
+
+    # Guard: missing inputs → neutral
+    if spot_df is None or (hasattr(spot_df, "empty") and spot_df.empty):
+        return {"score": 5.0, "sell_score": 5.0, "max": MAX,
+                "details": {"signal": "no spot data, neutral"}}
+    if not industry or industry in ("", "未知", "其他"):
+        return {"score": 5.0, "sell_score": 5.0, "max": MAX,
+                "details": {"signal": "unknown industry, neutral"}}
+
+    try:
+        # Identify relevant columns
+        industry_col = None
+        for c in spot_df.columns:
+            if "行业" in c or "industry" in c.lower():
+                industry_col = c
+                break
+        code_col = None
+        for c in spot_df.columns:
+            if c in ("代码", "股票代码"):
+                code_col = c
+                break
+        change_col = None
+        for c in spot_df.columns:
+            if "涨跌幅" in c or "change_pct" in c.lower() or "涨跌" in c:
+                change_col = c
+                break
+
+        if industry_col is None or code_col is None or change_col is None:
+            return {"score": 5.0, "sell_score": 5.0, "max": MAX,
+                    "details": {"signal": "required columns missing, neutral"}}
+
+        # Filter peers: same industry, exclude self
+        peers = spot_df[
+            (spot_df[industry_col].astype(str) == str(industry)) &
+            (spot_df[code_col].astype(str).str.zfill(6) != code.zfill(6))
+        ].copy()
+
+        if peers.empty:
+            return {"score": 5.0, "sell_score": 5.0, "max": MAX,
+                    "details": {"signal": "no peers found, neutral"}}
+
+        pct = pd.to_numeric(peers[change_col], errors="coerce").dropna()
+        if pct.empty:
+            return {"score": 5.0, "sell_score": 5.0, "max": MAX,
+                    "details": {"signal": "no valid change_pct data, neutral"}}
+
+        # --- Buy score ---
+        strong_movers   = pct[pct > 5.0]
+        moderate_movers = pct[pct > 3.0]
+        strong_count    = len(strong_movers)
+        moderate_count  = len(moderate_movers)
+
+        if moderate_count > 0:
+            avg_gain = float(min(float(moderate_movers.mean()), 20.0))
+        else:
+            avg_gain = 0.0
+
+        raw_score = min(10.0, strong_count * 2.5 + moderate_count * 1.0 + avg_gain * 0.3)
+
+        # Board multiplier
+        if code.startswith("300") or code.startswith("301"):
+            board, multiplier = "GEM", 1.3
+        elif code.startswith("688") or code.startswith("689"):
+            board, multiplier = "STAR", 1.3
+        else:
+            board, multiplier = "MAIN", 1.0
+
+        score = round(min(10.0, raw_score * multiplier), 1)
+
+        # --- Sell score (sector-wide weakness) ---
+        weak_movers       = pct[pct < -5.0]
+        moderate_weak     = pct[pct < -3.0]
+        weak_count        = len(weak_movers)
+        moderate_weak_cnt = len(moderate_weak)
+
+        if moderate_weak_cnt > 0:
+            avg_loss = float(min(abs(float(moderate_weak.mean())), 20.0))
+        else:
+            avg_loss = 0.0
+
+        raw_sell   = min(10.0, weak_count * 2.5 + moderate_weak_cnt * 1.0 + avg_loss * 0.3)
+        sell_score = round(min(10.0, raw_sell * multiplier), 1)
+
+        # Signal label
+        if strong_count >= 3:
+            signal = f"strong sympathy play: {strong_count} stocks >5%, avg_gain={avg_gain:.1f}%"
+        elif moderate_count >= 2:
+            signal = f"moderate sympathy: {moderate_count} stocks >3%, avg_gain={avg_gain:.1f}%"
+        elif weak_count >= 3:
+            signal = f"sector weakness: {weak_count} stocks <-5%, sell pressure"
+        else:
+            signal = f"no clear sector trend (strong={strong_count}, weak={weak_count})"
+
+        return {
+            "score":      score,
+            "sell_score": sell_score,
+            "max":        MAX,
+            "details": {
+                "signal":          signal,
+                "industry":        industry,
+                "board":           board,
+                "multiplier":      multiplier,
+                "strong_count":    strong_count,
+                "moderate_count":  moderate_count,
+                "avg_gain":        round(avg_gain, 2),
+                "weak_count":      weak_count,
+                "sell_score":      sell_score,
+            },
+        }
+
+    except Exception:
+        return {"score": 5.0, "sell_score": 5.0, "max": MAX,
+                "details": {"signal": "error, neutral"}}

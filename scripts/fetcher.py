@@ -14,6 +14,13 @@ _spot_lock = threading.Lock()
 _spot_em_failed = False  # once set True, skip all subsequent stock_zh_a_spot_em calls
 _hist_em_failed = False  # once set True, skip stock_zh_a_hist and go straight to fallback
 
+# Module-level caches for full-market LHB and shareholder snapshots.
+# Both are refreshed lazily; the helpers below are the only writers.
+_lhb_cache: dict = {"df": None, "ts": 0.0}   # {"df": DataFrame, "ts": float}
+_lhb_cache_lock = threading.Lock()
+_shareholder_cache: dict = {}                  # date_str -> {"df": DataFrame, "ts": float}
+_shareholder_cache_lock = threading.Lock()
+
 # stock_zh_a_daily and stock_fund_flow_individual both use py_mini_racer's V8 engine.
 # Concurrent initialisation of V8 from multiple threads causes a fatal crash:
 #   "Check failed: !IsConfigurablePoolInitialized()"
@@ -87,6 +94,14 @@ def _market_from_code(code: str) -> str:
     return "sh" if code.startswith("6") else "sz"
 
 
+def _try_numeric(val) -> Optional[float]:
+    """Coerce val to float; return None on failure."""
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
 def _get_spot_df() -> pd.DataFrame:
     """
     Fetch full A-share real-time quote DataFrame.
@@ -119,6 +134,68 @@ def _get_spot_df() -> pd.DataFrame:
             return pd.DataFrame()
         cache.set("spot_all", df.to_dict("records"))
         return df
+
+
+def _get_lhb_df() -> pd.DataFrame:
+    """
+    Fetch full-market LHB (龙虎榜) detail for the past 90 days.
+    Cached in-process for 2 hours (TTL = 7200 s).  Thread-safe via _lhb_cache_lock.
+    Returns an empty DataFrame on failure.
+    """
+    import time as _time
+    TTL = 7200  # 2 hours
+    with _lhb_cache_lock:
+        cached_df = _lhb_cache.get("df")
+        cached_ts = _lhb_cache.get("ts", 0.0)
+        if cached_df is not None and (_time.time() - cached_ts) < TTL:
+            return cached_df
+        try:
+            end_dt   = datetime.now()
+            start_dt = end_dt - timedelta(days=90)
+            end_str   = end_dt.strftime("%Y%m%d")
+            start_str = start_dt.strftime("%Y%m%d")
+            df = _call_with_timeout(ak.stock_lhb_detail_em, 30,
+                                    start_date=start_str, end_date=end_str)
+            if df is None or df.empty:
+                _lhb_cache["df"] = pd.DataFrame()
+                _lhb_cache["ts"] = _time.time()
+                return pd.DataFrame()
+            df.columns = [c.strip() for c in df.columns]
+            df = df.reset_index(drop=True)
+            _lhb_cache["df"] = df
+            _lhb_cache["ts"] = _time.time()
+            return df
+        except Exception:
+            _lhb_cache["df"] = pd.DataFrame()
+            _lhb_cache["ts"] = _time.time()
+            return pd.DataFrame()
+
+
+def _get_shareholder_snapshot(date_str: str) -> pd.DataFrame:
+    """
+    Fetch full-market quarterly shareholder count from CNINFO for a given quarter-end date.
+    date_str example: '20251231', '20250930'.
+    Cached in-process for 7 days (TTL = 604800 s).  Thread-safe via _shareholder_cache_lock.
+    Returns an empty DataFrame on failure.
+    """
+    import time as _time
+    TTL = 604800  # 7 days
+    with _shareholder_cache_lock:
+        entry = _shareholder_cache.get(date_str)
+        if entry is not None and (_time.time() - entry.get("ts", 0.0)) < TTL:
+            return entry["df"]
+        try:
+            df = _call_with_timeout(ak.stock_hold_num_cninfo, 30, date=date_str)
+            if df is None or df.empty:
+                _shareholder_cache[date_str] = {"df": pd.DataFrame(), "ts": _time.time()}
+                return pd.DataFrame()
+            df.columns = [c.strip() for c in df.columns]
+            df = df.reset_index(drop=True)
+            _shareholder_cache[date_str] = {"df": df, "ts": _time.time()}
+            return df
+        except Exception:
+            _shareholder_cache[date_str] = {"df": pd.DataFrame(), "ts": _time.time()}
+            return pd.DataFrame()
 
 
 def get_realtime_quote(code: str) -> Optional[dict]:
@@ -386,41 +463,98 @@ def get_margin_data(code: str) -> Optional[pd.DataFrame]:
 # ---------------------------------------------------------------------------
 
 def get_shareholder_count(code: str) -> Optional[pd.DataFrame]:
-    """Fetch quarterly shareholder count history. Cached for 7 days."""
-    cache_key = f"gdhs_{code}"
+    """
+    Fetch quarterly shareholder count history for a single stock.
+
+    Uses ak.stock_hold_num_cninfo (full-market, quarter-end snapshot) instead of the
+    deprecated per-stock ak.stock_zh_a_gdhs (V8-based, slow, unreliable).
+
+    Tries the last 4 quarter-end dates in descending order; returns the first hit.
+    Returns a DataFrame with standardised columns:
+        date, total_holders, holder_change_pct
+    so that score_shareholder_change can consume it unchanged.
+    Cached per-stock for 7 days (TTL_FINANCIAL).
+    """
+    cache_key = f"gdhs2_{code}"
     cached = cache.get_df(cache_key, cache.TTL_FINANCIAL)
     if cached is not None:
         return cached
-    try:
-        df = _call_with_timeout(ak.stock_zh_a_gdhs, 20, symbol=code)
-        if df is None or df.empty:
-            return None
-        df.columns = [c.strip() for c in df.columns]
-        df = df.reset_index(drop=True)
-        cache.set_df(cache_key, df)
-        return df
-    except Exception:
+
+    # Build last-4 quarter-end dates relative to today
+    today = datetime.now()
+    quarter_ends = []
+    for year_offset in range(2):
+        yr = today.year - year_offset
+        for month, day in [(12, 31), (9, 30), (6, 30), (3, 31)]:
+            qdate = datetime(yr, month, day)
+            if qdate <= today:
+                quarter_ends.append(qdate.strftime("%Y%m%d"))
+    quarter_ends = quarter_ends[:4]
+
+    rows = []
+    for date_str in quarter_ends:
+        snap = _get_shareholder_snapshot(date_str)
+        if snap.empty:
+            continue
+        # Column name may be '证券代码' with or without leading zeros
+        code_col = None
+        for c in snap.columns:
+            if "代码" in c:
+                code_col = c
+                break
+        if code_col is None:
+            continue
+        row = snap[snap[code_col].astype(str).str.zfill(6) == code.zfill(6)]
+        if row.empty:
+            continue
+        r = row.iloc[0]
+        rows.append({
+            "date": date_str,
+            "total_holders":     _try_numeric(r.get("本期股东人数")),
+            "holder_change_pct": _try_numeric(r.get("股东人数增幅")),
+        })
+
+    if not rows:
         return None
+
+    result = pd.DataFrame(rows).sort_values("date", ascending=False).reset_index(drop=True)
+    cache.set_df(cache_key, result)
+    return result
 
 
 def get_lhb_flow(code: str, days: int = 90) -> Optional[pd.DataFrame]:
-    """Fetch Dragon-Tiger list (龙虎榜) net flows for the past N days. Cached for 24h."""
-    cache_key = f"lhb_{code}_{days}"
-    cached = cache.get_df(cache_key, cache.TTL_VALUATION)
-    if cached is not None:
-        return cached
-    try:
-        end   = datetime.now().strftime("%Y%m%d")
-        start = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
-        df = _call_with_timeout(ak.stock_lhb_detail_em, 20, symbol=code, start_date=start, end_date=end)
-        if df is None or df.empty:
-            return None
-        df.columns = [c.strip() for c in df.columns]
-        df = df.reset_index(drop=True)
-        cache.set_df(cache_key, df)
-        return df
-    except Exception:
+    """
+    Fetch Dragon-Tiger list (龙虎榜) net flows for the past N days.
+
+    Fetches the full-market LHB DataFrame once (cached 2 h via _get_lhb_df()),
+    then filters by stock code.  This avoids the broken per-stock API signature
+    `ak.stock_lhb_detail_em(symbol=code)`.
+
+    Returns rows sorted by date (ascending) or None if no entries found.
+    """
+    full_df = _get_lhb_df()
+    if full_df.empty:
         return None
+    # Identify the code column
+    code_col = None
+    for c in full_df.columns:
+        if c in ("代码", "股票代码"):
+            code_col = c
+            break
+    if code_col is None:
+        return None
+    stock_df = full_df[full_df[code_col].astype(str).str.zfill(6) == code.zfill(6)].copy()
+    if stock_df.empty:
+        return None
+    # Sort by date column if present
+    date_col = None
+    for c in stock_df.columns:
+        if "日" in c or "date" in c.lower():
+            date_col = c
+            break
+    if date_col is not None:
+        stock_df = stock_df.sort_values(date_col, ascending=True)
+    return stock_df.reset_index(drop=True)
 
 
 def get_lockup_pressure(code: str) -> Optional[pd.DataFrame]:
