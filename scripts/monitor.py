@@ -804,7 +804,7 @@ def run_loop(
         try:
             result = subprocess.run(
                 [sys.executable, "-X", "utf8", _build_universe_script],
-                capture_output=True, text=True, timeout=600,
+                capture_output=True, text=True, encoding="utf-8", timeout=600,
             )
             if result.returncode == 0:
                 config     = load_config()
@@ -851,7 +851,7 @@ def run_loop(
             try:
                 result = subprocess.run(
                     [sys.executable, "-X", "utf8", _build_universe_script],
-                    capture_output=True, text=True, timeout=600,
+                    capture_output=True, text=True, encoding="utf-8", timeout=600,
                 )
                 if result.returncode == 0:
                     config   = load_config()  # reload to pick up new universe
