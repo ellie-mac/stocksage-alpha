@@ -140,19 +140,29 @@ def get_stock_info(code: str) -> Optional[dict]:
         return {}
 
 
+_PRICE_FETCH_DAYS = 550  # Always fetch this many days so all rolling periods share one cache entry
+
 def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     """Fetch daily OHLCV history (qfq adjusted). Cached for 1 hour.
+
+    Always fetches _PRICE_FETCH_DAYS (550d) so that rolling-period IC tests
+    with different `days` values (400, 420, 440…) all share a single cache
+    entry per stock, eliminating redundant API calls.
 
     Primary source: East Money (stock_zh_a_hist).
     Fallback: stock_zh_a_daily (163/Netease source) when primary is unavailable.
     """
-    cache_key = f"price_{code}_{days}"
+    fetch_days = max(days, _PRICE_FETCH_DAYS)
+    cache_key = f"price_{code}_{fetch_days}"
     cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY)
     if cached is not None:
+        # Caller may ask for fewer rows — slice to requested window
+        if len(cached) > days:
+            return cached.tail(days).reset_index(drop=True)
         return cached
     try:
         end = datetime.now()
-        start = end - timedelta(days=days)
+        start = end - timedelta(days=fetch_days)
         df = ak.stock_zh_a_hist(
             symbol=code,
             period="daily",
@@ -170,6 +180,8 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").reset_index(drop=True)
         cache.set_df(cache_key, df)
+        if len(df) > days:
+            return df.tail(days).reset_index(drop=True)
         return df
     except Exception:
         pass

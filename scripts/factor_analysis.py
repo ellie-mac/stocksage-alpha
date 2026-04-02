@@ -63,6 +63,7 @@ from factors_extended import (
     score_volume_expansion, score_nearness_to_high,
     score_price_volume_corr, score_trend_linearity, score_gap_frequency,
     score_market_relative_strength, score_price_efficiency, score_intraday_vs_overnight,
+    score_hammer_bottom, score_limit_open_rate, score_upper_shadow_reversal,
     # Group B
     score_shareholder_change, score_lhb, score_lockup_pressure,
     score_insider, score_institutional_visits, score_industry_momentum,
@@ -237,6 +238,9 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["market_relative_strength"] = _safe(score_market_relative_strength, price_df, market_price_df)
         scores["price_efficiency"]         = _safe(score_price_efficiency, price_df)
         scores["intraday_vs_overnight"]    = _safe(score_intraday_vs_overnight, price_df)
+        scores["hammer_bottom"]            = _safe(score_hammer_bottom, price_df)
+        scores["limit_open_rate"]          = _safe(score_limit_open_rate, price_df)
+        scores["upper_shadow_reversal"]    = _safe(score_upper_shadow_reversal, price_df)
 
         # Sell scores for Ext-A
         scores["sell_score_div_yield"]          = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df)
@@ -283,6 +287,9 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["sell_score_market_relative_strength"]   = _safe_sell(score_market_relative_strength, price_df, market_price_df)
         scores["sell_score_price_efficiency"]           = _safe_sell(score_price_efficiency, price_df)
         scores["sell_score_intraday_vs_overnight"]      = _safe_sell(score_intraday_vs_overnight, price_df)
+        scores["sell_score_hammer_bottom"]              = _safe_sell(score_hammer_bottom, price_df)
+        scores["sell_score_limit_open_rate"]            = _safe_sell(score_limit_open_rate, price_df)
+        scores["sell_score_upper_shadow_reversal"]      = _safe_sell(score_upper_shadow_reversal, price_df)
 
         # ── Ext-B (only if group includes B) ─────────────────────────────
         if "B" in group.upper():
@@ -720,12 +727,13 @@ if __name__ == "__main__":
     parser.add_argument("--out",     type=str,   default="",   help="Output JSON file path (optional)")
     parser.add_argument("--rolling", type=int,   default=1,    help="Number of rolling periods (default 1 = single period)")
     parser.add_argument("--step",    type=int,   default=20,   help="Days between rolling periods (default 20)")
+    parser.add_argument("--workers", type=int,   default=8,    help="Thread pool size (default 8; use 1 to avoid V8 crashes)")
     args = parser.parse_args()
 
     codes = TEST_UNIVERSE[:args.n]
     result = run_analysis(
         codes=codes, forward_days=args.fwd, group=args.group,
-        rolling=args.rolling, step=args.step,
+        max_workers=args.workers, rolling=args.rolling, step=args.step,
     )
 
     output = json.dumps(result, ensure_ascii=False, indent=2)

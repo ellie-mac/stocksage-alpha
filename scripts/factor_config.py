@@ -30,16 +30,17 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "gap_frequency":       2.0,   # IC=+0.250, ICIR=0.717 — low overnight gap frequency = stable, predictable; inverted in score
 
     # ── Tier 2: IC ≥ 0.05 (1× weight) ───────────────────────────────
-    "volume":              1.0,   # IC=+0.090, ICIR=0.432
-    "piotroski":           1.0,   # IC=+0.067, ICIR=1.006 — highest ICIR of all
-    "ma60_deviation":      1.0,   # IC=+0.098, ICIR=0.668 — mean-reversion: stocks below MA60 outperform
+    "piotroski":           1.0,   # IC=+0.071, ICIR=0.717 — highest ICIR of all; revalidated
+    "ma60_deviation":      1.0,   # IC=+0.100, ICIR=0.671 — mean-reversion: stocks below MA60 outperform
+    "return_skewness":     0.5,   # IC=+0.105, ICIR=0.867 — REACTIVATED at 0.5: collinear w/ low-vol, adding conservatively
     "nearness_to_high":    0.5,   # IC=+0.106, ICIR=0.378 — proximity to 20d high, breakout momentum
-    "main_inflow":         0.5,   # IC=+0.060, ICIR=0.239 — institutional flow, low ICIR
-    "bb_squeeze":          0.5,   # IC=+0.064, ICIR=0.399 — volatility squeeze signal
-    "roe_trend":           0.5,   # IC=+0.053, ICIR=0.362 — ROE direction
+    "main_inflow":         0.3,   # IC=+0.070, ICIR=0.290 — reduced: low ICIR
+    "chip_distribution":   0.3,   # IC=+0.058, ICIR=0.408 — REACTIVATED: IC direction flipped +, moderate signal
 
-    # ── Tier 3: Weak-positive ─────────────────────────────────────────
-    "quality":             0.5,   # IC=+0.025, ICIR=0.232
+    # ── Tier 3: Weak-positive (restored for diversification) ─────────
+    # volume: IC degraded to 0.019 but restored at 0.3 for diversification vs low-vol cluster
+    "volume":              0.3,   # IC=0.019 noise, but diversifies away from pure low-vol concentration
+    # quality / bb_squeeze / roe_trend remain excluded (IC < 0.03, insufficient marginal value)
 
     # ── Inverted (IC < 0, contrarian) ────────────────────────────────
     "growth":                -0.5,   # IC=-0.073, ICIR=-0.721 — A-share growth trap
@@ -73,21 +74,19 @@ FACTOR_WEIGHTS_BULL: dict[str, float] = {
     # volume_expansion excluded (IC=+0.021, noise)
     "volume":             2.0,   # high-turnover stocks attract most bull flows
     "divergence":         1.5,   # multi-indicator confluence still useful
-    "bb_squeeze":         1.5,   # volatility breakouts thrive in bull
     "main_inflow":        1.5,   # institutional flow drives bull market leads
     # ── Growth / quality (moderate) ────────────────────────────────────
     "asset_growth":       2.0,   # balance-sheet growth rewarded in risk-on
     "cash_flow_quality":  1.0,   # quality screen avoids blow-ups even in bull
-    "roe_trend":          0.5,
-    "quality":            0.5,
     "piotroski":          0.5,
-    # ── Low-vol cluster: near-zero — actively hurts in rallies ─────────
+    # ── Low-vol cluster: near-zero — proven needed even in bull to avoid momentum traps ─
+    # Backtest confirms: zeroing these makes BULL alpha worse (-7% vs -3.5%).
+    # Keep at 0.1 to preserve partial momentum-trap filter.
     "low_volatility":     0.1,
     "idiosyncratic_vol":  0.1,
     "atr_normalized":     0.1,
-    "gap_frequency":      0.1,   # reduced — high-gap speculative names lead in bull
+    "gap_frequency":      0.1,
     # ── No inversions in bull — prior losers and high-vol names lead ───
-    # price_volume_corr not inverted in bull — volume-confirmed moves can continue
     # growth, limit_hits, medium_term_momentum, obv_trend NOT inverted
     # ma60_deviation omitted — extended stocks keep running in bull
 }
@@ -190,10 +189,10 @@ REGIME_MA_LONG  = 60    # long  MA — price below this → CRISIS
 EXCLUDED_FACTORS: dict[str, str] = {
     # Noise: |IC| < 0.02
     "northbound":          "noise: IC=+0.001 — fund flow signal absent",
-    "turnover_percentile": "noise: IC=+0.005",
-    "ma_alignment":        "noise: IC=+0.010",
+    "turnover_percentile": "noise: IC=+0.005 buy-side; sell_score has IC=-0.134 but buy score insufficient",
+    "ma_alignment":        "noise: IC=-0.059 (inverted!), ICIR=-0.287 — excluded: directionally wrong",
     "reversal":            "noise: IC=+0.012",
-    "position_52w":        "noise: IC=-0.025",
+    "position_52w":        "noise: IC=-0.023",
 
     # Data unavailable (East Money blocked — real-time PE/PB missing)
     "value":               "no data: EM quote blocked, PE/PB=0 -> NaN score",
@@ -202,23 +201,32 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "short_interest":      "no data: margin data often missing",
     "accruals":            "insufficient signal: IC near 0",
 
+    # Degraded to noise (were active, now removed)
+    "volume":              "degraded: IC 0.090→0.019, ICIR=0.104 — noise as of 2026-04",
+    "quality":             "degraded: IC 0.025→0.019, noise",
+    "bb_squeeze":          "degraded: IC 0.064→0.024, noise",
+    "roe_trend":           "degraded: IC 0.053→0.032, ICIR=0.202 — noise/weak",
+
     # Weak or directionally unstable
-    "momentum":            "weak negative: IC=-0.048, mean-reversion dominates in A-share",
+    "momentum":            "weak negative: IC=-0.053, mean-reversion dominates in A-share",
     "rsi_signal":          "noise: IC~0 across periods",
     "macd_signal":         "noise: IC~0 across periods",
-    "chip_distribution":   "weak negative: IC=-0.042",
-    "bollinger_position":      "wrong direction: IC=-0.045 — A-share momentum not mean-reversion; near-upper-band stocks continue rising",
-    "turnover_acceleration":   "noise: IC≈0 — turnover rate change uncorrelated with forward returns",
-    "gross_margin_trend":      "no data: 毛利率 not in financial indicators API (balance-sheet item)",
-    "ar_quality":              "no data: 应收账款 not in financial indicators API (balance-sheet item)",
-    "size_factor":             "no data: circ_cap unreliable in IC analysis (always returns current value)",
-    "turnover_acceleration":   "noise: IC≈0 — turnover rate change uncorrelated with forward returns",
-    "market_beta":             "noise: IC=+0.016, ICIR=0.049 — beta alone adds no signal beyond low_volatility/atr_normalized",
-    "volume_expansion":           "noise: IC=+0.021, ICIR=0.095 — 10d/60d volume ratio uncorrelated with forward returns",
-    "trend_linearity":            "noise: IC=-0.062, ICIR=-0.210 — R² trend fit weakly negative but ICIR too low to be reliable",
-    "upday_ratio":                "noise: IC=-0.029, ICIR=-0.155 — up-day consistency uncorrelated with forward returns",
-    "max_return":                 "redundant: IC=+0.216 ICIR=0.947 strong individually but collinear with low_volatility/atr_normalized/idiosyncratic_vol — over-tilts portfolio to low-vol, hurts win rate in up markets",
-    "return_skewness":            "redundant: IC=+0.105 ICIR=0.872 strong individually but collinear with low-vol cluster — same exclusion rationale as max_return",
-    "market_relative_strength":   "noise: IC=+0.0006, ICIR=0.003 — 20d relative return vs CSI300 adds nothing beyond price_inertia",
-    "price_efficiency":           "weak: IC=+0.034, ICIR=0.249 — Kaufman ER insufficient signal for A-shares",
+    "bollinger_position":  "wrong direction: IC=-0.009 — noise",
+    "turnover_acceleration": "noise: IC=-0.033, ICIR=-0.142",
+    "gross_margin_trend":  "no data: 毛利率 not in financial indicators API (balance-sheet item)",
+    "ar_quality":          "no data: 应收账款 not in financial indicators API (balance-sheet item)",
+    "size_factor":         "no data: circ_cap unreliable in IC analysis (always returns current value)",
+    "market_beta":         "weak: IC=+0.075, ICIR=0.329 — adds no signal beyond low_vol/atr clusters",
+    "volume_expansion":    "noise: IC=+0.021, ICIR=0.095",
+    "trend_linearity":     "noise: IC=-0.062, ICIR=-0.210 — ICIR too low to be reliable",
+    "upday_ratio":         "noise: IC=-0.029, ICIR=-0.155",
+    "max_return":          "redundant: IC=+0.216 ICIR=0.947 — collinear with low_vol/atr/idio_vol cluster; over-tilts",
+    "market_relative_strength": "noise: IC=+0.0006, ICIR=0.003",
+    "price_efficiency":    "weak: IC=+0.034, ICIR=0.249 — insufficient for A-shares",
+    # chip_distribution REACTIVATED 2026-04-02: IC turned +0.058, ICIR=0.408
+
+    # ── Newly added, pending IC test ──────────────────────────────────────
+    "hammer_bottom":           "inverted: IC=-0.057 ICIR=-0.641 — A股金针探底后续反而偏弱，弱势反弹失败信号; sell_score同向 IC=-0.062 ICIR=-1.115",
+    "limit_open_rate":         "buy-side noise: IC=-0.047 weak; sell_score IC=-0.108 ICIR=-0.651 strong — high open-rate = distribution, use as sell filter only",
+    "upper_shadow_reversal":   "pending: newly added 2026-04-02, run factor_analysis --rolling 6 to validate",
 }

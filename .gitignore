@@ -3,6 +3,8 @@ __pycache__/
 *.pyo
 scripts/.cache/
 .env
+alert_config.json
+holdings.json
 *.egg-info/
 dist/
 build/
