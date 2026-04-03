@@ -340,8 +340,15 @@ def screen_stocks(
         df = df[df["market_cap"] <= conditions["market_cap_max"] * 1e8]
 
     if "pe_percentile_max" in conditions:
-        threshold = float(df["pe_ttm"].quantile(conditions["pe_percentile_max"] / 100))
-        df = df[df["pe_ttm"] <= threshold]
+        if industry_pe_pct:
+            # Use industry-relative PE percentile when the industry map is cached
+            df["_ind_pe_pct"] = df["code"].map(industry_pe_pct).fillna(50.0)
+            df = df[df["_ind_pe_pct"] <= conditions["pe_percentile_max"]]
+            df = df.drop(columns=["_ind_pe_pct"])
+        else:
+            # Fallback: market-wide PE quantile (less accurate, no industry map)
+            threshold = float(df["pe_ttm"].quantile(conditions["pe_percentile_max"] / 100))
+            df = df[df["pe_ttm"] <= threshold]
 
     if "pb_percentile_max" in conditions and "pb" in df.columns:
         threshold = float(df["pb"].dropna().quantile(conditions["pb_percentile_max"] / 100))
@@ -356,10 +363,20 @@ def screen_stocks(
     if "div_yield_min" in conditions and "div_yield" in df.columns:
         df = df[df["div_yield"] >= conditions["div_yield_min"]]
 
-    # Volume breakout: approximation using current 成交量 rank (no per-stock MA in screener)
+    # Volume breakout: approximation using turnover rate (no per-stock MA20 available in screener).
+    # Map the user-specified multiplier to a turnover-rate percentile cutoff:
+    #   ≥ 3.0× → top 15%,  ≥ 2.0× → top 25%,  ≥ 1.5× → top 35%,  default → top 40%
     if "volume_breakout_min" in conditions and "volume" in df.columns and "turnover_rate" in df.columns:
-        # Use turnover rate as a volume-activity proxy when per-stock MA20 is unavailable
-        threshold = float(df["turnover_rate"].quantile(0.6))  # top 40% by turnover
+        _vb_mult = conditions["volume_breakout_min"]
+        if _vb_mult >= 3.0:
+            _vb_pct = 0.85
+        elif _vb_mult >= 2.0:
+            _vb_pct = 0.75
+        elif _vb_mult >= 1.5:
+            _vb_pct = 0.65
+        else:
+            _vb_pct = 0.60
+        threshold = float(df["turnover_rate"].quantile(_vb_pct))
         df = df[df["turnover_rate"] >= threshold]
 
     # -----------------------------------------------------------------------

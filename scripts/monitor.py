@@ -563,7 +563,8 @@ def fast_check_holdings(
         if t_trade_state is not None and h.get("t_trade_enabled", False):
             ts = t_trade_state.get(code, {})
             if ts.get("date") != now.date():
-                ts = {}   # reset each new trading day
+                t_trade_state.pop(code, None)  # evict stale entry so it doesn't accumulate
+                ts = {}
 
             if not ts and change_pct >= t_sell_trigger:
                 # Phase 1: intraday high → suggest T-sell
