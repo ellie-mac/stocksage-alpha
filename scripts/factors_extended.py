@@ -57,10 +57,16 @@ def _neutral(max_pts: int) -> dict:
 
 
 def _get_price_position(price_df) -> Optional[float]:
-    """Return 52-week price position (0.0–1.0) or None if unavailable."""
+    """Return 52-week price position (0.0–1.0) or None if unavailable.
+
+    Requires at least 252 trading days of history; returns None for newer stocks
+    so callers receive a genuine "no data" rather than a spurious partial-window value.
+    """
     if price_df is None or len(price_df) < 20 or "close" not in price_df.columns:
         return None
     window = price_df["close"].tail(252)
+    if len(window) < 252:   # not enough history for a true 52-week metric
+        return None
     high_52w = float(window.max())
     low_52w  = float(window.min())
     current  = float(window.iloc[-1])
@@ -1479,7 +1485,7 @@ def score_turnover_percentile(
 
     # --- 52w position cross: price level determines what high/low turnover means ---
     position_signal = None
-    if len(price_df) >= 20 and "close" in price_df.columns:
+    if len(price_df) >= 252 and "close" in price_df.columns:
         try:
             window = price_df["close"].tail(252)
             hi = float(window.max()); lo = float(window.min()); cur = float(window.iloc[-1])

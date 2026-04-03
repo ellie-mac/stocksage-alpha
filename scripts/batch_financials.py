@@ -95,8 +95,8 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> None:
                 row[out_col] = _extract(df, candidates)
             buffer.append(row)
 
-        except Exception:
-            pass  # silently skip on API error; will be retried on next run
+        except Exception as e:
+            print(f"  [skip] {code}: {type(e).__name__}: {e}")
 
         time.sleep(RATE_DELAY)
 

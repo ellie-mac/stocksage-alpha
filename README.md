@@ -57,9 +57,30 @@ python scripts/screener.py
 
 ## Requirements
 
-```
+**Python 3.10+** required (uses `match` syntax and `list[type]` annotations).
+
+```bash
 pip install -r requirements.txt
 ```
+
+Dependencies: `akshare>=1.14.0`, `pandas>=2.0.0`, `numpy>=1.24.0`, `ta>=0.11.0`
+
+### First-run setup
+
+```bash
+# 1. Pre-warm financial data cache (~5000 stocks, ~1h, resumable)
+python scripts/batch_financials.py
+
+# 2. Pre-warm industry valuation comparisons (~90 API calls, cached 7 days)
+python -c "from scripts.industry import build_industry_map; build_industry_map()"
+
+# 3. Build screener universe (A-share sector/concept coverage, ~5–10 min)
+python scripts/build_universe.py
+```
+
+Steps 1–3 are optional but significantly improve signal quality. After first run they refresh automatically:
+- `batch_financials.py`: recommended daily at 02:00 via cron / Task Scheduler
+- `build_universe.py`: auto-triggered by `monitor.py` every Monday pre-market
 
 ## Factor Documentation
 
