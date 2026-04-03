@@ -133,10 +133,30 @@ def _safe_sell(fn, *args, **kwargs) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Cache warm-up helper
+# ---------------------------------------------------------------------------
+
+def _prefetch_one(code: str, history_days: int) -> None:
+    """Pre-warm per-stock caches.  Errors are silently swallowed."""
+    for fn, args in [
+        (fetcher.get_price_history,        (code, history_days)),
+        (fetcher.get_financial_indicators, (code,)),
+        (fetcher.get_valuation_history,    (code,)),
+        (fetcher.get_fund_flow,            (code, 10)),
+        (fetcher.get_margin_data,          (code,)),
+    ]:
+        try:
+            fn(*args)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # Per-stock score computation
 # ---------------------------------------------------------------------------
 
-def compute_stock_scores(code: str, forward_days: int, group: str, price_offset: int = 0) -> Optional[dict]:
+def compute_stock_scores(code: str, forward_days: int, group: str, price_offset: int = 0,
+                          _shared: Optional[dict] = None) -> Optional[dict]:
     """
     Fetch all data for one stock, compute all factor scores and forward return.
     Returns a flat dict {factor_name: score, "forward_ret": float} or None on failure.
@@ -161,13 +181,16 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
             close.iloc[-(total_skip + 1)] * 100
         )
 
-        # Fetch supporting data (uses cache so repeated calls are free)
+        # Fetch supporting data (uses cache so repeated calls are free).
+        # market_price_df and spot_df are shared across all stocks; if pre-fetched
+        # by the caller they are passed in via _shared to avoid per-stock re-fetches.
+        _sh             = _shared or {}
         quote           = fetcher.get_realtime_quote(code) or {}
         financial_df    = fetcher.get_financial_indicators(code)
         val_history     = fetcher.get_valuation_history(code)
         fund_flow_df    = fetcher.get_fund_flow(code, 10)
         margin_df       = fetcher.get_margin_data(code)
-        market_price_df = fetcher.get_market_regime_data()
+        market_price_df = _sh.get("market_df") or fetcher.get_market_regime_data()
         circ_cap        = quote.get("circulating_cap", 0) or 0
 
         scores: dict[str, float] = {"forward_ret": forward_ret}
@@ -244,7 +267,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["upper_shadow_reversal"]    = _safe(score_upper_shadow_reversal, price_df)
 
         # sector_sympathy: uses full-market spot data + stock's industry
-        _spot_df_sym  = fetcher._get_spot_df()
+        _spot_df_sym  = _sh.get("spot_df") or fetcher._get_spot_df()
         _info_sym     = fetcher.get_stock_info(code) if "B" not in group.upper() else None
         _industry_sym = (_info_sym or {}).get("industry", "") if _info_sym is not None else ""
         scores["sector_sympathy"]      = _safe(score_sector_sympathy, code, _industry_sym, _spot_df_sym)
@@ -318,18 +341,18 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
             revision_df    = fetcher.get_earnings_revision(code)
             market_ret     = fetcher.get_market_return_1m()
             social_dict    = fetcher.get_social_heat(code)
-            market_regime_df = fetcher.get_market_regime_data()
+            market_regime_df = market_price_df  # already fetched above (shared)
 
-            # Re-compute with revision_df now available
-            scores["value"]                    = _safe(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df, market_ret_1m=market_ret)
-            scores["sell_score_value"]         = _safe_sell(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df, market_ret_1m=market_ret)
-
-            # Re-compute quality and piotroski with pe_pct/pb_pct from value
+            # Re-compute value + extract pe/pb percentiles in one call
             try:
-                _val_full = score_value(quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df)
-                _pe_pct   = _val_full.get("details", {}).get("pe_percentile")
-                _pb_pct   = _val_full.get("details", {}).get("pb_percentile")
+                _val_full = score_value(quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df, market_ret_1m=market_ret)
+                scores["value"]           = float(_val_full.get("score",      np.nan)) if isinstance(_val_full, dict) else float(_val_full)
+                scores["sell_score_value"] = float(_val_full.get("sell_score", np.nan)) if isinstance(_val_full, dict) else np.nan
+                _pe_pct = _val_full.get("details", {}).get("pe_percentile") if isinstance(_val_full, dict) else None
+                _pb_pct = _val_full.get("details", {}).get("pb_percentile") if isinstance(_val_full, dict) else None
             except Exception:
+                scores["value"] = np.nan
+                scores["sell_score_value"] = np.nan
                 _pe_pct = _pb_pct = None
             scores["quality"]          = _safe(score_quality, financial_df, price_df, _pe_pct, _pb_pct)
             scores["sell_score_quality"] = _safe_sell(score_quality, financial_df, price_df, _pe_pct, _pb_pct)
@@ -422,9 +445,8 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
                 scores["div_yield"]                 = _safe(score_dividend_yield, quote.get("div_yield", 0), financial_df, _regime_float, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
                 scores["sell_score_div_yield"]      = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df, _regime_float, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
                 # Re-compute sector_sympathy with confirmed industry name
-                _spot_df_b = fetcher._get_spot_df()
-                scores["sector_sympathy"]            = _safe(score_sector_sympathy, code, ind, _spot_df_b)
-                scores["sell_score_sector_sympathy"] = _safe_sell(score_sector_sympathy, code, ind, _spot_df_b)
+                scores["sector_sympathy"]            = _safe(score_sector_sympathy, code, ind, _spot_df_sym)
+                scores["sell_score_sector_sympathy"] = _safe_sell(score_sector_sympathy, code, ind, _spot_df_sym)
             except Exception:
                 scores["industry_momentum"] = np.nan
                 scores["sell_score_industry_momentum"] = np.nan
@@ -505,13 +527,32 @@ def run_analysis(
         return _run_rolling(codes, forward_days, group, max_workers, rolling, step)
 
     print(f"Running IC analysis: {len(codes)} stocks, {forward_days}d forward, group={group}")
-    print("Fetching data concurrently...\n")
 
+    # ── Phase 1: parallel I/O pre-fetch (warm caches before scoring) ────────
+    history_needed = max(400, 300 + forward_days + 10)
+    prefetch_workers = min(len(codes), max(max_workers, 16))
+    print(f"Pre-fetching stock data ({prefetch_workers} workers)...")
+    with ThreadPoolExecutor(max_workers=prefetch_workers) as pre_ex:
+        pre_futs = [pre_ex.submit(_prefetch_one, c, history_needed) for c in codes]
+        for f in as_completed(pre_futs):
+            try:
+                f.result()
+            except Exception:
+                pass
+
+    # Shared per-run data (same for all stocks; fetch once after pre-warm)
+    _shared = {
+        "market_df": fetcher.get_market_regime_data(),
+        "spot_df":   fetcher._get_spot_df(),
+    }
+
+    # ── Phase 2: parallel scoring (data now in cache) ────────────────────────
+    print(f"Scoring factors ({max_workers} workers)...\n")
     results: list[dict] = []
     errors = 0
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futures = {ex.submit(compute_stock_scores, code, forward_days, group): code
+        futures = {ex.submit(compute_stock_scores, code, forward_days, group, 0, _shared): code
                    for code in codes}
         for i, future in enumerate(as_completed(futures), 1):
             code = futures[future]
@@ -623,6 +664,27 @@ def _run_rolling(
     """
     print(f"Rolling IC: {n_periods} periods × {step}d step, {forward_days}d forward, group={group}\n")
 
+    # ── Pre-fetch all stock data once (covers max price_offset) ─────────────
+    # All rolling periods reuse the same cache entry (_PRICE_FETCH_DAYS covers them all)
+    max_offset       = (n_periods - 1) * step
+    history_needed   = max(400, 300 + forward_days + max_offset + 10)
+    prefetch_workers = min(len(codes), max(max_workers, 16))
+    print(f"Pre-fetching stock data for all periods ({prefetch_workers} workers)...")
+    with ThreadPoolExecutor(max_workers=prefetch_workers) as pre_ex:
+        pre_futs = [pre_ex.submit(_prefetch_one, c, history_needed) for c in codes]
+        for f in as_completed(pre_futs):
+            try:
+                f.result()
+            except Exception:
+                pass
+
+    # Shared per-run data fetched once and reused across all periods
+    _shared = {
+        "market_df": fetcher.get_market_regime_data(),
+        "spot_df":   fetcher._get_spot_df(),
+    }
+    print()
+
     # Collect IC per period
     # period_ics[factor][period_idx] = ic_value
     period_ics: dict[str, list[float]] = {}
@@ -637,7 +699,7 @@ def _run_rolling(
             results: list[dict] = []
             errors = 0
             futures = {
-                ex.submit(compute_stock_scores, code, forward_days, group, price_offset): code
+                ex.submit(compute_stock_scores, code, forward_days, group, price_offset, _shared): code
                 for code in codes
             }
             for future in as_completed(futures):
