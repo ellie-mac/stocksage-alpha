@@ -20,6 +20,8 @@ _lhb_cache: dict = {"df": None, "ts": 0.0}   # {"df": DataFrame, "ts": float}
 _lhb_cache_lock = threading.Lock()
 _shareholder_cache: dict = {}                  # date_str -> {"df": DataFrame, "ts": float}
 _shareholder_cache_lock = threading.Lock()
+_hot_rank_cache: dict = {"df": None, "ts": 0.0}  # full market hot-rank table; refreshed every 2h
+_hot_rank_cache_lock = threading.Lock()
 
 # stock_zh_a_daily and stock_fund_flow_individual both use py_mini_racer's V8 engine.
 # Concurrent initialisation of V8 from multiple threads causes a fatal crash:
@@ -267,16 +269,22 @@ def get_realtime_quote(code: str) -> Optional[dict]:
 
 
 def get_stock_info(code: str) -> Optional[dict]:
-    """Fetch stock meta: industry, listing date, share counts."""
+    """Fetch stock meta: industry, listing date, share counts.  Cached for 7 days."""
+    cache_key = f"stock_info_{code}"
+    cached = cache.get(cache_key, cache.TTL_FINANCIAL)
+    if cached is not None:
+        return cached
     try:
         df = ak.stock_individual_info_em(symbol=code)
         info = dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
-        return {
+        result = {
             "industry": str(info.get("行业", "Unknown")),
             "listing_date": str(info.get("上市时间", "")),
             "total_shares": str(info.get("总股本", "")),
             "circulating_shares": str(info.get("流通股", "")),
         }
+        cache.set(cache_key, result)
+        return result
     except Exception:
         return {}
 
@@ -795,22 +803,49 @@ def get_earnings_revision(code: str) -> Optional[pd.DataFrame]:
         return None
 
 
+def _get_hot_rank_df() -> Optional[pd.DataFrame]:
+    """Fetch the full East Money hot-rank table once and cache it for 2 hours.
+
+    Called by get_social_heat() for every stock; centralising the fetch here
+    means the full table is downloaded only once per 2h window regardless of
+    how many stocks are scored.  Thread-safe via _hot_rank_cache_lock.
+    """
+    TTL = 7200  # 2 hours
+    with _hot_rank_cache_lock:
+        cached_df = _hot_rank_cache.get("df")
+        cached_ts = _hot_rank_cache.get("ts", 0.0)
+        if cached_df is not None and (_time.time() - cached_ts) < TTL:
+            return cached_df
+        try:
+            df = _call_with_timeout(ak.stock_hot_rank_em, 20)
+            if df is None or df.empty:
+                _hot_rank_cache["df"] = pd.DataFrame()
+                _hot_rank_cache["ts"] = _time.time()
+                return None
+            df.columns = [c.strip() for c in df.columns]
+            _hot_rank_cache["df"] = df
+            _hot_rank_cache["ts"] = _time.time()
+            return df
+        except Exception:
+            _hot_rank_cache["df"] = pd.DataFrame()
+            _hot_rank_cache["ts"] = _time.time()
+            return None
+
+
 def get_social_heat(code: str) -> Optional[dict]:
     """
     Fetch East Money stock discussion heat.
     Returns dict with rank and recent post metrics, or None.
-    Cached for 2 hours.
+    Cached per-stock for 2 hours.  The underlying full-market table is fetched
+    only once per 2h via _get_hot_rank_df() (shared across all stock calls).
     """
     cache_key = f"social_heat_{code}"
     cached = cache.get(cache_key, cache.TTL_PRICE_HISTORY * 2)
     if cached is not None:
         return cached
     try:
-        # Try East Money hot rank
-        df = _call_with_timeout(ak.stock_hot_rank_em, 20)
+        df = _get_hot_rank_df()
         if df is not None and not df.empty:
-            df.columns = [c.strip() for c in df.columns]
-            # Find code column
             code_col = next((c for c in df.columns if "代码" in c or "code" in c.lower()), None)
             rank_col = next((c for c in df.columns if "排名" in c or "rank" in c.lower()), None)
             if code_col and rank_col:

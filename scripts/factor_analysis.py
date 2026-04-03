@@ -184,7 +184,7 @@ def _safe_sell(fn, *args, **kwargs) -> float:
 # Cache warm-up helper
 # ---------------------------------------------------------------------------
 
-def _prefetch_one(code: str, history_days: int) -> None:
+def _prefetch_one(code: str, history_days: int, group: str = "A") -> None:
     """Pre-warm per-stock caches.  Errors are silently swallowed."""
     for fn, args in [
         (fetcher.get_price_history,        (code, history_days)),
@@ -192,11 +192,30 @@ def _prefetch_one(code: str, history_days: int) -> None:
         (fetcher.get_valuation_history,    (code,)),
         (fetcher.get_fund_flow,            (code, 10)),
         (fetcher.get_margin_data,          (code,)),
+        (fetcher.get_cyq,                  (code,)),          # overhead_resistance factor
+        (fetcher.get_stock_info,           (code,)),          # sector_sympathy / industry momentum
     ]:
         try:
             fn(*args)
         except Exception:
             pass
+
+    if "B" in group.upper():
+        for fn, args in [
+            (fetcher.get_shareholder_count,    (code,)),
+            (fetcher.get_lhb_flow,             (code,)),
+            (fetcher.get_lockup_pressure,      (code,)),
+            (fetcher.get_insider_transactions, (code,)),
+            (fetcher.get_institutional_visits, (code,)),
+            (fetcher.get_northbound_holdings,  (code,)),
+            (fetcher.get_earnings_revision,    (code,)),
+            (fetcher.get_social_heat,          (code,)),
+            (fetcher.get_concept_momentum,     (code,)),
+        ]:
+            try:
+                fn(*args)
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +406,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
             visits_df      = fetcher.get_institutional_visits(code)
             nb_df          = fetcher.get_northbound_holdings(code)
             revision_df    = fetcher.get_earnings_revision(code)
-            market_ret     = fetcher.get_market_return_1m()
+            market_ret     = _sh.get("market_ret") if _sh.get("market_ret") is not None else fetcher.get_market_return_1m()
             social_dict    = fetcher.get_social_heat(code)
             market_regime_df = market_price_df  # already fetched above (shared)
 
@@ -579,9 +598,22 @@ def run_analysis(
     # ── Phase 1: parallel I/O pre-fetch (warm caches before scoring) ────────
     history_needed = max(400, 300 + forward_days + 10)
     prefetch_workers = min(len(codes), max(max_workers, 16))
-    print(f"Pre-fetching stock data ({prefetch_workers} workers)...")
+    print(f"Pre-fetching stock data ({prefetch_workers} workers, group={group})...")
+
+    # Pre-warm shared (non-per-stock) data first so thread pool doesn't race on it
+    if "B" in group.upper():
+        print("  Warming shared Group-B caches (LHB table, concept map, market return)...")
+        for _fn in (fetcher._get_lhb_df,
+                    fetcher._build_concept_reverse_map,
+                    fetcher.get_market_return_1m,
+                    fetcher._get_hot_rank_df):
+            try:
+                _fn()
+            except Exception:
+                pass
+
     with ThreadPoolExecutor(max_workers=prefetch_workers) as pre_ex:
-        pre_futs = [pre_ex.submit(_prefetch_one, c, history_needed) for c in codes]
+        pre_futs = [pre_ex.submit(_prefetch_one, c, history_needed, group) for c in codes]
         for f in as_completed(pre_futs):
             try:
                 f.result()
@@ -590,8 +622,9 @@ def run_analysis(
 
     # Shared per-run data (same for all stocks; fetch once after pre-warm)
     _shared = {
-        "market_df": fetcher.get_market_regime_data(),
-        "spot_df":   fetcher._get_spot_df(),
+        "market_df":  fetcher.get_market_regime_data(),
+        "spot_df":    fetcher._get_spot_df(),
+        "market_ret": fetcher.get_market_return_1m() if "B" in group.upper() else None,
     }
 
     # ── Phase 2: parallel scoring (data now in cache) ────────────────────────
@@ -717,9 +750,21 @@ def _run_rolling(
     max_offset       = (n_periods - 1) * step
     history_needed   = max(400, 300 + forward_days + max_offset + 10)
     prefetch_workers = min(len(codes), max(max_workers, 16))
-    print(f"Pre-fetching stock data for all periods ({prefetch_workers} workers)...")
+    print(f"Pre-fetching stock data for all periods ({prefetch_workers} workers, group={group})...")
+
+    if "B" in group.upper():
+        print("  Warming shared Group-B caches (LHB table, concept map, market return)...")
+        for _fn in (fetcher._get_lhb_df,
+                    fetcher._build_concept_reverse_map,
+                    fetcher.get_market_return_1m,
+                    fetcher._get_hot_rank_df):
+            try:
+                _fn()
+            except Exception:
+                pass
+
     with ThreadPoolExecutor(max_workers=prefetch_workers) as pre_ex:
-        pre_futs = [pre_ex.submit(_prefetch_one, c, history_needed) for c in codes]
+        pre_futs = [pre_ex.submit(_prefetch_one, c, history_needed, group) for c in codes]
         for f in as_completed(pre_futs):
             try:
                 f.result()
@@ -728,8 +773,9 @@ def _run_rolling(
 
     # Shared per-run data fetched once and reused across all periods
     _shared = {
-        "market_df": fetcher.get_market_regime_data(),
-        "spot_df":   fetcher._get_spot_df(),
+        "market_df":  fetcher.get_market_regime_data(),
+        "spot_df":    fetcher._get_spot_df(),
+        "market_ret": fetcher.get_market_return_1m() if "B" in group.upper() else None,
     }
     print()
 
