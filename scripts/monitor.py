@@ -1044,6 +1044,7 @@ def run_loop(
     _premarket_scan_date: Optional[object] = _restore_date("premarket_scan_date")
     _premarket_picks: list[str] = _state.get("premarket_picks", [])
     _night_scan_date: Optional[object] = _restore_date("night_scan_date")
+    _night_picks: list[str] = _state.get("night_picks", [])   # 22:00 buy signals → 9:25 auction check
     _WATCHLIST_INTERVAL_MIN = 30
 
     # Holdings hot-reload: detect changes to holdings.json without restarting
@@ -1174,9 +1175,11 @@ def run_loop(
                 except Exception:
                     pass
                 _nt_universe = config.get("screener_universe", [])
-                run(dry_run=dry_run, sell_alert_state=sell_alert_state,
-                    _regime=_nt_regime, universe_override=_nt_universe,
-                    sell_only=False)
+                _nt_picked = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
+                                 _regime=_nt_regime, universe_override=_nt_universe,
+                                 sell_only=False)
+                _night_picks = [b["code"] for b in (_nt_picked or [])]
+                print(f"  Night picks saved: {_night_picks}")
                 _trigger_xhs_post("night", dry_run)
             except Exception as e:
                 print(f"  [ERROR] Night scan failed: {e}")
@@ -1329,9 +1332,11 @@ def run_loop(
             if session_key == "morning" and _auction_checked_date != now.date():
                 _auction_checked_date = now.date()
                 try:
+                    # Use 22:00 night picks as primary; fall back to 01:00 pre-market picks
+                    _auction_picks = _night_picks or _premarket_picks
                     _check_opening_auction(
                         holdings  = holdings,
-                        pre_picks = _premarket_picks,
+                        pre_picks = _auction_picks,
                         watchlist = config.get("watchlist", []),
                         sendkey   = sendkey,
                         dry_run   = dry_run,
@@ -1416,6 +1421,7 @@ def run_loop(
             "premarket_picks":     _premarket_picks,
             "night_scan_date":     _night_scan_date.isoformat()
                                    if _night_scan_date else None,
+            "night_picks":         _night_picks,
         })
 
         # ── Sleep until next fast interval ────────────────────────────────────
@@ -1439,6 +1445,7 @@ def run_loop(
             "premarket_picks":       _premarket_picks,
             "night_scan_date":       _night_scan_date.isoformat()
                                      if _night_scan_date else None,
+            "night_picks":           _night_picks,
         })
         print("\n[StockSage] 监控已停止（Ctrl+C）。状态已保存。")
 
