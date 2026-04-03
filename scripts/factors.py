@@ -35,54 +35,75 @@ import pandas as pd
 class FactorWeights:
     """
     Multiplicative weights for each factor dimension.
-    Set a weight to 0 to exclude a factor; use >1 to emphasise it.
+    Set to 0 to exclude; use >1 to emphasise; use <0 for inverted/contrarian factors.
 
-    Core (25 pts each): value, growth, momentum, quality
-    Extended-A (5-15 pts, from already-fetched data): all default 0.3-0.5
-    Extended-B (10 pts, require extra API calls): all default 0.2-0.3
+    Negative weights: factor is inverted (high score = bad signal).
+    compute_total_score handles negative weights via (1 - normalized) contribution.
+
+    IC source: rolling 6-period backtest, 20d forward, 154 stocks, 2026-04-03.
     """
-    # ── Core factors (IC-calibrated weights) ───────────────────────────────
-    # Weights reflect A-share factor IC from quant research literature.
-    # IC source: CITIC/Guotai Junan/Haitong quant reports 2020-2024.
-    value:          float = 0.5   # IC~0.030, weak-moderate; industry-relative PE/PB
-    growth:         float = 0.5   # IC~0.027, weak; growth priced in quickly in A-shares
-    momentum:       float = 1.0   # IC~0.038, moderate; 3-6m works, 1m is reversal
-    quality:        float = 0.5   # IC~0.028, weak-moderate; ROE+margin composite
-    # ── Ext-A: from already-fetched data ───────────────────────────────────
-    northbound:          float = 0.1   # IC~0.009, minimal; proxy, not real NB data
-    volume:              float = 0.2   # IC~0.012, weak; noisy standalone
-    position_52w:        float = 0.2   # IC~0.014, weak; overlaps with momentum
-    div_yield:           float = 0.2   # IC~0.013, weak; yield less relevant in A-shares
-    volume_ratio:        float = 0.2   # IC~0.018, weak; noisy standalone
-    ma_alignment:        float = 0.5   # IC~0.035, weak-moderate; trend-following works
-    low_volatility:      float = 1.0   # IC~0.045, moderate; low-vol anomaly proven globally
-    reversal:            float = 2.0   # IC~0.070, STRONG; retail overreaction in A-shares
-    accruals:            float = 0.5   # IC~0.032, weak-moderate; cash-backed earnings
-    asset_growth:        float = 0.0   # IC~-0.005, INVERTED in A-shares; zeroed out
-    piotroski:           float = 1.0   # IC~0.048, moderate; 9-signal composite
-    short_interest:      float = 0.2   # IC~0.020, weak; limited short-selling coverage
-    rsi_signal:          float = 0.2   # IC~0.016, weak; overlaps with reversal
-    macd_signal:         float = 0.2   # IC~0.015, weak; lag indicator
-    turnover_percentile: float = 0.5   # IC~0.022, weak; attention / volume activity
-    chip_distribution:   float = 1.5   # IC~0.055 est.; 筹码分布 cross-interaction (position x flow)
-    limit_hits:          float = 0.3   # IC~0.022 est.; 涨跌停板 activity signal
-    price_inertia:       float = 0.4   # IC~0.020 est.; consecutive day continuation
-    # ── Ext-B: require additional API calls ────────────────────────────────
-    shareholder_change:   float = 2.0   # IC~0.065, STRONG; A-share 筹码集中 signal
-    lhb:                  float = 0.0   # IC~-0.008, INVERTED; LHB marks tops; zeroed out
-    lockup_pressure:      float = 0.1   # IC~0.010, minimal; often already priced in
-    insider:              float = 1.0   # IC~0.042, moderate; insider alignment signal
-    institutional_visits: float = 0.1   # IC~0.006, minimal; lags actual fund positions
-    industry_momentum:    float = 0.5   # IC~0.025, weak; sector rotation
-    northbound_actual:    float = 0.5   # IC~0.024, weak; real NB holdings, slow signal
-    earnings_revision:    float = 1.0   # IC~0.040, moderate; analyst upgrade momentum
-    social_heat:         float = 0.2   # IC~0.015 est.; forum discussion heat (contrarian proxy)
-    market_regime:       float = 0.8   # IC~0.035 est.; CSI 300 MA alignment (market context)
-    concept_momentum:    float = 0.8   # IC~0.035 est.; concept/theme board momentum (板块热点)
+    # ── Core 4 (always computed) ──────────────────────────────────────────
+    value:          float = 0.0    # IC=None (no data: EM quote blocked)
+    growth:         float = 0.0    # IC=-0.010, ICIR=-0.086; noise
+    momentum:       float = -0.5   # IC=-0.086, ICIR=-0.47; A-share mean-reversion (INVERTED)
+    quality:        float = -1.0   # IC=-0.089, ICIR=-0.57; already priced in (INVERTED)
+    # ── Core 3 ext-original ───────────────────────────────────────────────
+    northbound:          float = 1.0   # IC=+0.073, ICIR=0.65
+    volume:              float = 1.0   # IC=+0.067, ICIR=0.50
+    position_52w:        float = 0.0   # noise; subsumed by nearness_to_high
+    # ── Ext-A: low-vol / volatility cluster (strongest signals) ──────────
+    low_volatility:      float = 2.0   # IC=+0.177, ICIR=0.50
+    idiosyncratic_vol:   float = 2.0   # IC=+0.185, ICIR=0.52 — low residual vol
+    gap_frequency:       float = 2.0   # IC=+0.167, ICIR=0.54 — low gap = stable stock
+    atr_normalized:      float = 2.0   # IC=+0.162, ICIR=0.50 — low realised range
+    return_skewness:     float = 2.0   # IC=+0.150, ICIR=4.87 — outstanding stability
+    ma60_deviation:      float = 2.0   # IC=+0.111, ICIR=0.98 — proximity to MA60
+    asset_growth:        float = 2.0   # IC=+0.110, ICIR=0.68
+    divergence:          float = 2.0   # IC=+0.104, ICIR=1.11
+    # ── Ext-A: moderate positive ──────────────────────────────────────────
+    div_yield:           float = 1.5   # IC=+0.101, ICIR=2.80 — re-activated
+    cash_flow_quality:   float = 1.5   # IC=+0.100, ICIR=0.84
+    amihud_illiquidity:  float = 1.5   # IC=+0.073, ICIR=3.17 — illiquidity premium
+    max_return:          float = 1.5   # IC=+0.143, ICIR=0.58
+    main_inflow:         float = 1.0   # IC=+0.091, ICIR=0.66
+    turnover_percentile: float = 1.0   # IC=+0.080, ICIR=0.57
+    # ── Ext-A: weak positive ──────────────────────────────────────────────
+    nearness_to_high:    float = 0.5   # IC=+0.080, ICIR=0.48
+    upday_ratio:         float = 0.5   # IC=+0.065, ICIR=0.55 — re-activated
+    turnover_acceleration: float = 0.5 # IC=+0.063, ICIR=0.52 — re-activated
+    roe_trend:           float = 0.5   # IC=+0.059, ICIR=0.43
+    price_inertia:       float = 0.5   # IC=+0.047, ICIR=0.42
+    chip_distribution:   float = 0.2   # IC=+0.028, ICIR=0.44
+    # ── Ext-A: excluded / no data ─────────────────────────────────────────
+    volume_ratio:        float = 0.0   # no data (requires realtime quote)
+    ma_alignment:        float = 0.0   # noise: IC=-0.044, ICIR=-0.353
+    reversal:            float = 0.0   # noise: IC=-0.013, ICIR=-0.081
+    accruals:            float = 0.0   # no data
+    short_interest:      float = 0.0   # no data
+    rsi_signal:          float = 0.0   # no data / noise
+    macd_signal:         float = 0.0   # no data / noise
+    # ── Ext-A: inverted signals ───────────────────────────────────────────
+    limit_hits:          float = -2.0  # IC=-0.128, ICIR=-1.92; strongest inverted (INVERTED)
+    hammer_bottom:       float = -1.0  # IC=-0.082, ICIR=-0.75; A股弱势反弹 (INVERTED)
+    limit_open_rate:     float = -1.0  # IC=-0.077, ICIR=-0.78; 派发 (INVERTED)
+    medium_term_momentum: float = -1.0 # IC=-0.129, ICIR=-0.53; 均值回归 (INVERTED)
+    price_volume_corr:   float = -0.5  # IC=-0.038, ICIR=-0.55; 散户追涨 (INVERTED)
+    # ── Ext-B: require additional API calls ──────────────────────────────
+    institutional_visits: float = -1.5 # IC=-0.115, ICIR=-0.99; 调研=出货 (INVERTED)
+    shareholder_change:  float = 0.0   # no data in backtest
+    lhb:                 float = 0.0   # noise: IC=-0.003
+    lockup_pressure:     float = 0.0   # no data
+    insider:             float = 0.0   # no data
+    industry_momentum:   float = 0.0   # no data
+    northbound_actual:   float = 0.0   # no data
+    earnings_revision:   float = 0.0   # no data
+    social_heat:         float = 0.0   # no data
+    market_regime:       float = 0.0   # used in regime filter, not as stock factor
+    concept_momentum:    float = 0.0   # noise: IC=+0.005
 
     def total(self) -> float:
         from dataclasses import fields as dc_fields
-        return sum(getattr(self, f.name) for f in dc_fields(self))
+        return sum(abs(getattr(self, f.name)) for f in dc_fields(self))
 
 
 DEFAULT_WEIGHTS = FactorWeights()
@@ -2531,19 +2552,24 @@ def compute_total_score(
             if f_dict is None:
                 continue
             w = getattr(weights, name, 0.0) * rm.get(name, 1.0)
-            if w > 0:
+            if w != 0.0:
                 pairs.append((f_dict, w))
 
     weighted_sum = 0.0
     weight_total = 0.0
 
     for f_dict, w in pairs:
-        if w <= 0:
+        if w == 0.0:
             continue
         mx = f_dict.get("max", 1) or 1
-        normalized = f_dict.get("score", 0) / mx
-        weighted_sum += normalized * w
-        weight_total += w
+        normalized = f_dict.get("score", 0) / mx   # [0, 1]
+        if w > 0:
+            weighted_sum += normalized * w
+        else:
+            # Inverted factor: high score = bad signal.
+            # Use (1 - normalized) so a low buy-score becomes a high contribution.
+            weighted_sum += (1.0 - normalized) * abs(w)
+        weight_total += abs(w)
 
     if weight_total == 0:
         return 0.0
@@ -2590,14 +2616,14 @@ def compute_sell_score(
             if f_dict is None:
                 continue
             w = getattr(weights, name, 0.0) * rm.get(name, 1.0)
-            if w > 0:
-                pairs.append((f_dict, w))
+            if w != 0.0:
+                pairs.append((f_dict, abs(w)))   # sell_score is always positive-direction
 
     weighted_sum = 0.0
     weight_total = 0.0
 
     for f_dict, w in pairs:
-        if w <= 0:
+        if w == 0.0:
             continue
         mx = f_dict.get("max", 1) or 1
         sell = f_dict.get("sell_score", 0.0)

@@ -257,7 +257,8 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         val_history     = fetcher.get_valuation_history(code)
         fund_flow_df    = fetcher.get_fund_flow(code, 10)
         margin_df       = fetcher.get_margin_data(code)
-        market_price_df = _sh.get("market_df") or fetcher.get_market_regime_data()
+        _md = _sh.get("market_df")
+        market_price_df = _md if _md is not None else fetcher.get_market_regime_data()
         circ_cap        = quote.get("circulating_cap", 0) or 0
 
         scores: dict[str, float] = {"forward_ret": forward_ret}
@@ -334,7 +335,8 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         scores["upper_shadow_reversal"]    = _safe(score_upper_shadow_reversal, price_df)
 
         # sector_sympathy: uses full-market spot data + stock's industry
-        _spot_df_sym  = _sh.get("spot_df") or fetcher._get_spot_df()
+        _sd = _sh.get("spot_df")
+        _spot_df_sym  = _sd if _sd is not None else fetcher._get_spot_df()
         _info_sym     = fetcher.get_stock_info(code) if "B" not in group.upper() else None
         _industry_sym = (_info_sym or {}).get("industry", "") if _info_sym is not None else ""
         scores["sector_sympathy"]      = _safe(score_sector_sympathy, code, _industry_sym, _spot_df_sym)
@@ -520,7 +522,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
 
         return scores
 
-    except Exception as e:
+    except Exception:
         return None
 
 

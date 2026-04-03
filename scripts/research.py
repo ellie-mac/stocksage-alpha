@@ -82,6 +82,25 @@ from factors_extended import (
     score_social_heat,
     score_market_regime,
     score_concept_momentum,
+    # IC-validated factors (2026-04-03 backtest)
+    score_idiosyncratic_vol,
+    score_gap_frequency,
+    score_atr_normalized,
+    score_return_skewness,
+    score_ma60_deviation,
+    score_divergence,
+    score_main_inflow,
+    score_cash_flow_quality,
+    score_amihud_illiquidity,
+    score_max_return,
+    score_turnover_acceleration,
+    score_upday_ratio,
+    score_roe_trend,
+    score_nearness_to_high,
+    score_hammer_bottom,
+    score_limit_open_rate,
+    score_medium_term_momentum,
+    score_price_volume_corr,
 )
 
 
@@ -228,6 +247,26 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
     soc_factor    = score_social_heat(social_dict, price_df, financial_df, best_concept_ret, regime_score, industry_ret, market_ret, revision_df)
     con_factor    = score_concept_momentum(concept_data, price_df, regime_score, financial_df, industry_excess, revision_df)
 
+    # Extended D: IC-validated factors (2026-04-03 backtest)
+    idio_factor   = score_idiosyncratic_vol(price_df, market_df)
+    gap_factor    = score_gap_frequency(price_df)
+    atr_factor    = score_atr_normalized(price_df)
+    skew_factor   = score_return_skewness(price_df)
+    ma60_factor   = score_ma60_deviation(price_df)
+    div_factor2   = score_divergence(price_df)
+    inf_factor    = score_main_inflow(fund_flow_df)
+    cfq_factor    = score_cash_flow_quality(financial_df)
+    amh_factor    = score_amihud_illiquidity(price_df)
+    mxr_factor    = score_max_return(price_df)
+    tacc_factor   = score_turnover_acceleration(price_df)
+    upr_factor    = score_upday_ratio(price_df)
+    roe_factor    = score_roe_trend(financial_df)
+    nth_factor    = score_nearness_to_high(price_df)
+    ham_factor    = score_hammer_bottom(price_df)
+    lor_factor    = score_limit_open_rate(price_df)
+    mtm_factor    = score_medium_term_momentum(price_df)
+    pvc_factor    = score_price_volume_corr(price_df)
+
     extra = {
         "div_yield":           div_factor,
         "volume_ratio":        vr_factor,
@@ -250,11 +289,30 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
         "industry_momentum":   ind_factor,
         "northbound_actual":   nba_factor,
         "earnings_revision":   er_factor,
-        "limit_hits":       lim_factor,
-        "price_inertia":    inr_factor,
-        "social_heat":      soc_factor,
-        "market_regime":    mkt_factor,
-        "concept_momentum": con_factor,
+        "limit_hits":          lim_factor,
+        "price_inertia":       inr_factor,
+        "social_heat":         soc_factor,
+        "market_regime":       mkt_factor,
+        "concept_momentum":    con_factor,
+        # Extended D (IC-validated 2026-04-03)
+        "idiosyncratic_vol":     idio_factor,
+        "gap_frequency":         gap_factor,
+        "atr_normalized":        atr_factor,
+        "return_skewness":       skew_factor,
+        "ma60_deviation":        ma60_factor,
+        "divergence":            div_factor2,
+        "main_inflow":           inf_factor,
+        "cash_flow_quality":     cfq_factor,
+        "amihud_illiquidity":    amh_factor,
+        "max_return":            mxr_factor,
+        "turnover_acceleration": tacc_factor,
+        "upday_ratio":           upr_factor,
+        "roe_trend":             roe_factor,
+        "nearness_to_high":      nth_factor,
+        "hammer_bottom":         ham_factor,
+        "limit_open_rate":       lor_factor,
+        "medium_term_momentum":  mtm_factor,
+        "price_volume_corr":     pvc_factor,
     }
 
     total_score = compute_total_score(
@@ -360,6 +418,25 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
             "social_heat":      soc_factor,
             "market_regime":    mkt_factor,
             "concept_momentum": con_factor,
+            # Extended D (IC-validated 2026-04-03)
+            "idiosyncratic_vol":     idio_factor,
+            "gap_frequency":         gap_factor,
+            "atr_normalized":        atr_factor,
+            "return_skewness":       skew_factor,
+            "ma60_deviation":        ma60_factor,
+            "divergence":            div_factor2,
+            "main_inflow":           inf_factor,
+            "cash_flow_quality":     cfq_factor,
+            "amihud_illiquidity":    amh_factor,
+            "max_return":            mxr_factor,
+            "turnover_acceleration": tacc_factor,
+            "upday_ratio":           upr_factor,
+            "roe_trend":             roe_factor,
+            "nearness_to_high":      nth_factor,
+            "hammer_bottom":         ham_factor,
+            "limit_open_rate":       lor_factor,
+            "medium_term_momentum":  mtm_factor,
+            "price_volume_corr":     pvc_factor,
         },
         "weights_used": {f.name: getattr(weights, f.name)
                          for f in dc_fields(weights) if getattr(weights, f.name) != 0},
