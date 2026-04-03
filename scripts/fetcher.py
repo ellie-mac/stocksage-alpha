@@ -351,7 +351,16 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             _bs_rows: list = []
 
             def _do_bs_query():
-                with _bs_lock:
+                # Use acquire(timeout) instead of `with _bs_lock` so that a stalled
+                # daemon thread (left behind by a previous _call_with_timeout expiry)
+                # cannot hold the lock indefinitely and block all subsequent callers.
+                # 65 s > the 60 s _call_with_timeout budget, so the outer wrapper will
+                # have already given up and called _reset_baostock() before this path
+                # returns — but at least every thread eventually exits rather than
+                # accumulating into a permanent deadlock.
+                if not _bs_lock.acquire(timeout=65.0):
+                    return [], []  # previous stalled thread still owns the lock; skip
+                try:
                     rs = bs.query_history_k_data_plus(
                         bs_code,
                         "date,open,high,low,close,volume,turn,pctChg",
@@ -364,6 +373,8 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                     while rs.error_code == "0" and rs.next():
                         result.append(rs.get_row_data())
                     return result, rs.fields
+                finally:
+                    _bs_lock.release()
 
             _bs_result = _call_with_timeout(_do_bs_query, timeout=60.0)
             if _bs_result is None:

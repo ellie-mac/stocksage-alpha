@@ -1645,8 +1645,11 @@ def score_52w_position(
     if price_df is None or len(price_df) < 20 or "close" not in price_df.columns:
         return {"score": 2.5, "sell_score": 0.0, "max": 5, "details": {"source": "no data, neutral", "sell_score": 0.0}}
 
-    # Use up to 252 trading days (~1 year)
+    # Require a full 252-day window; newer stocks don't have a meaningful 52-week range
     window = price_df["close"].tail(252)
+    if len(window) < 252:
+        return {"score": 2.5, "sell_score": 0.0, "max": 5, "details": {"source": "insufficient history, neutral", "sell_score": 0.0}}
+
     high_52w = float(window.max())
     low_52w  = float(window.min())
     current  = float(window.iloc[-1])
