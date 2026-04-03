@@ -117,8 +117,12 @@ def normalize_code(code: str) -> str:
 
 
 def _market_from_code(code: str) -> str:
-    """Infer exchange from code prefix: 6xx -> sh, others -> sz."""
-    return "sh" if code.startswith("6") else "sz"
+    """Infer exchange from code prefix: 6xx -> sh, 8xx/43xxxx -> bj, others -> sz."""
+    if code.startswith("6"):
+        return "sh"
+    if code.startswith("8") or code.startswith("43"):
+        return "bj"
+    return "sz"
 
 
 def _try_numeric(val) -> Optional[float]:
@@ -339,7 +343,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     try:
         bs = _get_baostock()
         if bs is not None:
-            prefix = "sh" if code.startswith("6") else "sz"
+            prefix = _market_from_code(code)
             bs_code = f"{prefix}.{code}"
             end = datetime.now()
             start = end - timedelta(days=fetch_days)
@@ -385,8 +389,10 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         pass
 
     # ── Source 3: 163/Netease via stock_zh_a_daily (V8 — last resort) ───
+    # Note: 163/Netease does not carry BJ exchange stocks; they will 404 silently.
+    # BJ stocks (prefix="bj") should have been served by BaoStock above.
     try:
-        prefix = "sh" if code.startswith("6") else "sz"
+        prefix = _market_from_code(code)
         if not _v8_initialised.is_set():
             with _v8_lock:
                 df = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust="qfq")

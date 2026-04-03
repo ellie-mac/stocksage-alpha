@@ -159,7 +159,6 @@ def fetch_universe(top_n: int = 15) -> tuple[list[str], dict[str, list[tuple[str
                 all_codes.add(code)
 
             sector_map[sector] = picked
-            new_count = sum(1 for c, _ in picked if c in all_codes)
             print(f"  [OK] {sector}: {len(picked):2d} stocks  total={len(all_codes)}")
             time.sleep(0.2)
         except Exception as e:
@@ -183,8 +182,11 @@ def fetch_universe(top_n: int = 15) -> tuple[list[str], dict[str, list[tuple[str
             if df.empty:
                 continue
 
-            df["成交额"] = df["成交额"].fillna(0) if "成交额" in df.columns else 0
-            df["成交量"] = df["成交量"].fillna(0) if "成交量" in df.columns else 0
+            if "成交额" not in df.columns or "成交量" not in df.columns:
+                print(f"  [SKIP concept] {concept}: missing 成交额/成交量 columns")
+                continue
+            df["成交额"] = df["成交额"].fillna(0)
+            df["成交量"] = df["成交量"].fillna(0)
 
             df["_rank_val"] = df["成交额"].rank(ascending=False)
             df["_rank_vol"] = df["成交量"].rank(ascending=False)
