@@ -1054,8 +1054,10 @@ def run_loop(
             wait_min = wait_sec // 60
             print(f"[{now.strftime('%H:%M')}] Outside trading hours. "
                   f"Next session in ~{wait_min} min. Sleeping...")
-            # Sleep in chunks so Ctrl+C is responsive
-            for _ in range(min(wait_sec, 300)):
+            # Sleep in chunks so Ctrl+C is responsive.
+            # Use wall-clock deadline so system sleep/hibernate doesn't cause us to miss market open.
+            _deadline = time.time() + min(wait_sec, 300)
+            while time.time() < _deadline:
                 time.sleep(1)
             continue
 
@@ -1218,7 +1220,8 @@ def run_loop(
 
         # ── Sleep until next fast interval ────────────────────────────────────
         sleep_sec = interval_min * 60
-        for _ in range(sleep_sec):
+        _deadline = time.time() + sleep_sec
+        while time.time() < _deadline:
             time.sleep(1)
 
     except KeyboardInterrupt:

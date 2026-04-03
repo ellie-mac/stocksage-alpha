@@ -358,7 +358,8 @@ def run_loop(interval_min: int = 5, dry_run: bool = False) -> None:
             wait_sec = next_session_seconds()
             print(f"[{now.strftime('%H:%M')}] Outside trading hours. "
                   f"Next session in ~{wait_sec//60} min. Sleeping...")
-            for _ in range(min(wait_sec, 300)):
+            _deadline = time.time() + min(wait_sec, 300)
+            while time.time() < _deadline:
                 time.sleep(1)
             continue
 
@@ -435,7 +436,8 @@ def run_loop(interval_min: int = 5, dry_run: bool = False) -> None:
         else:
             print(f"  No signals.")
 
-        for _ in range(interval_min * 60):
+        _deadline = time.time() + interval_min * 60
+        while time.time() < _deadline:
             time.sleep(1)
 
 
