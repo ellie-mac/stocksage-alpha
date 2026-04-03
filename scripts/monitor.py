@@ -36,6 +36,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from research import research
 from factors_extended import score_market_regime
+from factors import DEFAULT_WEIGHTS, weights_from_config_dict
+from factor_config import REGIME_WEIGHTS
 import fetcher
 import cache
 from common import (
@@ -140,11 +142,11 @@ def _compact_factor_scores(factors: dict) -> dict:
     }
 
 
-def _score_one(holding: dict) -> dict:
+def _score_one(holding: dict, weights=None) -> dict:
     """Research a single holding; return enriched dict with scores and signals."""
     code = holding["code"]
     try:
-        result = research(code)
+        result = research(code, weights or DEFAULT_WEIGHTS)
         buy_score  = result.get("total_score", 0) or 0
         sell_score = result.get("total_sell_score", 0) or 0
         price      = (result.get("price") or {}).get("current") or 0
@@ -194,10 +196,10 @@ def _score_one(holding: dict) -> dict:
         }
 
 
-def _score_one_buy(code: str) -> dict:
+def _score_one_buy(code: str, weights=None) -> dict:
     """Research a universe stock for buy screening."""
     try:
-        result = research(code)
+        result = research(code, weights or DEFAULT_WEIGHTS)
         summary  = result.get("signals_summary", {})
         price_d  = result.get("price") or {}
         basic    = result.get("basic") or {}
@@ -851,12 +853,29 @@ def run(
             print(f"  [WARN] Regime fetch failed: {e}")
     print(f"  Market regime: {regime_score}/10 — {regime_signal}")
 
+    # Select regime-appropriate factor weights for scoring
+    if regime_score <= 2:
+        _regime_key = "BEAR"
+    elif regime_score <= 4:
+        _regime_key = "CAUTION"
+    elif regime_score >= 7:
+        _regime_key = "BULL"
+    else:
+        _regime_key = "NORMAL"
+    _fw = weights_from_config_dict(REGIME_WEIGHTS[_regime_key])
+    if _regime_key != "NORMAL":
+        print(f"  Using {_regime_key} factor weights for scoring")
+
+    from functools import partial as _partial
+    _score_one_h   = _partial(_score_one,     weights=_fw)
+    _score_one_buy_w = _partial(_score_one_buy, weights=_fw)
+
     # ── 1. Score holdings (sell signal check) ─────────────────────────────────
     scored_holdings: list[dict] = []
     if not buy_only and holdings:
         print(f"  Scoring {len(holdings)} holdings...")
         with ThreadPoolExecutor(max_workers=4) as ex:
-            futures = {ex.submit(_score_one, h): h for h in holdings}
+            futures = {ex.submit(_score_one_h, h): h for h in holdings}
             for fut in as_completed(futures):
                 scored_holdings.append(fut.result())
         scored_holdings.sort(key=lambda x: -x["sell_score"])
@@ -920,7 +939,7 @@ def run(
             pass
         scored_universe: list[dict] = []
         with ThreadPoolExecutor(max_workers=8) as ex:
-            futures = {ex.submit(_score_one_buy, code): code for code in universe}
+            futures = {ex.submit(_score_one_buy_w, code): code for code in universe}
             for fut in as_completed(futures):
                 scored_universe.append(fut.result())
         scored_universe.sort(key=lambda x: -x["buy_score"])
@@ -1022,7 +1041,8 @@ def run_loop(
     sell_alert_state:   dict = {}   # code -> last sell-alert datetime (cross-tier dedup)
     t_trade_state:      dict = {}   # code -> {sell_price, cover_price, date}
     _error_notified:    dict = {}   # error_key -> last WeChat push datetime (1h rate limit)
-    _xhs_triggered_today: set = set()  # slots triggered today (resets on restart)
+    _xhs_triggered_today: set = set()  # slots triggered today
+    _xhs_date: Optional[object] = None              # date _xhs_triggered_today belongs to
     _auction_checked_date: Optional[object] = None   # date of last 竞价检验
 
     # Restore scanned_sessions: stored as "YYYY-MM-DD|session" strings
@@ -1102,6 +1122,11 @@ def run_loop(
     try:
       while True:
         now = datetime.now()
+
+        # ── Daily reset of XHS trigger set ────────────────────────────────────────
+        if _xhs_date != now.date():
+            _xhs_triggered_today = set()
+            _xhs_date = now.date()
 
         # ── Weekly universe refresh (every Monday, before market open) ───────────
         if (now.weekday() == 0  # Monday

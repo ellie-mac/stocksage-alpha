@@ -409,9 +409,9 @@ def screen_stocks(
             if cond_key in conditions and col in df.columns:
                 t = conditions[cond_key]
                 if op == ">=":
-                    df = df[df[col].isna() | (df[col] >= t)]
+                    df = df[df[col].notna() & (df[col] >= t)]
                 else:
-                    df = df[df[col].isna() | (df[col] <= t)]
+                    df = df[df[col].notna() & (df[col] <= t)]
                 financial_applied.append(cond_key)
         financial_unavailable = [k for k in requested_fin if k not in financial_applied]
     elif requested_fin:

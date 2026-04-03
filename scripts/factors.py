@@ -108,6 +108,18 @@ class FactorWeights:
 
 DEFAULT_WEIGHTS = FactorWeights()
 
+
+def weights_from_config_dict(d: dict) -> FactorWeights:
+    """Build a FactorWeights instance from a factor_config FACTOR_WEIGHTS dict.
+
+    Fields missing from d are set to 0.0 (opt-out rather than fallback to default).
+    This lets regime-specific dicts (CAUTION/CRISIS/BULL) define only the factors
+    they care about and zero out everything else.
+    """
+    from dataclasses import fields as _dc_fields
+    return FactorWeights(**{f.name: d.get(f.name, 0.0) for f in _dc_fields(FactorWeights)})
+
+
 # Weight presets parsed from natural language
 _WEIGHT_PRESETS: list[tuple[list[str], dict]] = [
     # Emphasise growth
