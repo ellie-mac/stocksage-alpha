@@ -30,6 +30,7 @@ import time
 from datetime import datetime
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -632,6 +633,189 @@ def build_fast_wechat_desp(fast_alerts: list[dict], run_time: str,
     return "\n".join(lines)
 
 
+# ── Opening auction quality check ─────────────────────────────────────────────
+
+def _check_opening_auction(
+    holdings: list[dict],
+    pre_picks: list[str],
+    watchlist: list[str],
+    sendkey: str,
+    dry_run: bool = False,
+) -> dict:
+    """
+    竞价质量检验 — 在每日 9:25 集合竞价结束后运行一次。
+
+    对持仓、昨夜预选股、自选池三类股票分别计算：
+      gap_pct   = (今日开盘 - 昨收) / 昨收 × 100
+      ATR_pct   = 近20日 (最高-最低) 均值 / 昨收 × 100
+      norm_gap  = gap_pct / ATR_pct   （以 ATR 为单位的开口幅度）
+
+    判断标准：
+      norm_gap ≥ 2.5×  → 大幅高开，追入成本已高，风险收益比变差
+      norm_gap ≥ 1.5×  → 高开，注意成本抬升
+      norm_gap ≤ -2.5× → 大幅低开，与做多信号相悖，建议观望
+      norm_gap ≤ -1.5× → 低开，谨慎
+
+    Returns: {code: {"text": str, "tag": str, "gap_pct": float, "norm_gap": float}}
+    """
+    hold_codes = [h["code"] for h in holdings if h.get("shares", 0) > 0]
+    all_codes  = list(dict.fromkeys(hold_codes + list(pre_picks) + list(watchlist)))
+    if not all_codes:
+        return {}
+
+    print(f"  [竞价检验] Checking {len(all_codes)} stocks...")
+
+    def _one(code: str) -> Optional[dict]:
+        try:
+            quote = fetcher.get_realtime_quote(code) or {}
+            if "error" in quote:
+                return None
+            open_p   = quote.get("open", 0) or 0
+            prev_cls = quote.get("prev_close", 0) or 0
+            if open_p <= 0 or prev_cls <= 0:
+                return None
+            gap_pct = (open_p - prev_cls) / prev_cls * 100
+
+            atr_pct = None
+            ph = fetcher.get_price_history(code, 30)
+            if ph is not None and len(ph) >= 10 and "high" in ph.columns and "low" in ph.columns:
+                atr_abs = (pd.to_numeric(ph["high"], errors="coerce") -
+                           pd.to_numeric(ph["low"],  errors="coerce")).tail(20).mean()
+                if atr_abs > 0:
+                    atr_pct = float(atr_abs / prev_cls * 100)
+
+            norm_gap = round(gap_pct / atr_pct, 1) if atr_pct else None
+            return {
+                "code":      code,
+                "name":      quote.get("name", code),
+                "open":      open_p,
+                "prev_close": prev_cls,
+                "gap_pct":   round(gap_pct, 2),
+                "atr_pct":   round(atr_pct, 2) if atr_pct else None,
+                "norm_gap":  norm_gap,
+            }
+        except Exception:
+            return None
+
+    raw: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(_one, c): c for c in all_codes}
+        for fut in as_completed(futs):
+            r = fut.result()
+            if r:
+                raw[r["code"]] = r
+
+    # Build verdict per code
+    verdicts: dict[str, dict] = {}
+    for code, r in raw.items():
+        ng = r.get("norm_gap")       # may be None if ATR unavailable
+        gp = r.get("gap_pct", 0)
+        if ng is None:
+            tag  = "normal"
+            text = f"{'高开' if gp > 0 else ('低开' if gp < 0 else '平开')} {gp:+.1f}%（ATR不可用）"
+        elif ng >= 2.5:
+            tag  = "big_gap_up"
+            text = f"大幅高开 {gp:+.1f}%（{ng}×ATR）⚠️ 追高风险"
+        elif ng >= 1.5:
+            tag  = "gap_up"
+            text = f"高开 {gp:+.1f}%（{ng}×ATR）— 注意成本抬升"
+        elif ng >= 0.3:
+            tag  = "small_gap_up"
+            text = f"小幅高开 {gp:+.1f}%（{ng}×ATR）"
+        elif ng <= -2.5:
+            tag  = "big_gap_down"
+            text = f"大幅低开 {gp:+.1f}%（{ng}×ATR）⚠️ 信号可能失效"
+        elif ng <= -1.5:
+            tag  = "gap_down"
+            text = f"低开 {gp:+.1f}%（{ng}×ATR）— 谨慎"
+        elif ng <= -0.3:
+            tag  = "small_gap_down"
+            text = f"小幅低开 {gp:+.1f}%（{ng}×ATR）"
+        else:
+            tag  = "normal"
+            text = f"平开 {gp:+.1f}%（{ng}×ATR）"
+        verdicts[code] = {"text": text, "tag": tag, "gap_pct": gp, "norm_gap": ng}
+
+    # ── Format WeChat message ──────────────────────────────────────────────────
+    def _icon(tag: str) -> str:
+        if tag in ("big_gap_up",):   return "⚠️"
+        if tag in ("gap_up",):       return "📈"
+        if tag in ("small_gap_up",): return "📈"
+        if tag in ("big_gap_down",): return "⚠️"
+        if tag in ("gap_down",):     return "📉"
+        if tag in ("small_gap_down",): return "📉"
+        return "➡️"
+
+    def _fmt_group(title: str, codes_list: list[str]) -> str:
+        lines = [f"## {title}"]
+        shown = False
+        for c in codes_list:
+            if c not in verdicts:
+                continue
+            v = verdicts[c]
+            lines.append(f"- {_icon(v['tag'])} **{raw[c]['name']}** ({c}): {v['text']}")
+            shown = True
+        return "\n".join(lines) if shown else ""
+
+    sections = []
+    g1 = _fmt_group("持仓开盘情况", hold_codes)
+    if g1:
+        sections.append(g1)
+
+    pick_extra = [c for c in pre_picks if c not in set(hold_codes)]
+    g2 = _fmt_group("昨夜预选股", pick_extra)
+    if g2:
+        sections.append(g2)
+
+    wl_extra = [c for c in watchlist
+                if c not in set(hold_codes) and c not in set(pre_picks)][:10]
+    g3 = _fmt_group("自选池", wl_extra)
+    if g3:
+        sections.append(g3)
+
+    # Actionable advice for notable gaps
+    advice = []
+    for c in hold_codes:
+        if c not in verdicts:
+            continue
+        tag = verdicts[c]["tag"]
+        gp  = verdicts[c]["gap_pct"]
+        ng  = verdicts[c].get("norm_gap") or 0
+        nm  = raw[c]["name"]
+        if tag == "big_gap_down":
+            advice.append(f"- **{nm}** 大幅低开，确认止损位是否仍然有效")
+        elif tag == "big_gap_up" and ng >= 3.0:
+            advice.append(f"- **{nm}** 极端高开（{ng}×ATR），可考虑逢高减仓")
+
+    for c in pick_extra:
+        if c not in verdicts:
+            continue
+        tag = verdicts[c]["tag"]
+        gp  = verdicts[c]["gap_pct"]
+        nm  = raw[c]["name"]
+        if tag == "big_gap_up":
+            advice.append(f"- **{nm}** 高开 {gp:+.1f}%，买入成本已抬升，等回踩或降仓位")
+        elif tag in ("big_gap_down", "gap_down"):
+            advice.append(f"- **{nm}** 低开 {gp:+.1f}%，与预选信号方向相悖，观望为宜")
+
+    if advice:
+        sections.append("## 操作参考\n" + "\n".join(advice))
+
+    if not sections:
+        print("  [竞价检验] 无数据可推送，跳过")
+        return verdicts
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    desp = f"*{now_str}*\n\n" + "\n\n".join(sections) + "\n\n> 仅供参考，不构成投资建议"
+    try:
+        send_wechat("[StockSage] 开盘竞价简报 🔔", desp, sendkey, dry_run=dry_run)
+        print(f"  [竞价检验] 推送完成（{len(verdicts)} 只）")
+    except Exception as e:
+        print(f"  [竞价检验] 推送失败: {e}")
+
+    return verdicts
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def run(
@@ -839,6 +1023,7 @@ def run_loop(
     t_trade_state:      dict = {}   # code -> {sell_price, cover_price, date}
     _error_notified:    dict = {}   # error_key -> last WeChat push datetime (1h rate limit)
     _xhs_triggered_today: set = set()  # slots triggered today (resets on restart)
+    _auction_checked_date: Optional[object] = None   # date of last 竞价检验
 
     # Restore scanned_sessions: stored as "YYYY-MM-DD|session" strings
     _scanned_sessions: set = set()
@@ -1139,6 +1324,20 @@ def run_loop(
 
         if need_full:
             print(f"[{run_time}] Full factor check ({session_key} session)...")
+
+            # ── Opening auction quality check (9:25, once per day) ───────────
+            if session_key == "morning" and _auction_checked_date != now.date():
+                _auction_checked_date = now.date()
+                try:
+                    _check_opening_auction(
+                        holdings  = holdings,
+                        pre_picks = _premarket_picks,
+                        watchlist = config.get("watchlist", []),
+                        sendkey   = sendkey,
+                        dry_run   = dry_run,
+                    )
+                except Exception as e:
+                    print(f"  [竞价检验] 异常: {e}")
 
             # ── Preauction XHS trigger (fires at start of morning session) ────
             if session_key == "morning" and "preauction" not in _xhs_triggered_today:
