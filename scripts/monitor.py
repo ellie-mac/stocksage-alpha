@@ -264,7 +264,7 @@ def check_sell_signals(scored: dict, thresholds: dict,
         factor = bf.get("factor", "")
         sig    = bf.get("signal", "")
         ss     = bf.get("sell_score", 0)
-        if ss >= 7:
+        if ss >= 20:   # raised from 7 — filter out low-conviction single-factor noise
             reasons.append(f"[{factor}] {sig} (卖出分={ss:.0f})")
 
     # Soft sell: momentum stalling regardless of P&L.
@@ -293,7 +293,7 @@ def check_buy_signal(scored: dict, thresholds: dict, held_codes: set) -> bool:
         return False
     if scored["buy_score"] < buy_trigger:
         return False
-    if scored["sell_score"] >= sell_trigger * 0.7:
+    if scored["sell_score"] >= sell_trigger * 0.85:
         return False
     # Bear regime: additionally require sell_score below cap (rule out falling knives)
     if bear_sell_cap is not None and scored["sell_score"] >= bear_sell_cap:
@@ -842,6 +842,7 @@ def run(
     thresholds = config.get("thresholds", {})
     sendkey    = config.get("serverchan", {}).get("sendkey", "")
     configure_pushplus(config.get("pushplus", {}).get("token", ""))
+    always_send = always_send or config.get("always_send", False)
     universe   = universe_override if universe_override is not None else config.get("screener_universe", [])
     run_time   = datetime.now().strftime("%Y-%m-%d %H:%M")
 
