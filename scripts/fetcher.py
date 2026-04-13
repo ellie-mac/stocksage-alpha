@@ -238,39 +238,83 @@ def _get_shareholder_snapshot(date_str: str) -> pd.DataFrame:
             return pd.DataFrame()
 
 
+def _get_realtime_quote_sina(code: str) -> Optional[dict]:
+    """
+    Fallback: fetch a single stock's realtime quote from Sina finance.
+    Much lighter than stock_zh_a_spot_em — one HTTP request per stock.
+    Returns None on any failure so the caller can degrade gracefully.
+    """
+    import urllib.request
+    market = _market_from_code(code)
+    if market == "bj":
+        return None   # Sina doesn't cover Beijing Exchange
+    key = f"{market}{code}"
+    url = f"https://hq.sinajs.cn/list={key}"
+    try:
+        req = urllib.request.Request(url, headers={"Referer": "https://finance.sina.com.cn"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            text = resp.read().decode("gbk", errors="replace")
+        # format: var hq_str_sh600036="name,open,prev_close,price,high,low,..."
+        inner = text.split('"')[1] if '"' in text else ""
+        if not inner or inner == "no such stock":
+            return None
+        parts = inner.split(",")
+        if len(parts) < 9:
+            return None
+        prev_close = float(parts[2] or 0)
+        price      = float(parts[3] or 0)
+        change_pct = ((price - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
+        return {
+            "code":       code,
+            "name":       parts[0],
+            "price":      price,
+            "change_pct": round(change_pct, 2),
+            "change_amt": round(price - prev_close, 3),
+            "open":       float(parts[1] or 0),
+            "prev_close": prev_close,
+            "high":       float(parts[4] or 0),
+            "low":        float(parts[5] or 0),
+            "volume":     float(parts[8] or 0),
+            "amount":     float(parts[9] or 0) if len(parts) > 9 else 0.0,
+        }
+    except Exception:
+        return None
+
+
 def get_realtime_quote(code: str) -> Optional[dict]:
     """Return real-time quote fields for a single stock code."""
     try:
         df = _get_spot_df()
-        row = df[df["代码"] == code]
-        if row.empty:
-            return None
-        r = row.iloc[0]
-        return {
-            "code": code,
-            "name": str(r.get("名称", "")),
-            "price": float(r.get("最新价", 0) or 0),
-            "change_pct": float(r.get("涨跌幅", 0) or 0),
-            "change_amt": float(r.get("涨跌额", 0) or 0),
-            "volume": float(r.get("成交量", 0) or 0),
-            "amount": float(r.get("成交额", 0) or 0),
-            "market_cap": float(r.get("总市值", 0) or 0),
-            "circulating_cap": float(r.get("流通市值", 0) or 0),
-            "pe_ttm": float(r.get("市盈率-动态", 0) or 0),
-            "pb": float(r.get("市净率", 0) or 0),
-            "turnover_rate": float(r.get("换手率", 0) or 0),
-            "amplitude":     float(r.get("振幅", 0) or 0),
-            "high":          float(r.get("最高", 0) or 0),
-            "low":           float(r.get("最低", 0) or 0),
-            "open":          float(r.get("今开", 0) or 0),
-            "prev_close":    float(r.get("昨收", 0) or 0),
-            # Extended fields (present in East Money spot data)
-            "volume_ratio":  float(r.get("量比", 0) or 0),
-            "div_yield":     float(r.get("股息率-TTM", 0) or 0),
-            "return_5d":     float(r.get("5日涨跌幅", 0) or 0),
-            "return_10d":    float(r.get("10日涨跌幅", 0) or 0),
-            "return_20d":    float(r.get("20日涨跌幅", 0) or 0),
-        }
+        if not df.empty:
+            row = df[df["代码"] == code]
+            if not row.empty:
+                r = row.iloc[0]
+                return {
+                    "code": code,
+                    "name": str(r.get("名称", "")),
+                    "price": float(r.get("最新价", 0) or 0),
+                    "change_pct": float(r.get("涨跌幅", 0) or 0),
+                    "change_amt": float(r.get("涨跌额", 0) or 0),
+                    "volume": float(r.get("成交量", 0) or 0),
+                    "amount": float(r.get("成交额", 0) or 0),
+                    "market_cap": float(r.get("总市值", 0) or 0),
+                    "circulating_cap": float(r.get("流通市值", 0) or 0),
+                    "pe_ttm": float(r.get("市盈率-动态", 0) or 0),
+                    "pb": float(r.get("市净率", 0) or 0),
+                    "turnover_rate": float(r.get("换手率", 0) or 0),
+                    "amplitude":     float(r.get("振幅", 0) or 0),
+                    "high":          float(r.get("最高", 0) or 0),
+                    "low":           float(r.get("最低", 0) or 0),
+                    "open":          float(r.get("今开", 0) or 0),
+                    "prev_close":    float(r.get("昨收", 0) or 0),
+                    "volume_ratio":  float(r.get("量比", 0) or 0),
+                    "div_yield":     float(r.get("股息率-TTM", 0) or 0),
+                    "return_5d":     float(r.get("5日涨跌幅", 0) or 0),
+                    "return_10d":    float(r.get("10日涨跌幅", 0) or 0),
+                    "return_20d":    float(r.get("20日涨跌幅", 0) or 0),
+                }
+        # East Money full-market fetch failed — fall back to Sina per-stock API
+        return _get_realtime_quote_sina(code)
     except Exception as e:
         return {"error": f"Failed to fetch quote: {e}"}
 
