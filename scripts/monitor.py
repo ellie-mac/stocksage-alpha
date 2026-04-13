@@ -444,13 +444,12 @@ def _fmt_buy_section_md(buy_alerts: list[dict]) -> str:
 def _fmt_holdings_table_md(scored_holdings: list[dict]) -> str:
     if not scored_holdings:
         return ""
-    rows = ["| 股票 | 代码 | 现价 | 浮盈 | 卖出分 | 买入分 |",
-            "|------|------|------|------|--------|--------|"]
+    rows = ["| 股票 | 卖出分 | 买入分 |",
+            "|------|--------|--------|"]
     for s in scored_holdings:
-        pnl = f"{s['pnl_pct']:+.1f}%"
+        name = s['name'][:4]   # truncate to 4 chars to fit mobile screen
         rows.append(
-            f"| {s['name']} | {s['code']} | {s['price'] or 'N/A'} "
-            f"| {pnl} | {s['sell_score']:.0f} | {s['buy_score']:.0f} |"
+            f"| {name} | {s['sell_score']:.0f} | {s['buy_score']:.0f} |"
         )
     return "\n".join(rows)
 
@@ -1237,21 +1236,19 @@ def run_loop(
         if (now.hour == 15 and 5 <= now.minute < 10  # TEST: weekday check removed
                 and _closing_date != now.date()):
             _closing_date = now.date()
-            rows = ["| 股票 | 今日涨跌 | 浮盈 |", "|------|----------|------|"]
+            rows = ["| 股票 | 今日涨跌 |", "|------|----------|"]
             for h in holdings:
                 try:
-                    q    = fetcher.get_realtime_quote(h["code"])
-                    chg  = q.get("change_pct") or 0.0
-                    price = q.get("price") or 0
-                    cost = h.get("cost_price") or 0
-                    pnl  = ((price - cost) / cost * 100) if cost > 0 else 0.0
+                    q   = fetcher.get_realtime_quote(h["code"])
+                    chg = q.get("change_pct") or 0.0
+                    name = h.get('name', h['code'])[:4]
                     rows.append(
-                        f"| {h.get('name', h['code'])} "
-                        f"| {'📈' if chg >= 0 else '📉'} {chg:+.1f}% "
-                        f"| {'🟢' if pnl >= 0 else '🔴'} {pnl:+.1f}% |"
+                        f"| {name} "
+                        f"| {'📈' if chg >= 0 else '📉'} {chg:+.1f}% |"
                     )
                 except Exception:
-                    rows.append(f"| {h.get('name', h['code'])} | — | — |")
+                    name = h.get('name', h['code'])[:4]
+                    rows.append(f"| {name} | — |")
             closing_desp = (
                 f"**{now.strftime('%Y-%m-%d')} 收盘快报**\n\n"
                 + "\n".join(rows)
