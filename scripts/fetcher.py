@@ -167,7 +167,7 @@ def _get_spot_df() -> pd.DataFrame:
         cached = cache.get("spot_all", cache.TTL_REALTIME)
         if cached is not None:
             return pd.DataFrame(cached)
-        df = _call_with_timeout(ak.stock_zh_a_spot_em, 60)   # 60s (up from 20s)
+        df = _call_with_timeout(ak.stock_zh_a_spot_em, 30)   # 30s; Sina fallback kicks in after
         if df is None or df.empty:
             _spot_em_failed = True
             _spot_em_failed_at = _time.time()
@@ -238,29 +238,21 @@ def _get_shareholder_snapshot(date_str: str) -> pd.DataFrame:
             return pd.DataFrame()
 
 
-def _get_realtime_quote_sina(code: str) -> Optional[dict]:
-    """
-    Fallback: fetch a single stock's realtime quote from Sina finance.
-    Much lighter than stock_zh_a_spot_em — one HTTP request per stock.
-    Returns None on any failure so the caller can degrade gracefully.
-    """
-    import urllib.request
-    market = _market_from_code(code)
-    if market == "bj":
-        return None   # Sina doesn't cover Beijing Exchange
-    key = f"{market}{code}"
-    url = f"https://hq.sinajs.cn/list={key}"
+_sina_cache: dict = {}          # code -> dict
+_sina_cache_ts: float = 0.0
+_sina_cache_lock = threading.Lock()
+_SINA_TTL = 25                  # seconds; aligns with ~30s loop interval
+
+
+def _parse_sina_entry(code: str, text_block: str) -> Optional[dict]:
+    """Parse one var hq_str_xxx="..." line from Sina response."""
+    inner = text_block.split('"')[1] if '"' in text_block else ""
+    if not inner or len(inner) < 5:
+        return None
+    parts = inner.split(",")
+    if len(parts) < 9:
+        return None
     try:
-        req = urllib.request.Request(url, headers={"Referer": "https://finance.sina.com.cn"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            text = resp.read().decode("gbk", errors="replace")
-        # format: var hq_str_sh600036="name,open,prev_close,price,high,low,..."
-        inner = text.split('"')[1] if '"' in text else ""
-        if not inner or inner == "no such stock":
-            return None
-        parts = inner.split(",")
-        if len(parts) < 9:
-            return None
         prev_close = float(parts[2] or 0)
         price      = float(parts[3] or 0)
         change_pct = ((price - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
@@ -277,6 +269,63 @@ def _get_realtime_quote_sina(code: str) -> Optional[dict]:
             "volume":     float(parts[8] or 0),
             "amount":     float(parts[9] or 0) if len(parts) > 9 else 0.0,
         }
+    except (ValueError, IndexError):
+        return None
+
+
+def _warm_sina_cache(codes: list) -> None:
+    """Batch-fetch quotes for all codes in one Sina request and populate _sina_cache."""
+    import urllib.request, time as _t
+    global _sina_cache, _sina_cache_ts
+    keys = [f"{_market_from_code(c)}{c}" for c in codes if _market_from_code(c) != "bj"]
+    if not keys:
+        return
+    url = f"https://hq.sinajs.cn/list={','.join(keys)}"
+    try:
+        req = urllib.request.Request(url, headers={"Referer": "https://finance.sina.com.cn"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            text = resp.read().decode("gbk", errors="replace")
+        new_cache: dict = {}
+        for line in text.strip().splitlines():
+            # line: var hq_str_sh600036="..."
+            if "hq_str_" not in line:
+                continue
+            raw_key = line.split("hq_str_")[1].split("=")[0].strip()
+            code = raw_key[2:]   # strip market prefix
+            entry = _parse_sina_entry(code, line)
+            if entry:
+                new_cache[code] = entry
+        with _sina_cache_lock:
+            _sina_cache = new_cache
+            _sina_cache_ts = _t.time()
+    except Exception:
+        pass
+
+
+def _get_realtime_quote_sina(code: str) -> Optional[dict]:
+    """
+    Fallback: return quote from module-level Sina cache (populated by _warm_sina_cache).
+    Falls back to a single-stock request if cache is stale or code is missing.
+    """
+    import urllib.request, time as _t
+    with _sina_cache_lock:
+        if _t.time() - _sina_cache_ts < _SINA_TTL and code in _sina_cache:
+            return _sina_cache[code]
+    # Cache miss or stale — single-stock fetch
+    market = _market_from_code(code)
+    if market == "bj":
+        return None
+    key = f"{market}{code}"
+    url = f"https://hq.sinajs.cn/list={key}"
+    try:
+        req = urllib.request.Request(url, headers={"Referer": "https://finance.sina.com.cn"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            text = resp.read().decode("gbk", errors="replace")
+        for line in text.strip().splitlines():
+            entry = _parse_sina_entry(code, line)
+            if entry:
+                return entry
+        return None
     except Exception:
         return None
 

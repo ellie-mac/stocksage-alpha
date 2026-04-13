@@ -1291,12 +1291,18 @@ def run_loop(
             pass
 
         # ── Pre-warm realtime quote cache (shared by fast check + run()) ────────
-        # One full-market fetch; subsequent get_realtime_quote() calls within the
-        # same 30s TTL window are instant cache hits — no redundant API calls.
+        # Try East Money full-market fetch first; if it fails, pre-warm Sina
+        # batch cache so all holdings get quotes in one request (avoids
+        # per-stock concurrent Sina calls that trigger rate limiting).
         try:
             fetcher.get_realtime_quote("000001")
         except Exception:
             pass
+        if fetcher._spot_em_failed:
+            try:
+                fetcher._warm_sina_cache([h["code"] for h in holdings])
+            except Exception:
+                pass
 
         # ── Fast check ────────────────────────────────────────────────────────
         print(f"[{run_time}] Fast check ({len(holdings)} holdings)...", end=" ", flush=True)
