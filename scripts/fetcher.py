@@ -299,7 +299,9 @@ def _warm_sina_cache(codes: list) -> None:
             _sina_cache = new_cache
             _sina_cache_ts = _t.time()
     except Exception:
-        pass
+        # Mark as attempted so _get_realtime_quote_sina doesn't spin on cache misses
+        with _sina_cache_lock:
+            _sina_cache_ts = _t.time()
 
 
 def _get_realtime_quote_sina(code: str) -> Optional[dict]:

@@ -114,25 +114,28 @@ def configure_pushplus(token: str) -> None:
 
 
 def _send_pushplus(title: str, desp: str, token: str) -> None:
-    import urllib.request, urllib.parse, json as _json
-    payload = _json.dumps({
-        "token":    token,
-        "title":    title[:100],        # PushPlus title limit
-        "content":  desp,
-        "template": "markdown",
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        "https://www.pushplus.plus/send",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as r:
-        resp = _json.loads(r.read().decode("utf-8"))
-    if resp.get("code") == 200:
-        print(f"[OK] 微信推送成功: {title}")
-    else:
-        print(f"[WARN] PushPlus: code={resp.get('code')} msg={resp.get('msg')}")
+    import urllib.request, json as _json
+    try:
+        payload = _json.dumps({
+            "token":    token,
+            "title":    title[:100],
+            "content":  desp,
+            "template": "markdown",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://www.pushplus.plus/send",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            resp = _json.loads(r.read().decode("utf-8"))
+        if resp.get("code") == 200:
+            print(f"[OK] 微信推送成功: {title}")
+        else:
+            print(f"[WARN] PushPlus: code={resp.get('code')} msg={resp.get('msg')}")
+    except Exception as e:
+        print(f"[WARN] PushPlus 推送失败: {e}")
 
 
 def send_wechat(title: str, desp: str, sendkey: str, dry_run: bool = False) -> None:
