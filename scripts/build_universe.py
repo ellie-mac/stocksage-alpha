@@ -17,8 +17,11 @@ Usage:
 """
 
 from __future__ import annotations
-import argparse, datetime, json, os, sys, time
+import argparse, datetime, json, os, socket, sys, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+# Per-request timeout: prevents any single API call from hanging indefinitely
+socket.setdefaulttimeout(45)
 
 import akshare as ak
 
