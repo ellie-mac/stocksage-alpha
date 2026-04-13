@@ -17,11 +17,12 @@ Usage:
 """
 
 from __future__ import annotations
-import argparse, datetime, json, os, socket, sys, time
+import argparse, datetime, json, os, socket, sys, time, threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # Per-request timeout: prevents any single API call from hanging indefinitely
-socket.setdefaulttimeout(45)
+socket.setdefaulttimeout(40)
 
 import akshare as ak
 
@@ -123,79 +124,35 @@ def fetch_universe(top_n: int = 15) -> tuple[list[str], dict[str, list[tuple[str
     """
     Returns (sorted_code_list, sector_map).
     sector_map: {sector_name: [(code, name), ...]}
+    Sectors are fetched in parallel (8 workers); each call times out at 40s.
     """
+    from tqdm import tqdm
+
     print("Fetching industry board list...")
     boards = ak.stock_board_industry_name_em()
     valid  = set(boards["板块名称"].tolist())
 
+    all_sectors   = [s for group in GROUPS.values() for s in group]
+    valid_sectors = [s for s in all_sectors if s in valid]
+    for s in all_sectors:
+        if s not in valid:
+            print(f"  [SKIP] {s}")
+
+    _lock     = threading.Lock()
     all_codes: set[str] = set()
     sector_map: dict[str, list[tuple[str, str]]] = {}
 
-    all_sectors = [s for group in GROUPS.values() for s in group]
-
-    for sector in all_sectors:
-        if sector not in valid:
-            print(f"  [SKIP] {sector}")
-            continue
+    def _fetch_industry(sector: str) -> tuple[str, list[tuple[str, str]] | None]:
         try:
             df = ak.stock_board_industry_cons_em(symbol=sector)
             if df.empty:
-                continue
-
+                return sector, []
             df["成交额"] = df["成交额"].fillna(0)
             df["成交量"] = df["成交量"].fillna(0)
-
-            # Hybrid rank: average of 成交额-rank and 成交量-rank (ascending = better)
-            # 成交额 captures high-priced blue chips; 成交量 is price-neutral (active mid/small caps)
             df["_rank_val"] = df["成交额"].rank(ascending=False)
             df["_rank_vol"] = df["成交量"].rank(ascending=False)
             df["_rank_avg"] = (df["_rank_val"] + df["_rank_vol"]) / 2
             df_sorted = df.sort_values("_rank_avg", ascending=True).head(top_n)
-
-            picked: list[tuple[str, str]] = []
-            for _, row in df_sorted.iterrows():
-                code = str(row["代码"]).zfill(6)
-                name = str(row["名称"])
-                if "ST" in name:  # skip *ST / ST (special treatment, delisting risk)
-                    continue
-                picked.append((code, name))
-                all_codes.add(code)
-
-            sector_map[sector] = picked
-            print(f"  [OK] {sector}: {len(picked):2d} stocks  total={len(all_codes)}")
-            time.sleep(0.2)
-        except Exception as e:
-            print(f"  [ERR] {sector}: {e}")
-
-    # ── Concept boards ─────────────────────────────────────────────────────────
-    print("Fetching concept board list...")
-    try:
-        concept_df = ak.stock_board_concept_name_em()
-        valid_concepts = set(concept_df["板块名称"].tolist())
-    except Exception as e:
-        print(f"  [ERR] concept board list: {e}")
-        valid_concepts = set()
-
-    for concept in CONCEPT_BOARDS:
-        if concept not in valid_concepts:
-            print(f"  [SKIP concept] {concept}")
-            continue
-        try:
-            df = ak.stock_board_concept_cons_em(symbol=concept)
-            if df.empty:
-                continue
-
-            if "成交额" not in df.columns or "成交量" not in df.columns:
-                print(f"  [SKIP concept] {concept}: missing 成交额/成交量 columns")
-                continue
-            df["成交额"] = df["成交额"].fillna(0)
-            df["成交量"] = df["成交量"].fillna(0)
-
-            df["_rank_val"] = df["成交额"].rank(ascending=False)
-            df["_rank_vol"] = df["成交量"].rank(ascending=False)
-            df["_rank_avg"] = (df["_rank_val"] + df["_rank_vol"]) / 2
-            df_sorted = df.sort_values("_rank_avg", ascending=True).head(top_n)
-
             picked: list[tuple[str, str]] = []
             for _, row in df_sorted.iterrows():
                 code = str(row["代码"]).zfill(6)
@@ -203,14 +160,85 @@ def fetch_universe(top_n: int = 15) -> tuple[list[str], dict[str, list[tuple[str
                 if "ST" in name:
                     continue
                 picked.append((code, name))
-                all_codes.add(code)
-
-            if picked:
-                sector_map[concept] = picked
-                print(f"  [OK concept] {concept}: {len(picked):2d} stocks  total={len(all_codes)}")
-            time.sleep(0.2)
+            return sector, picked
         except Exception as e:
-            print(f"  [ERR concept] {concept}: {e}")
+            return sector, None
+
+    with tqdm(total=len(valid_sectors), desc="Industries") as pbar:
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {executor.submit(_fetch_industry, s): s for s in valid_sectors}
+            for future in as_completed(futures):
+                sector = futures[future]
+                try:
+                    _, picked = future.result()
+                    if picked is None:
+                        print(f"  [ERR] {sector}")
+                    elif picked:
+                        with _lock:
+                            sector_map[sector] = picked
+                            for code, _ in picked:
+                                all_codes.add(code)
+                        print(f"  [OK] {sector}: {len(picked):2d} stocks  total={len(all_codes)}")
+                except Exception as e:
+                    print(f"  [ERR] {sector}: {e}")
+                pbar.update(1)
+
+    # ── Concept boards ─────────────────────────────────────────────────────────
+    print("Fetching concept board list...")
+    try:
+        concept_df    = ak.stock_board_concept_name_em()
+        valid_concepts = set(concept_df["板块名称"].tolist())
+    except Exception as e:
+        print(f"  [ERR] concept board list: {e}")
+        valid_concepts = set()
+
+    valid_concept_list = [c for c in CONCEPT_BOARDS if c in valid_concepts]
+    for c in CONCEPT_BOARDS:
+        if c not in valid_concepts:
+            print(f"  [SKIP concept] {c}")
+
+    def _fetch_concept(concept: str) -> tuple[str, list[tuple[str, str]] | None]:
+        try:
+            df = ak.stock_board_concept_cons_em(symbol=concept)
+            if df.empty:
+                return concept, []
+            if "成交额" not in df.columns or "成交量" not in df.columns:
+                return concept, []
+            df["成交额"] = df["成交额"].fillna(0)
+            df["成交量"] = df["成交量"].fillna(0)
+            df["_rank_val"] = df["成交额"].rank(ascending=False)
+            df["_rank_vol"] = df["成交量"].rank(ascending=False)
+            df["_rank_avg"] = (df["_rank_val"] + df["_rank_vol"]) / 2
+            df_sorted = df.sort_values("_rank_avg", ascending=True).head(top_n)
+            picked: list[tuple[str, str]] = []
+            for _, row in df_sorted.iterrows():
+                code = str(row["代码"]).zfill(6)
+                name = str(row["名称"])
+                if "ST" in name:
+                    continue
+                picked.append((code, name))
+            return concept, picked
+        except Exception as e:
+            return concept, None
+
+    with tqdm(total=len(valid_concept_list), desc="Concepts") as pbar:
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {executor.submit(_fetch_concept, c): c for c in valid_concept_list}
+            for future in as_completed(futures):
+                concept = futures[future]
+                try:
+                    _, picked = future.result()
+                    if picked is None:
+                        print(f"  [ERR concept] {concept}")
+                    elif picked:
+                        with _lock:
+                            sector_map[concept] = picked
+                            for code, _ in picked:
+                                all_codes.add(code)
+                        print(f"  [OK concept] {concept}: {len(picked):2d} stocks  total={len(all_codes)}")
+                except Exception as e:
+                    print(f"  [ERR concept] {concept}: {e}")
+                pbar.update(1)
 
     return sorted(all_codes), sector_map
 

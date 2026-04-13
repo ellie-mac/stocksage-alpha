@@ -1195,10 +1195,10 @@ def run_loop(
                             [sys.executable, "-X", "utf8", _build_universe_script],
                         )
                         try:
-                            _universe_proc.wait(timeout=900)
+                            _universe_proc.wait(timeout=300)
                         except subprocess.TimeoutExpired:
                             _universe_proc.kill()
-                            print(f"  [Universe] Timed out after 900s — killed.")
+                            print(f"  [Universe] Timed out after 300s — killed.")
                             return
                         if _universe_proc.returncode == 0:
                             cfg = load_config()
