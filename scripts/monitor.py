@@ -994,6 +994,16 @@ def run(
                              sell_trigger=thresholds.get("sell_score_trigger", 60),
                              stall_score=thresholds.get("stall_sell_score", 40))
 
+    # Append top universe candidates when no buy signals fired (so user can
+    # see what the model is scoring highly even below the signal threshold)
+    if not buy_alerts and scored_universe:
+        top_candidates = [s for s in scored_universe[:15] if not s.get("error") and s.get("buy_score", 0) > 0][:10]
+        if top_candidates:
+            lines = ["## 今日关注（未触发信号）\n"]
+            for s in top_candidates:
+                lines.append(f"- **{s['name']}**（{s['code']}）买入分:{s['buy_score']:.0f}")
+            desp += "\n\n" + "\n".join(lines)
+
     try:
         send_wechat(title, desp, sendkey, dry_run=dry_run)
     except Exception as e:
@@ -1156,12 +1166,14 @@ def run_loop(
                     n = len(config.get('screener_universe', []))
                     print(f"  Universe refreshed: {n} stocks")
                     try:
+                        wl = config.get('watchlist', [])
+                        wl_lines = "\n".join(f"  - {c}" for c in wl) if wl else "  （空）"
                         send_wechat(
                             "[StockSage] 股票池已更新 🔄",
                             f"本周 screener_universe 刷新完成\n\n"
-                            f"- 股票数量: **{n}** 只\n"
-                            f"- 自选池: {len(config.get('watchlist', []))} 只\n\n"
-                            f"> {now.strftime('%Y-%m-%d')} 周一开盘前自动刷新",
+                            f"- 候选股票: **{n}** 只（全量扫描）\n"
+                            f"- 自选池（每30分钟扫描）:\n{wl_lines}\n\n"
+                            f"> {now.strftime('%Y-%m-%d')} 周一自动刷新",
                             sendkey, dry_run=dry_run,
                         )
                     except Exception:
