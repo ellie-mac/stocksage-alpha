@@ -1179,8 +1179,9 @@ def run_loop(
         if (last_universe_refresh_date != now.date()
                 and (now.hour == 7 or (7 < now.hour < 9) or (now.hour == 9 and now.minute < 25))
                 and not _is_trading_hours()):
-            # Mark date immediately to prevent re-triggering if this run is slow/fails
+            # Mark date immediately; will be cleared below if subprocess fails/times out
             last_universe_refresh_date = now.date()
+            _universe_refresh_failed = False
             print(f"[{now.strftime('%H:%M')}] Daily pre-market: refreshing screener universe (background)...")
 
             _universe_refresh_done.clear()
@@ -1195,6 +1196,7 @@ def run_loop(
                         cfg = load_config()
                         n   = len(cfg.get('screener_universe', []))
                         print(f"  [Universe] Refreshed: {n} stocks")
+                        _universe_refresh_done.set()   # only signal success
                         try:
                             wl = cfg.get('watchlist', [])
                             wl_lines = "\n".join(f"  - {c}" for c in wl) if wl else "  （空）"
@@ -1210,10 +1212,12 @@ def run_loop(
                             pass
                     else:
                         print(f"  [Universe] build_universe failed (exit={result.returncode})")
+                        nonlocal last_universe_refresh_date
+                        last_universe_refresh_date = None   # allow retry next loop
                 except Exception as e:
                     print(f"  [Universe] build_universe error: {e}")
-                finally:
-                    _universe_refresh_done.set()
+                    nonlocal last_universe_refresh_date
+                    last_universe_refresh_date = None       # allow retry next loop
 
             threading.Thread(target=_run_universe_refresh, daemon=True).start()
 
