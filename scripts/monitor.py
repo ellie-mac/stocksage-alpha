@@ -148,6 +148,16 @@ def _score_one(holding: dict, weights=None) -> dict:
     code = holding["code"]
     try:
         result = research(code, weights or DEFAULT_WEIGHTS)
+        if result.get("error"):
+            return {
+                "code": code, "name": holding.get("name", code),
+                "shares": holding.get("shares", 0),
+                "cost_price": holding.get("cost_price", 0),
+                "price": None, "pnl_pct": 0.0,
+                "buy_score": 0.0, "sell_score": 0.0,
+                "bearish": [], "bullish": [],
+                "error": result["error"],
+            }
         buy_score  = result.get("total_score", 0) or 0
         sell_score = result.get("total_sell_score", 0) or 0
         price      = (result.get("price") or {}).get("current") or 0
