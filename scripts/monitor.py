@@ -26,6 +26,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from typing import Optional
@@ -1084,6 +1085,7 @@ def run_loop(
     )
 
     _build_universe_script = os.path.join(os.path.dirname(__file__), "build_universe.py")
+    _universe_refresh_done = threading.Event()   # background thread sets this when finished
 
     # ── Startup universe check: refresh immediately if empty or stale (>7 days) ──
     _startup_age = (
@@ -1134,6 +1136,16 @@ def run_loop(
       while True:
         now = datetime.now()
 
+        # ── Reload config after background universe refresh completes ────────────
+        if _universe_refresh_done.is_set():
+            _universe_refresh_done.clear()
+            config     = load_config()
+            holdings   = load_holdings()
+            thresholds = config.get("thresholds", {})
+            print(f"  [Universe] Config reloaded: "
+                  f"{len(config.get('screener_universe', []))} stocks, "
+                  f"{len(config.get('watchlist', []))} watchlist")
+
         # ── Daily reset of XHS trigger set ────────────────────────────────────────
         if _xhs_date != now.date():
             _xhs_triggered_today = set()
@@ -1142,36 +1154,43 @@ def run_loop(
         # ── Daily universe refresh (every trading day, before market open) ────────
         if (last_universe_refresh_date != now.date()
                 and not _is_trading_hours()):
-            print(f"[{now.strftime('%H:%M')}] Daily pre-market: refreshing screener universe...")
-            try:
-                result = subprocess.run(
-                    [sys.executable, "-X", "utf8", _build_universe_script],
-                    capture_output=True, text=True, encoding="utf-8", timeout=600,
-                )
-                if result.returncode == 0:
-                    config   = load_config()  # reload to pick up new universe
-                    holdings = load_holdings()
-                    thresholds = config.get("thresholds", {})
-                    last_universe_refresh_date = now.date()
-                    n = len(config.get('screener_universe', []))
-                    print(f"  Universe refreshed: {n} stocks")
-                    try:
-                        wl = config.get('watchlist', [])
-                        wl_lines = "\n".join(f"  - {c}" for c in wl) if wl else "  （空）"
-                        send_wechat(
-                            "[StockSage] 股票池已更新 🔄",
-                            f"今日 screener_universe 刷新完成\n\n"
-                            f"- 候选股票: **{n}** 只（全量扫描）\n"
-                            f"- 自选池（每30分钟扫描）:\n{wl_lines}\n\n"
-                            f"> {now.strftime('%Y-%m-%d')} 每日自动刷新",
-                            sendkey, dry_run=dry_run,
-                        )
-                    except Exception:
-                        pass
-                else:
-                    print(f"  [WARN] build_universe failed:\n{result.stderr[:300]}")
-            except Exception as e:
-                print(f"  [WARN] build_universe error: {e}")
+            # Mark date immediately to prevent re-triggering if this run is slow/fails
+            last_universe_refresh_date = now.date()
+            print(f"[{now.strftime('%H:%M')}] Daily pre-market: refreshing screener universe (background)...")
+
+            _universe_refresh_done.clear()
+
+            def _run_universe_refresh(_sendkey=sendkey, _dry_run=dry_run):
+                try:
+                    result = subprocess.run(
+                        [sys.executable, "-X", "utf8", _build_universe_script],
+                        capture_output=True, text=True, encoding="utf-8", timeout=900,
+                    )
+                    if result.returncode == 0:
+                        cfg = load_config()
+                        n   = len(cfg.get('screener_universe', []))
+                        print(f"  [Universe] Refreshed: {n} stocks")
+                        try:
+                            wl = cfg.get('watchlist', [])
+                            wl_lines = "\n".join(f"  - {c}" for c in wl) if wl else "  （空）"
+                            send_wechat(
+                                "[StockSage] 股票池已更新 🔄",
+                                f"今日 screener_universe 刷新完成\n\n"
+                                f"- 候选股票: **{n}** 只（全量扫描）\n"
+                                f"- 自选池（每30分钟扫描）:\n{wl_lines}\n\n"
+                                f"> {datetime.now().strftime('%Y-%m-%d')} 每日自动刷新",
+                                _sendkey, dry_run=_dry_run,
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        print(f"  [Universe] build_universe failed:\n{result.stderr[:300]}")
+                except Exception as e:
+                    print(f"  [Universe] build_universe error: {e}")
+                finally:
+                    _universe_refresh_done.set()
+
+            threading.Thread(target=_run_universe_refresh, daemon=True).start()
 
         # ── Pre-market scan (01:00 — prev-day closing data, pick candidates) ────
         if (now.hour == 1 and 0 <= now.minute < 5  # TEST: weekday check removed
