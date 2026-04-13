@@ -252,13 +252,9 @@ def check_sell_signals(scored: dict, thresholds: dict,
     """
     reasons = []
     sell_trigger = thresholds.get("sell_score_trigger", 60)
-    stop_loss    = thresholds.get("stop_loss_pct", -8.0)
 
     if scored["sell_score"] >= sell_trigger:
         reasons.append(f"综合卖出评分 {scored['sell_score']:.0f}/100 ≥ {sell_trigger}")
-
-    if scored["pnl_pct"] <= stop_loss:
-        reasons.append(f"止损触发: 浮亏 {scored['pnl_pct']:+.1f}% ≤ {stop_loss}%")
 
     for bf in scored.get("bearish", []):
         factor = bf.get("factor", "")
@@ -402,13 +398,11 @@ def _fmt_sell_section_md(sell_alerts: list[dict], stop_loss_pct: float = -8.0,
     for s in sell_alerts:
         pnl_sign = "🔴" if s["pnl_pct"] < 0 else "🟢"
         cost = s.get("cost_price") or 0
-        stop_price = round(cost * (1 + stop_loss_pct / 100), 2) if cost > 0 else "—"
         lines.append(
             f"### ⚠️ {s['name']} ({s['code']})\n"
             f"现价 **{s['price']}** | 成本 {cost} | "
             f"浮盈 {pnl_sign} **{s['pnl_pct']:+.1f}%**  \n"
             f"卖出评分: **{s['sell_score']:.0f}/100** | 买入评分: {s['buy_score']:.0f}/100  \n"
-            f"参考止损价: **{stop_price}**（成本 × {1 + stop_loss_pct/100:.2f}）  \n"
             f"*{_sell_position_hint(s['sell_score'], sell_trigger, stall_score)}*\n"
         )
         for r in s["reasons"]:
@@ -527,7 +521,6 @@ def fast_check_holdings(
     """
     cooldown_min        = thresholds.get("fast_alert_cooldown_min", 30)
     urgent_cooldown_min = thresholds.get("fast_urgent_cooldown_min", 15)
-    stop_loss           = thresholds.get("stop_loss_pct", -8.0)
     intraday_drop_trigger  = thresholds.get("intraday_drop_trigger_pct", -5.0)
     intraday_surge_trigger = thresholds.get("intraday_surge_trigger_pct", 7.0)
     t_sell_trigger = thresholds.get("t_trade_sell_pct", 3.0)
@@ -552,10 +545,8 @@ def fast_check_holdings(
         pnl_pct    = ((price - cost) / cost * 100) if cost > 0 else 0.0
         change_pct = quote.get("change_pct") or 0.0
 
-        # ── Urgent reasons (止损 + 急跌) — own cooldown bucket ─────────────────
+        # ── Urgent reasons (急跌) — own cooldown bucket ───────────────────────
         urgent_reasons = []
-        if pnl_pct <= stop_loss:
-            urgent_reasons.append(f"止损触发: 浮亏 {pnl_pct:+.1f}%")
         if change_pct <= intraday_drop_trigger:
             urgent_reasons.append(f"日内急跌 {change_pct:+.1f}%")
 
@@ -628,13 +619,11 @@ def build_fast_wechat_desp(fast_alerts: list[dict], run_time: str,
         pnl_icon = "🔴" if a["pnl_pct"] < 0 else "🟢"
         chg_icon = "📉" if a["change_pct"] < 0 else "📈"
         cost = a.get("cost_price") or 0
-        stop_price = round(cost * (1 + stop_loss_pct / 100), 2) if cost > 0 else "—"
         lines.append(
             f"### ⚡ {a['name']} ({a['code']})\n"
             f"现价 **{a['price']}** | "
             f"今日 {chg_icon} **{a['change_pct']:+.1f}%** | "
-            f"浮盈 {pnl_icon} **{a['pnl_pct']:+.1f}%**  \n"
-            f"参考止损价: **{stop_price}**\n"
+            f"浮盈 {pnl_icon} **{a['pnl_pct']:+.1f}%**\n"
         )
         for r in a["reasons"]:
             lines.append(f"- {r}")
