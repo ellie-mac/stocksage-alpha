@@ -1173,8 +1173,11 @@ def run_loop(
             _xhs_triggered_today = set()
             _xhs_date = now.date()
 
-        # ── Daily universe refresh (every trading day, before market open) ────────
+        # ── Daily universe refresh (07:00, ~2h before market open) ──────────────
+        # Fixed at 07:00 so it always finishes well before 09:25 open.
+        # Fallback: also runs if loop starts between 07:00-09:24 and hasn't run today.
         if (last_universe_refresh_date != now.date()
+                and (now.hour == 7 or (7 < now.hour < 9) or (now.hour == 9 and now.minute < 25))
                 and not _is_trading_hours()):
             # Mark date immediately to prevent re-triggering if this run is slow/fails
             last_universe_refresh_date = now.date()
