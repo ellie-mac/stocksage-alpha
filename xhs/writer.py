@@ -110,8 +110,31 @@ def save_post_file(content: str, slot: str, style: int | str) -> Path:
 
 
 def _send_wechat_notify(title: str, content: str):
-    """Push a WeChat message via Server酱·Turbo. Silently skips if config missing."""
+    """Push a WeChat message. Tries PushPlus (main config) first, then Server酱 (xhs/config.json)."""
+    import urllib.request, urllib.parse
     try:
+        # ── PushPlus (reads from root alert_config.json) ──────────────────────
+        main_cfg_file = REPO_ROOT / "scripts" / "alert_config.json"
+        if main_cfg_file.exists():
+            main_cfg = json.loads(main_cfg_file.read_text(encoding="utf-8"))
+            pp_token = main_cfg.get("pushplus", {}).get("token", "").strip()
+            if pp_token:
+                payload = json.dumps({
+                    "token": pp_token, "title": title[:100],
+                    "content": content, "template": "markdown",
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    "https://www.pushplus.plus/send", data=payload,
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                if result.get("code") == 200:
+                    print(f"[+] 微信通知已发送 ✅")
+                else:
+                    print(f"[!] PushPlus: {result.get('msg')}")
+                return
+        # ── Server酱 fallback (xhs/config.json) ──────────────────────────────
         config_file = XHS_DIR / "config.json"
         if not config_file.exists():
             return
@@ -119,8 +142,6 @@ def _send_wechat_notify(title: str, content: str):
         sendkey = cfg.get("sendkey", "").strip()
         if not sendkey:
             return
-        import urllib.request
-        import urllib.parse
         url  = f"https://sctapi.ftqq.com/{sendkey}.send"
         data = urllib.parse.urlencode({"title": title, "desp": content}).encode()
         req  = urllib.request.Request(url, data=data, method="POST")
