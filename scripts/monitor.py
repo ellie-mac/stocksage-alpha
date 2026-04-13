@@ -1257,17 +1257,22 @@ def run_loop(
                 and _closing_date != now.date()):
             _closing_date = now.date()
             rows = []
+            no_data = []
             for h in holdings:
                 try:
-                    q    = fetcher.get_realtime_quote(h["code"])
+                    q = fetcher.get_realtime_quote(h["code"])
+                    if not q or not q.get("price"):
+                        no_data.append(h.get('name') or h['code'])
+                        continue
                     chg  = q.get("change_pct") or 0.0
                     name = h.get('name') or q.get('name') or h['code']
                     rows.append(
                         f"- **{name}** {'📈' if chg >= 0 else '📉'} {chg:+.1f}%"
                     )
                 except Exception:
-                    name = h.get('name') or h['code']
-                    rows.append(f"- **{name}** —")
+                    no_data.append(h.get('name') or h['code'])
+            if no_data:
+                rows.append(f"\n*无数据（{len(no_data)}只）: {', '.join(no_data[:5])}{'...' if len(no_data) > 5 else ''}*")
             closing_desp = (
                 f"**{now.strftime('%Y-%m-%d')} 收盘快报**\n\n"
                 + "\n".join(rows)
