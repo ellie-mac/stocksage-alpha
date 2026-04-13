@@ -11,7 +11,9 @@ from typing import Optional
 import cache
 
 _spot_lock = threading.Lock()
-_spot_em_failed = False  # once set True, skip all subsequent stock_zh_a_spot_em calls
+_spot_em_failed = False       # True after a timeout; reset after _SPOT_RETRY_SEC
+_spot_em_failed_at: float = 0.0
+_SPOT_RETRY_SEC = 300         # retry after 5 min (avoids permanent lock-out on transient failure)
 _hist_em_failed = False  # once set True, skip stock_zh_a_hist and go straight to fallback
 
 # Module-level caches for full-market LHB and shareholder snapshots.
@@ -148,9 +150,13 @@ def _get_spot_df() -> pd.DataFrame:
     both initialising py_mini_racer's V8 engine simultaneously, which causes a
     fatal "Check failed: !IsConfigurablePoolInitialized()" crash (exit code 3).
     """
-    global _spot_em_failed
+    global _spot_em_failed, _spot_em_failed_at
+    import time as _time
     if _spot_em_failed:
-        return pd.DataFrame()
+        if _time.time() - _spot_em_failed_at < _SPOT_RETRY_SEC:
+            return pd.DataFrame()
+        # Cool-down elapsed — allow one retry
+        _spot_em_failed = False
     cached = cache.get("spot_all", cache.TTL_REALTIME)
     if cached is not None:
         return pd.DataFrame(cached)
@@ -161,9 +167,10 @@ def _get_spot_df() -> pd.DataFrame:
         cached = cache.get("spot_all", cache.TTL_REALTIME)
         if cached is not None:
             return pd.DataFrame(cached)
-        df = _call_with_timeout(ak.stock_zh_a_spot_em, 20)
+        df = _call_with_timeout(ak.stock_zh_a_spot_em, 60)   # 60s (up from 20s)
         if df is None or df.empty:
-            _spot_em_failed = True  # don't retry; prevents concurrent V8 re-init crash
+            _spot_em_failed = True
+            _spot_em_failed_at = _time.time()
             return pd.DataFrame()
         cache.set("spot_all", df.to_dict("records"))
         return df
