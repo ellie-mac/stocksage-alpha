@@ -1236,14 +1236,15 @@ def run_loop(
             _closing_date = now.date()
             rows = []
             for h in holdings:
-                name = h.get('name', h['code'])
                 try:
-                    q   = fetcher.get_realtime_quote(h["code"])
-                    chg = q.get("change_pct") or 0.0
+                    q    = fetcher.get_realtime_quote(h["code"])
+                    chg  = q.get("change_pct") or 0.0
+                    name = h.get('name') or q.get('name') or h['code']
                     rows.append(
                         f"- **{name}** {'📈' if chg >= 0 else '📉'} {chg:+.1f}%"
                     )
                 except Exception:
+                    name = h.get('name') or h['code']
                     rows.append(f"- **{name}** —")
             closing_desp = (
                 f"**{now.strftime('%Y-%m-%d')} 收盘快报**\n\n"
