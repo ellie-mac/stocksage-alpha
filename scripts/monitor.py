@@ -1184,11 +1184,9 @@ def run_loop(
 
             def _run_universe_refresh(_sendkey=sendkey, _dry_run=dry_run):
                 try:
-                    _env = {**os.environ, "TQDM_DISABLE": "1", "PYTHONIOENCODING": "utf-8"}
                     result = subprocess.run(
                         [sys.executable, "-X", "utf8", _build_universe_script],
-                        capture_output=True, text=True, encoding="utf-8", timeout=900,
-                        env=_env,
+                        timeout=900,
                     )
                     if result.returncode == 0:
                         cfg = load_config()
@@ -1208,7 +1206,7 @@ def run_loop(
                         except Exception:
                             pass
                     else:
-                        print(f"  [Universe] build_universe failed:\n{result.stderr[:300]}")
+                        print(f"  [Universe] build_universe failed (exit={result.returncode})")
                 except Exception as e:
                     print(f"  [Universe] build_universe error: {e}")
                 finally:
