@@ -1106,6 +1106,7 @@ def run_loop(
     _signal_tracker_script  = os.path.join(os.path.dirname(__file__), "signal_tracker.py")
     _auto_tune_script       = os.path.join(os.path.dirname(__file__), "auto_tune.py")
     _universe_refresh_done  = threading.Event()   # background thread sets this when finished
+    _universe_running       = threading.Event()   # set while refresh is in progress (duplicate guard)
     _universe_proc: Optional[subprocess.Popen] = None   # track running subprocess
     _signal_tracker_date: Optional[object] = _restore_date("signal_tracker_date")
     _auto_tune_date:      Optional[object] = _restore_date("auto_tune_date")
@@ -1181,10 +1182,11 @@ def run_loop(
                 and not _is_trading_hours()):
             # Mark date immediately — prevents re-triggering every loop iteration.
             # Guard: don't start if one is already running
-            if _universe_proc is not None and _universe_proc.poll() is None:
+            if _universe_running.is_set():
                 print(f"  [Universe] Already in progress, skipping duplicate.")
             else:
                 last_universe_refresh_date = now.date()
+                _universe_running.set()
                 print(f"[{now.strftime('%H:%M')}] Daily pre-market: refreshing screener universe (background)...")
                 _universe_refresh_done.clear()
 
@@ -1222,6 +1224,8 @@ def run_loop(
                             print(f"  [Universe] build_universe failed (exit={_universe_proc.returncode})")
                     except Exception as e:
                         print(f"  [Universe] build_universe error: {e}")
+                    finally:
+                        _universe_running.clear()
 
                 threading.Thread(target=_run_universe_refresh, daemon=True).start()
 
