@@ -44,6 +44,7 @@ from common import (
     is_trading_hours  as _is_trading_hours,
     next_session_seconds as _next_session_seconds,
     send_wechat,
+    configure_pushplus,
     is_etf   as _is_etf,
     is_t1_locked as _is_t1_locked_common,
 )
@@ -833,6 +834,7 @@ def run(
     holdings   = load_holdings()
     thresholds = config.get("thresholds", {})
     sendkey    = config.get("serverchan", {}).get("sendkey", "")
+    configure_pushplus(config.get("pushplus", {}).get("token", ""))
     universe   = universe_override if universe_override is not None else config.get("screener_universe", [])
     run_time   = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -1018,6 +1020,7 @@ def run_loop(
     holdings   = load_holdings()
     thresholds = config.get("thresholds", {})
     sendkey    = config.get("serverchan", {}).get("sendkey", "")
+    configure_pushplus(config.get("pushplus", {}).get("token", ""))
 
     # ── Restore persisted state (survives restarts) ───────────────────────────
     _state = _load_state()
@@ -1162,8 +1165,7 @@ def run_loop(
                 print(f"  [WARN] build_universe error: {e}")
 
         # ── Pre-market scan (01:00 — prev-day closing data, pick candidates) ────
-        if (now.weekday() < 5
-                and now.hour == 1 and 0 <= now.minute < 5
+        if (now.hour == 1 and 0 <= now.minute < 5  # TEST: weekday check removed
                 and _premarket_scan_date != now.date()):
             _premarket_scan_date = now.date()
             print(f"[{run_time}] Pre-market scan (01:00)...")
@@ -1185,8 +1187,7 @@ def run_loop(
                 print(f"  [ERROR] Pre-market scan failed: {e}")
 
         # ── Night scan (22:00 — post-close, feeds xhs/writer.py night post) ─────
-        if (now.weekday() < 5
-                and now.hour == 22 and 0 <= now.minute < 5
+        if (now.hour == 22 and 0 <= now.minute < 5  # TEST: weekday check removed
                 and _night_scan_date != now.date()):
             _night_scan_date = now.date()
             print(f"[{run_time}] Night scan (22:00)...")
@@ -1210,8 +1211,7 @@ def run_loop(
                 print(f"  [ERROR] Night scan failed: {e}")
 
         # ── Daily heartbeat + cache purge (09:00, before market open) ──────────
-        if (now.weekday() < 5
-                and now.hour == 9 and 0 <= now.minute < 5
+        if (now.hour == 9 and 0 <= now.minute < 5  # TEST: weekday check removed
                 and _heartbeat_date != now.date()):
             _heartbeat_date = now.date()
             # Purge expired cache entries (keeps disk usage bounded)
@@ -1234,8 +1234,7 @@ def run_loop(
                 print(f"  [WARN] Heartbeat push failed: {e}")
 
         # ── Daily closing summary (15:05) ─────────────────────────────────────
-        if (now.weekday() < 5
-                and now.hour == 15 and 5 <= now.minute < 10
+        if (now.hour == 15 and 5 <= now.minute < 10  # TEST: weekday check removed
                 and _closing_date != now.date()):
             _closing_date = now.date()
             rows = ["| 股票 | 今日涨跌 | 浮盈 |", "|------|----------|------|"]
@@ -1263,17 +1262,16 @@ def run_loop(
             except Exception as e:
                 print(f"  [WARN] Closing summary push failed: {e}")
 
-        if not _is_trading_hours():
-            wait_sec = _next_session_seconds()
-            wait_min = wait_sec // 60
-            print(f"[{now.strftime('%H:%M')}] Outside trading hours. "
-                  f"Next session in ~{wait_min} min. Sleeping...")
-            # Sleep in chunks so Ctrl+C is responsive.
-            # Use wall-clock deadline so system sleep/hibernate doesn't cause us to miss market open.
-            _deadline = time.time() + min(wait_sec, 300)
-            while time.time() < _deadline:
-                time.sleep(1)
-            continue
+        # TEST: trading-hours gate bypassed so full scan runs at any time
+        # if not _is_trading_hours():
+        #     wait_sec = _next_session_seconds()
+        #     wait_min = wait_sec // 60
+        #     print(f"[{now.strftime('%H:%M')}] Outside trading hours. "
+        #           f"Next session in ~{wait_min} min. Sleeping...")
+        #     _deadline = time.time() + min(wait_sec, 300)
+        #     while time.time() < _deadline:
+        #         time.sleep(1)
+        #     continue
 
         run_time = now.strftime("%Y-%m-%d %H:%M")
 
@@ -1407,7 +1405,7 @@ def run_loop(
                                       if c not in _watchlist_set]
                     picked = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
                                  _regime=_regime_this_iter, universe_override=_full_universe)
-                    if picked and "midday" not in _xhs_triggered_today:
+                    if "midday" not in _xhs_triggered_today:
                         _xhs_triggered_today.add("midday")
                         _trigger_xhs_post("midday", dry_run)
                 else:
@@ -1417,9 +1415,9 @@ def run_loop(
                         _regime=_regime_this_iter, universe_override=_full_universe)
                 _scanned_sessions.add(scan_id)
 
-                # ── Post-scan XHS triggers (only if signals found) ────────────
+                # ── Post-scan XHS triggers ────────────────────────────────────
+                # morning fires unconditionally so evening/midday can depend on it
                 if (session_key == "morning"
-                        and _morning_signals
                         and "morning" not in _xhs_triggered_today):
                     _xhs_triggered_today.add("morning")
                     _trigger_xhs_post("morning", dry_run)

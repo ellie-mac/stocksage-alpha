@@ -5,7 +5,7 @@ Shared utilities for StockSage monitor scripts.
 Centralises:
   - A-share trading calendar (holiday-aware)
   - Trading hours helpers
-  - WeChat push (Server酱)
+  - WeChat push (PushPlus preferred, Server酱 fallback)
   - ETF / T+0 identification
 """
 
@@ -104,17 +104,53 @@ def next_session_seconds() -> int:
 
 # ── WeChat push ────────────────────────────────────────────────────────────────
 
+_pushplus_token: str = ""   # set once at startup via configure_pushplus()
+
+
+def configure_pushplus(token: str) -> None:
+    """Call once at startup with the PushPlus token from config.json."""
+    global _pushplus_token
+    _pushplus_token = token.strip() if token else ""
+
+
+def _send_pushplus(title: str, desp: str, token: str) -> None:
+    import urllib.request, urllib.parse, json as _json
+    payload = _json.dumps({
+        "token":    token,
+        "title":    title[:100],        # PushPlus title limit
+        "content":  desp,
+        "template": "markdown",
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://www.pushplus.plus/send",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        resp = _json.loads(r.read().decode("utf-8"))
+    if resp.get("code") == 200:
+        print(f"[OK] 微信推送成功: {title}")
+    else:
+        print(f"[WARN] PushPlus: code={resp.get('code')} msg={resp.get('msg')}")
+
+
 def send_wechat(title: str, desp: str, sendkey: str, dry_run: bool = False) -> None:
     if dry_run:
         print(f"[DRY-RUN] 微信推送: {title}")
         print(f"[DRY-RUN] 内容预览:\n{desp[:300]}{'...' if len(desp) > 300 else ''}")
         return
-    from serverchan_sdk import sc_send
-    resp = sc_send(sendkey, title, desp)
-    if resp.get("code") == 0:
-        print(f"[OK] 微信推送成功: {title}")
+    if _pushplus_token:
+        _send_pushplus(title, desp, _pushplus_token)
+    elif sendkey:
+        from serverchan_sdk import sc_send
+        resp = sc_send(sendkey, title, desp)
+        if resp.get("code") == 0:
+            print(f"[OK] 微信推送成功: {title}")
+        else:
+            print(f"[WARN] 微信推送: code={resp.get('code')} msg={resp.get('message')}")
     else:
-        print(f"[WARN] 微信推送: code={resp.get('code')} msg={resp.get('message')}")
+        print(f"[WARN] 未配置推送渠道（pushplus.token / serverchan.sendkey），跳过: {title}")
 
 
 # ── ETF / T+0 identification ───────────────────────────────────────────────────
