@@ -995,14 +995,15 @@ def run(
                              sell_trigger=thresholds.get("sell_score_trigger", 60),
                              stall_score=thresholds.get("stall_sell_score", 40))
 
-    # Append top universe candidates when no buy signals fired (so user can
-    # see what the model is scoring highly even below the signal threshold)
-    if not buy_alerts and scored_universe:
+    # Always append top candidates from scored_universe (watchlist or full universe)
+    if scored_universe:
         top_candidates = [s for s in scored_universe[:15] if not s.get("error") and s.get("buy_score", 0) > 0][:10]
         if top_candidates:
-            lines = ["## 今日关注（未触发信号）\n"]
+            label = "自选池排名" if universe_override is not None else "今日关注"
+            lines = [f"## {label}\n"]
             for s in top_candidates:
-                lines.append(f"- **{s['name']}**（{s['code']}）买入分:{s['buy_score']:.0f}")
+                signal = " ✅" if s in buy_alerts else ""
+                lines.append(f"- **{s['name']}**（{s['code']}）买入分:{s['buy_score']:.0f}{signal}")
             desp += "\n\n" + "\n".join(lines)
 
     try:
