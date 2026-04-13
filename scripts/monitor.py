@@ -1341,7 +1341,8 @@ def run_loop(
                 print(f"  [ERROR] 微信推送失败: {e}")
 
         # ── Watchlist scan (every 30 min, medium frequency) ──────────────────
-        watchlist = config.get("watchlist", [])
+        # Normalise codes: strip SH/SZ/BJ prefix so fetcher can look them up
+        watchlist = [c[-6:] if len(c) > 6 else c for c in config.get("watchlist", [])]
         need_watchlist = (
             watchlist and (
                 _watchlist_last_scan is None or
