@@ -1393,12 +1393,12 @@ def run_loop(
                 pass
 
         # ── Fast check ────────────────────────────────────────────────────────
-        print(f"[{run_time}] Fast check ({len(holdings)} holdings)...", end=" ", flush=True)
+        print(f"[{run_time}] Fast check ({len(holdings)} holdings)...")
         fast_alerts = fast_check_holdings(
             holdings, thresholds, alert_state, t_trade_state,
             urgent_alert_state=urgent_alert_state,
         )
-        print(f"{len(fast_alerts)} alert(s)")
+        print(f"  {len(fast_alerts)} alert(s)")
 
         if fast_alerts:
             title = f"[StockSage ⚡] {len(fast_alerts)} 实时预警"
