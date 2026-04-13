@@ -305,6 +305,9 @@ def screen_stocks(
     except Exception as e:
         return {"error": f"Failed to fetch market data: {e}"}
 
+    if df_full_raw.empty or "名称" not in df_full_raw.columns:
+        return {"error": "Market data unavailable (outside trading hours or API timeout)"}
+
     df = df_full_raw[~df_full_raw["名称"].str.contains("ST|退", na=False)].copy()
 
     # Rename columns
