@@ -444,12 +444,10 @@ def _fmt_buy_section_md(buy_alerts: list[dict]) -> str:
 def _fmt_holdings_table_md(scored_holdings: list[dict]) -> str:
     if not scored_holdings:
         return ""
-    rows = ["| 股票 | 卖出分 | 买入分 |",
-            "|------|--------|--------|"]
+    rows = []
     for s in scored_holdings:
-        name = s['name'][:4]   # truncate to 4 chars to fit mobile screen
         rows.append(
-            f"| {name} | {s['sell_score']:.0f} | {s['buy_score']:.0f} |"
+            f"- **{s['name']}** 卖:{s['sell_score']:.0f} 买:{s['buy_score']:.0f}"
         )
     return "\n".join(rows)
 
@@ -1236,19 +1234,17 @@ def run_loop(
         if (now.hour == 15 and 5 <= now.minute < 10  # TEST: weekday check removed
                 and _closing_date != now.date()):
             _closing_date = now.date()
-            rows = ["| 股票 | 今日涨跌 |", "|------|----------|"]
+            rows = []
             for h in holdings:
+                name = h.get('name', h['code'])
                 try:
                     q   = fetcher.get_realtime_quote(h["code"])
                     chg = q.get("change_pct") or 0.0
-                    name = h.get('name', h['code'])[:4]
                     rows.append(
-                        f"| {name} "
-                        f"| {'📈' if chg >= 0 else '📉'} {chg:+.1f}% |"
+                        f"- **{name}** {'📈' if chg >= 0 else '📉'} {chg:+.1f}%"
                     )
                 except Exception:
-                    name = h.get('name', h['code'])[:4]
-                    rows.append(f"| {name} | — |")
+                    rows.append(f"- **{name}** —")
             closing_desp = (
                 f"**{now.strftime('%Y-%m-%d')} 收盘快报**\n\n"
                 + "\n".join(rows)
