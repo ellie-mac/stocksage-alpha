@@ -56,6 +56,7 @@ HOLDINGS_PATH = os.path.join(_ROOT, "holdings.json")
 CONFIG_PATH   = os.path.join(_ROOT, "alert_config.json")
 SIGNALS_LOG_PATH  = os.path.join(_ROOT, "data", "signals_log.json")
 LATEST_PICKS_PATH = os.path.join(_ROOT, "data", "latest_picks.json")
+SCAN_CACHE_PATH   = os.path.join(_ROOT, "data", "watchlist_scan_latest.json")
 STATE_PATH    = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".monitor_state.json")
 
 
@@ -944,6 +945,23 @@ def run(
                 scored_universe.append(fut.result())
         scored_universe.sort(key=lambda x: -x["buy_score"])
 
+        # Write scan cache for signal_tracker.py (watchlist scans only)
+        if universe_override is not None:
+            try:
+                _data = {
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "scored": [
+                        {k: s.get(k) for k in
+                         ("code","name","buy_score","sell_score","price","bullish","bearish")}
+                        for s in scored_universe if not s.get("error")
+                    ],
+                }
+                os.makedirs(os.path.dirname(SCAN_CACHE_PATH), exist_ok=True)
+                with open(SCAN_CACHE_PATH, "w", encoding="utf-8") as _f:
+                    json.dump(_data, _f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
         top_n = thresholds.get("buy_universe_top_n", 5)
         for s in scored_universe[:top_n * 3]:  # check top candidates
             if not check_buy_signal(s, thresholds, held_codes):
@@ -1084,8 +1102,12 @@ def run_loop(
         os.path.getmtime(HOLDINGS_PATH) if os.path.exists(HOLDINGS_PATH) else 0.0
     )
 
-    _build_universe_script = os.path.join(os.path.dirname(__file__), "build_universe.py")
-    _universe_refresh_done = threading.Event()   # background thread sets this when finished
+    _build_universe_script  = os.path.join(os.path.dirname(__file__), "build_universe.py")
+    _signal_tracker_script  = os.path.join(os.path.dirname(__file__), "signal_tracker.py")
+    _auto_tune_script       = os.path.join(os.path.dirname(__file__), "auto_tune.py")
+    _universe_refresh_done  = threading.Event()   # background thread sets this when finished
+    _signal_tracker_date: Optional[object] = _restore_date("signal_tracker_date")
+    _auto_tune_date:      Optional[object] = _restore_date("auto_tune_date")
 
     # ── Startup universe check: refresh immediately if empty or stale (>7 days) ──
     _startup_age = (
@@ -1292,6 +1314,44 @@ def run_loop(
             except Exception as e:
                 print(f"  [WARN] Closing summary push failed: {e}")
 
+        # ── Daily signal tracker (15:20 — after closing scan) ────────────────
+        if (now.hour == 15 and 20 <= now.minute < 30
+                and _signal_tracker_date != now.date()):
+            _signal_tracker_date = now.date()
+            print(f"[{now.strftime('%H:%M')}] Running signal tracker...")
+            def _run_signal_tracker():
+                try:
+                    result = subprocess.run(
+                        [sys.executable, "-X", "utf8", _signal_tracker_script],
+                        capture_output=True, text=True, encoding="utf-8", timeout=300,
+                    )
+                    if result.returncode == 0:
+                        print(f"  [Tracker] Done.\n{result.stdout[-500:]}")
+                    else:
+                        print(f"  [Tracker] Failed:\n{result.stderr[:300]}")
+                except Exception as e:
+                    print(f"  [Tracker] Error: {e}")
+            threading.Thread(target=_run_signal_tracker, daemon=True).start()
+
+        # ── Weekly auto-tune (Monday 08:00, if enough signal data) ───────────
+        if (now.weekday() == 0 and now.hour == 8 and now.minute < 5
+                and _auto_tune_date != now.date()):
+            _auto_tune_date = now.date()
+            print(f"[{now.strftime('%H:%M')}] Running auto-tune...")
+            def _run_auto_tune():
+                try:
+                    result = subprocess.run(
+                        [sys.executable, "-X", "utf8", _auto_tune_script, "--apply"],
+                        capture_output=True, text=True, encoding="utf-8", timeout=60,
+                    )
+                    if result.returncode == 0:
+                        print(f"  [AutoTune] Done.\n{result.stdout[-500:]}")
+                    else:
+                        print(f"  [AutoTune] Failed:\n{result.stderr[:300]}")
+                except Exception as e:
+                    print(f"  [AutoTune] Error: {e}")
+            threading.Thread(target=_run_auto_tune, daemon=True).start()
+
         # TEST: trading-hours gate bypassed so full scan runs at any time
         # if not _is_trading_hours():
         #     wait_sec = _next_session_seconds()
@@ -1482,6 +1542,10 @@ def run_loop(
             "night_scan_date":     _night_scan_date.isoformat()
                                    if _night_scan_date else None,
             "night_picks":         _night_picks,
+            "signal_tracker_date": _signal_tracker_date.isoformat()
+                                   if _signal_tracker_date else None,
+            "auto_tune_date":      _auto_tune_date.isoformat()
+                                   if _auto_tune_date else None,
         })
 
         # ── Sleep until next fast interval ────────────────────────────────────
@@ -1506,6 +1570,10 @@ def run_loop(
             "night_scan_date":       _night_scan_date.isoformat()
                                      if _night_scan_date else None,
             "night_picks":           _night_picks,
+            "signal_tracker_date":   _signal_tracker_date.isoformat()
+                                     if _signal_tracker_date else None,
+            "auto_tune_date":        _auto_tune_date.isoformat()
+                                     if _auto_tune_date else None,
         })
         print("\n[StockSage] 监控已停止（Ctrl+C）。状态已保存。")
 
