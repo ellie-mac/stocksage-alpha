@@ -489,7 +489,7 @@ def build_etf_watchlist(max_per_theme: int = 3) -> list[dict]:
 def build_watchlist(
     sector_map: dict[str, list[tuple[str, str]]],
     top_n_hot: int = 200,
-    max_per_sector: int = 5,
+    max_per_sector: int = 10,
     max_total: int = 500,
 ) -> list[str]:
     """
@@ -565,8 +565,8 @@ def main() -> None:
                     print(f"  {s}: {[c for c, _ in stocks[:5]]}...")
         return
 
-    # Build stock watchlist from hot rank (max 5 per sector, max 500 total)
-    watchlist = build_watchlist(sector_map)
+    # Build stock watchlist from hot rank (max 10 per sector, max 500 total)
+    watchlist = build_watchlist(sector_map, max_per_sector=10)
 
     # Build ETF watchlist (all exchange ETFs, max 3 per theme, same-index dedup)
     etf_watchlist = build_etf_watchlist(max_per_theme=3)

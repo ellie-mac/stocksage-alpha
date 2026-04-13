@@ -1150,11 +1150,10 @@ def run_loop(
             _xhs_triggered_today = set()
             _xhs_date = now.date()
 
-        # ── Weekly universe refresh (every Monday, before market open) ───────────
-        if (now.weekday() == 0  # Monday
-                and last_universe_refresh_date != now.date()
+        # ── Daily universe refresh (every trading day, before market open) ────────
+        if (last_universe_refresh_date != now.date()
                 and not _is_trading_hours()):
-            print(f"[{now.strftime('%H:%M')}] Monday pre-market: refreshing screener universe...")
+            print(f"[{now.strftime('%H:%M')}] Daily pre-market: refreshing screener universe...")
             try:
                 result = subprocess.run(
                     [sys.executable, "-X", "utf8", _build_universe_script],
@@ -1172,10 +1171,10 @@ def run_loop(
                         wl_lines = "\n".join(f"  - {c}" for c in wl) if wl else "  （空）"
                         send_wechat(
                             "[StockSage] 股票池已更新 🔄",
-                            f"本周 screener_universe 刷新完成\n\n"
+                            f"今日 screener_universe 刷新完成\n\n"
                             f"- 候选股票: **{n}** 只（全量扫描）\n"
                             f"- 自选池（每30分钟扫描）:\n{wl_lines}\n\n"
-                            f"> {now.strftime('%Y-%m-%d')} 周一自动刷新",
+                            f"> {now.strftime('%Y-%m-%d')} 每日自动刷新",
                             sendkey, dry_run=dry_run,
                         )
                     except Exception:
