@@ -522,26 +522,26 @@ def build_watchlist(
     top_n_hot: int = 200,
     max_per_sector: int = 10,
     max_total: int = 500,
-) -> list[str]:
+) -> tuple[list[str], dict[str, str]]:
     """
-    Build intraday watchlist from EastMoney / 同花顺 hot rank.
+    Build intraday watchlist from EastMoney hot rank.
 
-    Steps:
-      1. Fetch top_n_hot stocks from hot-rank API.
-      2. Cross-reference with sector_map to determine each stock's sector.
-         Stocks with no known sector are placed in a catch-all bucket.
-      3. Apply deduplication: keep at most max_per_sector per sector,
-         preserving hot-rank order (most popular first).
-      4. Return up to max_total stock codes.
+    Returns (watchlist_codes, code_to_name).
     """
     print("Fetching hot-rank list...")
     hot_codes: list[str] = []
+    hot_names: dict[str, str] = {}
     try:
         df_hot = ak.stock_hot_rank_em()
-        # Column may be '代码' or '股票代码' depending on akshare version
         code_col = next((c for c in df_hot.columns if "代码" in c), None)
+        name_col = next((c for c in df_hot.columns if "名称" in c), None)
         if code_col:
-            hot_codes = [str(r).zfill(6) for r in df_hot[code_col].head(top_n_hot)]
+            rows = df_hot.head(top_n_hot)
+            for _, row in rows.iterrows():
+                code = str(row[code_col]).zfill(6)
+                hot_codes.append(code)
+                if name_col:
+                    hot_names[code] = str(row[name_col])
             print(f"  Hot rank fetched: {len(hot_codes)} stocks")
         else:
             print(f"  [WARN] Unknown columns: {list(df_hot.columns)}")
@@ -549,14 +549,21 @@ def build_watchlist(
         print(f"  [ERR] Hot rank fetch failed: {e}")
 
     if not hot_codes:
-        return []
+        return [], {}
 
-    # Build reverse map: code -> sector name (first match wins)
+    # Build reverse maps: code -> sector, code -> name (from sector_map)
     code_to_sector: dict[str, str] = {}
+    code_to_name: dict[str, str] = {}
     for sector, stocks in sector_map.items():
-        for code, _ in stocks:
+        for code, name in stocks:
             if code not in code_to_sector:
                 code_to_sector[code] = sector
+            if code not in code_to_name:
+                code_to_name[code] = name
+    # hot_names fills gaps for stocks not in sector_map
+    for code, name in hot_names.items():
+        if code not in code_to_name:
+            code_to_name[code] = name
 
     # Deduplication: max max_per_sector per sector
     sector_count: dict[str, int] = {}
@@ -572,7 +579,7 @@ def build_watchlist(
 
     print(f"  Watchlist: {len(watchlist)} stocks "
           f"(from {len(hot_codes)} hot, max {max_per_sector}/sector)")
-    return watchlist
+    return watchlist, code_to_name
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -597,7 +604,7 @@ def main() -> None:
         return
 
     # Build stock watchlist from hot rank (max 10 per sector, max 500 total)
-    watchlist = build_watchlist(sector_map, max_per_sector=10)
+    watchlist, watchlist_names = build_watchlist(sector_map, max_per_sector=10)
 
     # Build ETF watchlist (all exchange ETFs, max 3 per theme, same-index dedup)
     etf_watchlist = build_etf_watchlist(max_per_theme=3)
@@ -607,6 +614,7 @@ def main() -> None:
         config = json.load(f)
     config["screener_universe"] = universe
     config["watchlist"]         = watchlist
+    config["watchlist_names"]   = watchlist_names   # {code: name}
     config["etf_watchlist"]     = etf_watchlist
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)

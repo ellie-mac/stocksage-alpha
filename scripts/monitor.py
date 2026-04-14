@@ -1209,7 +1209,10 @@ def run_loop(
                             _universe_refresh_done.set()
                             try:
                                 wl = cfg.get('watchlist', [])
-                                wl_lines = "\n".join(f"  - {c}" for c in wl) if wl else "  （空）"
+                                wl_names = cfg.get('watchlist_names', {})
+                                wl_lines = "\n".join(
+                                    f"  - {wl_names.get(c, c)} ({c})" for c in wl
+                                ) if wl else "  （空）"
                                 send_wechat(
                                     "[StockSage] 股票池已更新 🔄",
                                     f"今日 screener_universe 刷新完成\n\n"
