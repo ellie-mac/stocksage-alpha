@@ -1495,3 +1495,151 @@ def search_stock_by_name(name: str) -> Optional[str]:
         return str(matched.iloc[0]["代码"])
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Trading calendar + suspension
+# ---------------------------------------------------------------------------
+
+_CALENDAR_START_YEARS = 3   # fetch this many years back + 1 year ahead
+
+
+def get_trade_calendar() -> list:
+    """Return sorted list of A-share trading date strings ('YYYY-MM-DD').
+
+    Covers 3 years back to 1 year ahead — enough for any rolling window.
+
+    Source priority:
+      1. BaoStock  query_trade_dates
+      2. AKShare   tool_trade_date_hist_sina (all historical trading days; trimmed to window)
+
+    Cached for 30 days (holiday schedule rarely changes mid-year).
+    """
+    cache_key = "trade_calendar"
+    cached = cache.get(cache_key, 30 * 86400)
+    if cached is not None:
+        return cached
+
+    start = (datetime.now() - timedelta(days=_CALENDAR_START_YEARS * 365)).strftime("%Y-%m-%d")
+    end   = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%d")
+
+    # ── Source 1: BaoStock ────────────────────────────────────────────────
+    try:
+        bs = _get_baostock()
+        if bs is not None:
+            _cal_rows: list = []
+
+            def _do_cal_query():
+                if not _bs_lock.acquire(timeout=65.0):
+                    return []
+                try:
+                    rs = bs.query_trade_dates(start_date=start, end_date=end)
+                    result = []
+                    while rs.error_code == "0" and rs.next():
+                        row = rs.get_row_data()
+                        # row = [calendar_date, is_trading_day]
+                        if len(row) >= 2 and row[1] == "1":
+                            result.append(row[0])  # 'YYYY-MM-DD'
+                    return result
+                except OSError:
+                    _reset_baostock()
+                    return []
+                finally:
+                    _bs_lock.release()
+
+            result = _call_with_timeout(_do_cal_query, timeout=60.0)
+            if result is None:
+                _reset_baostock()
+            elif result:
+                dates = sorted(result)
+                cache.set(cache_key, dates)
+                return dates
+    except Exception:
+        pass
+
+    # ── Source 2: AKShare Sina ────────────────────────────────────────────
+    try:
+        df = ak.tool_trade_date_hist_sina()
+        if df is not None and not df.empty:
+            df.columns = [c.strip() for c in df.columns]
+            col = df.columns[0]
+            dates = sorted(
+                str(d)[:10] for d in df[col].dropna()
+                if start <= str(d)[:10] <= end
+            )
+            if dates:
+                cache.set(cache_key, dates)
+                return dates
+    except Exception:
+        pass
+
+    return []
+
+
+def is_trading_day(date=None) -> bool:
+    """Return True if *date* is an A-share trading day.
+
+    *date* can be a datetime, date, or 'YYYY-MM-DD' string.
+    Defaults to today if omitted.
+    Falls back to weekday check (Mon-Fri) when calendar is unavailable.
+    """
+    if date is None:
+        date = datetime.now()
+    if hasattr(date, "strftime"):
+        date_str = date.strftime("%Y-%m-%d")
+    else:
+        date_str = str(date)[:10]
+
+    cal = get_trade_calendar()
+    if cal:
+        return date_str in cal
+    # Fallback: treat weekdays as trading days
+    from datetime import date as _date
+    d = _date.fromisoformat(date_str)
+    return d.weekday() < 5
+
+
+def get_suspension_list(trade_date: str = None) -> pd.DataFrame:
+    """Return stocks suspended or resuming on *trade_date* ('YYYYMMDD').
+
+    Defaults to today.  Returned DataFrame columns:
+      code          — 6-digit stock code
+      trade_date    — 'YYYYMMDD'
+      suspend_type  — 'S' (停牌) | 'R' (复牌)
+
+    Source: Tushare suspend_d (120pts, confirmed working).
+    Cached for 24h per date.
+    """
+    if trade_date is None:
+        trade_date = datetime.now().strftime("%Y%m%d")
+
+    cache_key = f"suspension_{trade_date}"
+    cached = cache.get_df(cache_key, cache.TTL_VALUATION)
+    if cached is not None:
+        return cached
+
+    try:
+        pro = _get_tushare_pro()
+        if pro is not None:
+            df = pro.suspend_d(
+                trade_date=trade_date,
+                fields="ts_code,trade_date,suspend_type",
+            )
+            if df is not None and not df.empty:
+                # Convert ts_code '000001.SZ' → '000001'
+                df["code"] = df["ts_code"].str[:6]
+                df = df[["code", "trade_date", "suspend_type"]].reset_index(drop=True)
+                cache.set_df(cache_key, df)
+                return df
+    except Exception:
+        pass
+
+    return pd.DataFrame(columns=["code", "trade_date", "suspend_type"])
+
+
+def get_suspended_codes(trade_date: str = None) -> set:
+    """Convenience wrapper: return set of codes currently suspended (type='S')."""
+    df = get_suspension_list(trade_date)
+    if df.empty:
+        return set()
+    return set(df.loc[df["suspend_type"] == "S", "code"].tolist())
