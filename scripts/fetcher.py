@@ -728,33 +728,70 @@ def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
     """Fetch historical PE/PB valuation data. Cached until next market open.
 
     Source priority:
-      1. akshare EM  (stock_a_lg_indicator)
-      2. JQData      (valuation table, get_fundamentals_continuously)
+      1. BaoStock    (peTTM, pbMRQ, psTTM — free, permanent)
+      2. JQData      (valuation table — free SDK trial; falls back gracefully)
     """
     cache_key = f"valuation_{code}"
     cached = cache.get_df(cache_key, cache.smart_valuation_ttl())
     if cached is not None:
         return cached
 
-    # ── Source 1: akshare East Money ─────────────────────────────────────
+    # ── Source 1: BaoStock ───────────────────────────────────────────────
     try:
-        df = ak.stock_a_lg_indicator(symbol=code)
-        if df is not None and not df.empty:
-            df.columns = [c.strip() for c in df.columns]
-            df = df.rename(columns={
-                "trade_date": "date", "pe": "pe", "pe_ttm": "pe_ttm",
-                "pb": "pb", "ps": "ps", "ps_ttm": "ps_ttm",
-                "dv_ratio": "div_yield", "dv_ttm": "div_yield_ttm",
-                "total_mv": "market_cap",
-            })
-            df["date"] = pd.to_datetime(df["date"])
-            df = df.sort_values("date").reset_index(drop=True)
-            cache.set_df(cache_key, df)
-            return df
+        bs = _get_baostock()
+        if bs is not None:
+            prefix = _market_from_code(code)
+            bs_code = f"{prefix}.{code}"
+            end_v = datetime.now()
+            start_v = end_v - timedelta(days=_PRICE_FETCH_DAYS + 10)
+
+            _val_rows: list = []
+
+            def _do_val_query():
+                if not _bs_lock.acquire(timeout=65.0):
+                    return [], []
+                try:
+                    rs = bs.query_history_k_data_plus(
+                        bs_code,
+                        "date,peTTM,pbMRQ,psTTM,pcfNcfTTM",
+                        start_date=start_v.strftime("%Y-%m-%d"),
+                        end_date=end_v.strftime("%Y-%m-%d"),
+                        frequency="d",
+                        adjustflag="3",  # no adjustment needed for valuation
+                    )
+                    result = []
+                    while rs.error_code == "0" and rs.next():
+                        result.append(rs.get_row_data())
+                    return result, rs.fields
+                except OSError:
+                    _reset_baostock()
+                    return [], []
+                finally:
+                    _bs_lock.release()
+
+            _val_result = _call_with_timeout(_do_val_query, timeout=60.0)
+            if _val_result is None:
+                _reset_baostock()
+            else:
+                rows, _fields = _val_result
+                if rows:
+                    df = pd.DataFrame(rows, columns=_fields)
+                    df = df.rename(columns={
+                        "peTTM": "pe_ttm", "pbMRQ": "pb",
+                        "psTTM": "ps_ttm", "pcfNcfTTM": "pcf_ttm",
+                    })
+                    df["date"] = pd.to_datetime(df["date"])
+                    for col in ["pe_ttm", "pb", "ps_ttm", "pcf_ttm"]:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors="coerce")
+                    df = df.sort_values("date").reset_index(drop=True)
+                    if not df.empty:
+                        cache.set_df(cache_key, df)
+                        return df
     except Exception:
         pass
 
-    # ── Source 2: JQData valuation table ─────────────────────────────────
+    # ── Source 2: JQData valuation table (SDK trial) ──────────────────────
     try:
         if _get_jqdata():
             import jqdatasdk as jq
@@ -771,8 +808,7 @@ def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
                     "pe_ratio": "pe_ttm",
                     "pb_ratio": "pb",
                     "ps_ratio": "ps_ttm",
-                    "pcf_ratio": "pcf",
-                    "turnover_ratio": "turnover",
+                    "pcf_ratio": "pcf_ttm",
                     "market_cap": "market_cap",
                 })
                 if "date" in df.columns:
