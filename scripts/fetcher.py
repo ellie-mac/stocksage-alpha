@@ -777,8 +777,7 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
     """Fetch financial indicators (ROE, margins, growth rates). Cached for 14 days.
 
     Source priority:
-      1. akshare EM   (stock_financial_analysis_indicator)
-      2. akshare THS  (stock_financial_abstract_ths) — 同花顺, different server
+      1. akshare EM  (stock_financial_analysis_indicator)
     """
     cache_key = f"financial_{code}"
     cached = cache.get_df(cache_key, cache.TTL_FINANCIAL)
@@ -790,31 +789,6 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
         df = ak.stock_financial_analysis_indicator(symbol=code, start_year="2020")
         if df is not None and not df.empty:
             df = df.reset_index(drop=True)
-            cache.set_df(cache_key, df)
-            return df
-    except Exception:
-        pass
-
-    # ── Source 2: akshare 同花顺 (stock_financial_abstract_ths) ──────────
-    try:
-        df = ak.stock_financial_abstract_ths(symbol=code, indicator="按年度")
-        if df is not None and not df.empty:
-            df = df.reset_index(drop=True)
-            df.columns = [c.strip() for c in df.columns]
-            rename = {
-                "报告期": "date",
-                "摊薄净资产收益率": "净资产收益率",
-                "净资产收益率(加权)": "加权净资产收益率",
-                "销售净利率": "销售净利润率",
-                "营业总收入": "营业收入",
-                "营业总收入同比增长率": "营业收入同比增长率(%)",
-                "净利润同比增长率": "净利润同比增长率(%)",
-                "每股经营现金流量": "每股经营性现金流(元)",
-            }
-            df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
-            if "date" in df.columns:
-                df["date"] = pd.to_datetime(df["date"], errors="coerce")
-                df = df.sort_values("date").reset_index(drop=True)
             cache.set_df(cache_key, df)
             return df
     except Exception:
