@@ -1519,24 +1519,8 @@ def run_loop(
                     no_data.append(h.get('name') or h['code'])
             if no_data:
                 rows.append(f"\n*无数据（{len(no_data)}只）: {', '.join(no_data[:5])}{'...' if len(no_data) > 5 else ''}*")
-            closing_desp = (
-                f"**{now.strftime('%Y-%m-%d')} 收盘快报**\n\n"
-                + "\n".join(rows)
-                + "\n\n> 仅供参考，不构成投资建议"
-            )
-            try:
-                send_wechat("[StockSage] 今日收盘 📊", closing_desp, sendkey, dry_run=dry_run)
-            except Exception as e:
-                print(f"  [WARN] Closing summary push failed: {e}")
-            # XHS evening post: today's watchlist performance summary
-            if "evening" not in _xhs_triggered_today:
-                _xhs_triggered_today.add("evening")
-                _trigger_xhs_post("evening", dry_run)
-
-        # ── ETF closing summary (15:05, same window as holdings) ────────────────
-        etf_list_cfg = config.get("etf_watchlist", [])
-        if (etf_list_cfg and now.hour == 15 and 5 <= now.minute < 10
-                and _etf_closing_date != now.date()):
+            # ── ETF section (merged into same push) ──────────────────────────
+            etf_list_cfg = config.get("etf_watchlist", [])
             _etf_closing_date = now.date()
             etf_rows = []
             etf_no_data = []
@@ -1560,22 +1544,30 @@ def run_loop(
                     )
                 except Exception:
                     etf_no_data.append(_en)
-            if etf_rows or etf_no_data:
-                if etf_no_data:
-                    etf_rows.append(
-                        f"\n*无数据（{len(etf_no_data)}只）: "
-                        f"{', '.join(etf_no_data[:5])}{'...' if len(etf_no_data) > 5 else ''}*"
-                    )
-                etf_closing_desp = (
-                    f"**{now.strftime('%Y-%m-%d')} ETF 收盘快报**\n\n"
-                    + "\n".join(etf_rows)
-                    + "\n\n> T+0 / 仅供参考"
+            if etf_no_data:
+                etf_rows.append(
+                    f"\n*ETF无数据（{len(etf_no_data)}只）: "
+                    f"{', '.join(etf_no_data[:5])}{'...' if len(etf_no_data) > 5 else ''}*"
                 )
-                try:
-                    send_wechat("[StockSage ETF] 今日收盘 📊", etf_closing_desp,
-                                sendkey, dry_run=dry_run)
-                except Exception as _e:
-                    print(f"  [WARN] ETF closing summary push failed: {_e}")
+
+            etf_section = ""
+            if etf_rows:
+                etf_section = "\n\n**ETF 自选**\n" + "\n".join(etf_rows)
+
+            closing_desp = (
+                f"**{now.strftime('%Y-%m-%d')} 收盘快报**\n\n"
+                + "\n".join(rows)
+                + etf_section
+                + "\n\n> 仅供参考，不构成投资建议"
+            )
+            try:
+                send_wechat("[StockSage] 今日收盘 📊", closing_desp, sendkey, dry_run=dry_run)
+            except Exception as e:
+                print(f"  [WARN] Closing summary push failed: {e}")
+            # XHS evening post: today's watchlist performance summary
+            if "evening" not in _xhs_triggered_today:
+                _xhs_triggered_today.add("evening")
+                _trigger_xhs_post("evening", dry_run)
 
         # ── Daily signal tracker (15:20 — after closing scan) ────────────────
         if (now.hour == 15 and 20 <= now.minute < 30
@@ -1674,7 +1666,7 @@ def run_loop(
 
         # ── ETF watchlist scan (every fast-check cycle, T+0 20-min cooldown) ──
         etf_list = config.get("etf_watchlist", [])
-        if etf_list and is_trading_hours():
+        if etf_list and _is_trading_hours():
             # Reset daily activity counter
             if _etf_activity_date != now.date():
                 _etf_activity = {e["code"]: {"buys": 0, "sells": 0} for e in etf_list}
