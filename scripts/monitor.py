@@ -1272,7 +1272,7 @@ def run_loop(
     _premarket_picks: list[str] = _state.get("premarket_picks", [])
     _night_scan_date: Optional[object] = _restore_date("night_scan_date")
     _night_picks: list[str] = _state.get("night_picks", [])   # 22:00 buy signals → 9:25 auction check
-    _WATCHLIST_INTERVAL_MIN = 30
+    _WATCHLIST_INTERVAL_MIN = 5
 
     # Holdings hot-reload: detect changes to holdings.json without restarting
     _holdings_mtime: float = (
@@ -1645,16 +1645,16 @@ def run_loop(
             except Exception:
                 pass
 
-        # ── Fast check ────────────────────────────────────────────────────────
-        print(f"[{run_time}] Fast check ({len(holdings)} holdings)...")
-        fast_alerts = fast_check_holdings(
-            holdings, thresholds, alert_state, t_trade_state,
-            urgent_alert_state=urgent_alert_state,
-        )
-        print(f"  {len(fast_alerts)} alert(s)")
-
-        # Suppress fast-check WeChat before 09:30 — quotes are stale/zero pre-market
-        _market_open = now.hour > 9 or (now.hour == 9 and now.minute >= 30)
+        # ── Fast check (trading hours only: 09:30–15:00) ─────────────────────────
+        _market_open = (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and now.hour < 15
+        fast_alerts: list[dict] = []
+        if _market_open:
+            print(f"[{run_time}] Fast check ({len(holdings)} holdings)...")
+            fast_alerts = fast_check_holdings(
+                holdings, thresholds, alert_state, t_trade_state,
+                urgent_alert_state=urgent_alert_state,
+            )
+            print(f"  {len(fast_alerts)} alert(s)")
         if fast_alerts and _market_open:
             title = f"[StockSage ⚡] {len(fast_alerts)} 实时预警"
             desp  = build_fast_wechat_desp(fast_alerts, run_time,
@@ -1768,10 +1768,11 @@ def run_loop(
                 except Exception as _e:
                     print(f"  [ERROR] ETF 推送失败: {_e}")
 
-        # ── Watchlist scan (every 30 min, medium frequency) ──────────────────
+        # ── Watchlist scan (every 5 min, trading hours only) ─────────────────
         # Normalise codes: strip SH/SZ/BJ prefix so fetcher can look them up
         watchlist = [c[-6:] if len(c) > 6 else c for c in config.get("watchlist", [])]
         need_watchlist = (
+            _market_open and
             watchlist and (
                 _watchlist_last_scan is None or
                 (now - _watchlist_last_scan).total_seconds() >= _WATCHLIST_INTERVAL_MIN * 60
