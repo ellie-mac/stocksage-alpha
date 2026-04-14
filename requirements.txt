@@ -5,3 +5,4 @@ ta>=0.11.0
 
 mootdx
 tushare
+jqdatasdk

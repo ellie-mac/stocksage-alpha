@@ -22,6 +22,7 @@ _hist_ts_failed = False  # once set True, skip Tushare daily this session
 _hist_tdx_failed = False  # once set True, skip mootdx this session
 
 _ts_pro = None           # Tushare Pro API handle; initialised lazily from alert_config token
+_jq_authed = False       # True once jqdatasdk.auth() has succeeded
 
 
 def _get_tushare_pro():
@@ -42,6 +43,33 @@ def _get_tushare_pro():
         return _ts_pro
     except Exception:
         return None
+
+def _get_jqdata():
+    """Authenticate jqdatasdk once; return True if ready, False otherwise."""
+    global _jq_authed
+    if _jq_authed:
+        return True
+    try:
+        import jqdatasdk as jq
+        import json, os
+        cfg_path = os.path.join(os.path.dirname(__file__), "..", "alert_config.json")
+        with open(cfg_path, encoding="utf-8") as _f:
+            cfg = json.load(_f).get("jqdata", {})
+        username = cfg.get("username", "")
+        password = cfg.get("password", "")
+        if not username or not password:
+            return False
+        jq.auth(username, password)
+        _jq_authed = True
+        return True
+    except Exception:
+        return False
+
+
+def _jq_code(code: str) -> str:
+    """Convert 6-digit A-share code to JQData format (e.g. '000001' → '000001.XSHE')."""
+    return f"{code}.XSHG" if _market_from_code(code) == "sh" else f"{code}.XSHE"
+
 
 # Module-level caches for full-market LHB and shareholder snapshots.
 # Both are refreshed lazily; the helpers below are the only writers.
@@ -486,7 +514,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     global _hist_em_failed, _hist_ts_failed, _hist_tdx_failed
     fetch_days = max(days, _PRICE_FETCH_DAYS)
     cache_key = f"price_{code}_{fetch_days}"
-    cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY)
+    cached = cache.get_df(cache_key, cache.smart_price_ttl())
     if cached is not None:
         # Caller may ask for fewer rows — slice to requested window
         if len(cached) > days:
@@ -697,13 +725,14 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
 
 
 def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
-    """Fetch historical PE/PB valuation data. Cached for 24 hours.
+    """Fetch historical PE/PB valuation data. Cached until next market open.
 
     Source priority:
       1. akshare EM  (stock_a_lg_indicator)
+      2. JQData      (valuation table, get_fundamentals_continuously)
     """
     cache_key = f"valuation_{code}"
-    cached = cache.get_df(cache_key, cache.TTL_VALUATION)
+    cached = cache.get_df(cache_key, cache.smart_valuation_ttl())
     if cached is not None:
         return cached
 
@@ -722,6 +751,35 @@ def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
             df = df.sort_values("date").reset_index(drop=True)
             cache.set_df(cache_key, df)
             return df
+    except Exception:
+        pass
+
+    # ── Source 2: JQData valuation table ─────────────────────────────────
+    try:
+        if _get_jqdata():
+            import jqdatasdk as jq
+            jq_c = _jq_code(code)
+            df = jq.get_fundamentals_continuously(
+                jq.query(jq.valuation).filter(jq.valuation.code == jq_c),
+                end_date=pd.Timestamp.now().strftime("%Y-%m-%d"),
+                count=365,
+                panel=False,
+            )
+            if df is not None and not df.empty:
+                df = df.rename(columns={
+                    "day": "date",
+                    "pe_ratio": "pe_ttm",
+                    "pb_ratio": "pb",
+                    "ps_ratio": "ps_ttm",
+                    "pcf_ratio": "pcf",
+                    "turnover_ratio": "turnover",
+                    "market_cap": "market_cap",
+                })
+                if "date" in df.columns:
+                    df["date"] = pd.to_datetime(df["date"])
+                    df = df.sort_values("date").reset_index(drop=True)
+                cache.set_df(cache_key, df)
+                return df
     except Exception:
         pass
 
@@ -756,7 +814,6 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
         if df is not None and not df.empty:
             df = df.reset_index(drop=True)
             df.columns = [c.strip() for c in df.columns]
-            # Map THS column names to the standard names factors expect
             rename = {
                 "报告期": "date",
                 "摊薄净资产收益率": "净资产收益率",
@@ -773,6 +830,36 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
                 df = df.sort_values("date").reset_index(drop=True)
             cache.set_df(cache_key, df)
             return df
+    except Exception:
+        pass
+
+    # ── Source 3: JQData indicator table ─────────────────────────────────
+    try:
+        if _get_jqdata():
+            import jqdatasdk as jq
+            jq_c = _jq_code(code)
+            df = jq.get_fundamentals_continuously(
+                jq.query(jq.indicator).filter(jq.indicator.code == jq_c),
+                end_date=pd.Timestamp.now().strftime("%Y-%m-%d"),
+                count=16,   # ~4 years of quarterly data
+                panel=False,
+            )
+            if df is not None and not df.empty:
+                df = df.rename(columns={
+                    "day": "date",
+                    "roe": "净资产收益率",
+                    "roa": "总资产净利率(ROA)",
+                    "gross_profit_margin": "销售毛利率(%)",
+                    "net_profit_margin": "销售净利润率",
+                    "revenue_yoy": "营业收入同比增长率(%)",
+                    "net_profit_yoy": "净利润同比增长率(%)",
+                    "ocf_to_revenue": "经营现金流/营业收入",
+                })
+                if "date" in df.columns:
+                    df["date"] = pd.to_datetime(df["date"])
+                    df = df.sort_values("date").reset_index(drop=True)
+                cache.set_df(cache_key, df)
+                return df
     except Exception:
         pass
 
