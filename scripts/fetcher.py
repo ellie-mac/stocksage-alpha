@@ -701,8 +701,7 @@ def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
     """Fetch historical PE/PB valuation data. Cached until next market open.
 
     Source priority:
-      1. BaoStock    (peTTM, pbMRQ, psTTM — free, permanent)
-      2. Tushare Pro (daily_basic — requires ≥2000pts; silent no-op at lower tiers)
+      1. BaoStock  (peTTM, pbMRQ, psTTM — free, permanent)
     """
     cache_key = f"valuation_{code}"
     cached = cache.get_df(cache_key, cache.smart_valuation_ttl())
@@ -764,27 +763,6 @@ def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
-    # ── Source 2: Tushare Pro daily_basic (≥2000pts) ─────────────────────
-    try:
-        pro = _get_tushare_pro()
-        if pro is not None:
-            ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
-            df = pro.daily_basic(
-                ts_code=ts_code,
-                fields="trade_date,pe,pe_ttm,pb,ps,ps_ttm,dv_ratio,total_mv",
-            )
-            if df is not None and not df.empty:
-                df = df.rename(columns={
-                    "trade_date": "date", "dv_ratio": "div_yield",
-                    "total_mv": "market_cap",
-                })
-                df["date"] = pd.to_datetime(df["date"])
-                df = df.sort_values("date").reset_index(drop=True)
-                cache.set_df(cache_key, df)
-                return df
-    except Exception:
-        pass
-
     # ── Stale cache fallback (all sources down) ───────────────────────────
     # PE/PB changes little day-to-day; using data up to 5 days old is fine
     # for factor scoring and avoids hard failures during BaoStock outages.
@@ -799,9 +777,8 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
     """Fetch financial indicators (ROE, margins, growth rates). Cached for 14 days.
 
     Source priority:
-      1. akshare EM    (stock_financial_analysis_indicator)
-      2. Tushare Pro   (fina_indicator — requires ≥2000pts; silent no-op at lower tiers)
-      3. akshare THS   (stock_financial_abstract_ths) — 同花顺, different server
+      1. akshare EM   (stock_financial_analysis_indicator)
+      2. akshare THS  (stock_financial_abstract_ths) — 同花顺, different server
     """
     cache_key = f"financial_{code}"
     cached = cache.get_df(cache_key, cache.TTL_FINANCIAL)
@@ -818,35 +795,7 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
-    # ── Source 2: Tushare Pro (fina_indicator, ≥2000pts) ─────────────────
-    try:
-        pro = _get_tushare_pro()
-        if pro is not None:
-            ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
-            df = pro.fina_indicator(
-                ts_code=ts_code,
-                fields="end_date,roe,roa,grossprofit_margin,netprofit_margin,"
-                       "revenue_yoy,netprofit_yoy,ocf_to_revenue",
-            )
-            if df is not None and not df.empty:
-                df = df.rename(columns={
-                    "end_date": "date",
-                    "roe": "净资产收益率",
-                    "roa": "总资产净利率(ROA)",
-                    "grossprofit_margin": "销售毛利率(%)",
-                    "netprofit_margin": "销售净利润率",
-                    "revenue_yoy": "营业收入同比增长率(%)",
-                    "netprofit_yoy": "净利润同比增长率(%)",
-                    "ocf_to_revenue": "每股经营性现金流(元)",
-                })
-                df["date"] = pd.to_datetime(df["date"], errors="coerce")
-                df = df.sort_values("date").reset_index(drop=True)
-                cache.set_df(cache_key, df)
-                return df
-    except Exception:
-        pass
-
-    # ── Source 3: akshare 同花顺 (stock_financial_abstract_ths) ──────────
+    # ── Source 2: akshare 同花顺 (stock_financial_abstract_ths) ──────────
     try:
         df = ak.stock_financial_abstract_ths(symbol=code, indicator="按年度")
         if df is not None and not df.empty:
