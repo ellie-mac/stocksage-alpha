@@ -1289,10 +1289,18 @@ def run_loop(
                     print(f"  [Cache] Purged {deleted} expired file(s)")
             except Exception as e:
                 print(f"  [WARN] Cache purge failed: {e}")
+            _wl       = config.get('watchlist', [])
+            _wl_names = config.get('watchlist_names', {})
+            _holding_lines = "、".join(
+                f"{h.get('name', h['code'])}({h['code']})" for h in holdings
+            ) or "（空）"
+            _wl_lines = "\n".join(
+                f"  - {_wl_names.get(c, c)} ({c})" for c in _wl
+            ) or "  （空）"
             desp = (
                 f"监控进程正常运行中\n\n"
-                f"- 持仓: {len(holdings)} 只 — {[h['code'] for h in holdings]}\n"
-                f"- 自选池: {len(config.get('watchlist', []))} 只\n"
+                f"- 持仓 {len(holdings)} 只: {_holding_lines}\n\n"
+                f"- 自选池 {len(_wl)} 只:\n{_wl_lines}\n\n"
                 f"- ETF 监控: {len(config.get('etf_watchlist', []))} 只\n\n"
                 f"> {now.strftime('%Y-%m-%d')} 开盘前自检"
             )
@@ -1416,7 +1424,9 @@ def run_loop(
         )
         print(f"  {len(fast_alerts)} alert(s)")
 
-        if fast_alerts:
+        # Suppress fast-check WeChat before 09:30 — quotes are stale/zero pre-market
+        _market_open = now.hour > 9 or (now.hour == 9 and now.minute >= 30)
+        if fast_alerts and _market_open:
             title = f"[StockSage ⚡] {len(fast_alerts)} 实时预警"
             desp  = build_fast_wechat_desp(fast_alerts, run_time,
                                            stop_loss_pct=thresholds.get("stop_loss_pct", -8.0))
