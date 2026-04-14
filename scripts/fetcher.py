@@ -732,22 +732,7 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
-    # ── Source 2: Tushare Pro ─────────────────────────────────────────────
-    try:
-        pro = _get_tushare_pro()
-        if pro is not None:
-            ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
-            df = pro.fina_indicator(ts_code=ts_code, fields=(
-                "ann_date,end_date,roe,roe_dt,roa,grossprofit_margin,"
-                "netprofit_margin,revenue_yoy,netprofit_yoy,assets_yoy"
-            ))
-            if df is not None and not df.empty:
-                df = df.sort_values("end_date", ascending=False).reset_index(drop=True)
-                cache.set_df(cache_key, df)
-                return df
-    except Exception:
-        pass
-
+    # Tushare fina_indicator requires 2000 pts — not available on free tier.
     return None
 
 
