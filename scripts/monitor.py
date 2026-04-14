@@ -38,8 +38,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 from research import research
 from factors_extended import score_market_regime
 from factors import DEFAULT_WEIGHTS, weights_from_config_dict
-from factor_config import REGIME_WEIGHTS
+from factor_config import REGIME_WEIGHTS, SMALLCAP_CONFIG, FACTOR_WEIGHTS_SMALLCAP
 import fetcher
+import strategy_tracker
 import cache
 from common import (
     is_trading_hours  as _is_trading_hours,
@@ -847,6 +848,76 @@ def _check_opening_auction(
     return verdicts
 
 
+# ── Small-cap scan ─────────────────────────────────────────────────────────────
+
+def _run_smallcap_scan(
+    held_codes: set,
+    config: dict,
+    score_fn,
+    thresholds: dict,
+) -> list[dict]:
+    """Scan the full market for small-cap buy signals.
+
+    Steps:
+      1. Pull EM full-market snapshot (cached — no extra request during run_loop).
+      2. Filter: market_cap < max_cap_yi, not ST/退, not suspended.
+      3. Pre-filter top prefilter_n by turnover_rate (active small caps).
+      4. Full research via score_fn (same as universe scan).
+      5. Return top top_n meeting buy_score_trigger.
+    """
+    sc_cfg = {**SMALLCAP_CONFIG, **config.get("smallcap", {})}
+    max_cap   = sc_cfg["max_cap_yi"] * 1e8
+    prefilt_n = sc_cfg["prefilter_n"]
+    top_n     = sc_cfg["top_n"]
+    buy_trig  = thresholds.get("buy_score_trigger", 60)
+
+    spot_df = fetcher._get_spot_df()
+    if spot_df is None or spot_df.empty:
+        return []
+    if "名称" not in spot_df.columns or "总市值" not in spot_df.columns or "代码" not in spot_df.columns:
+        return []
+
+    try:
+        suspended = fetcher.get_suspended_codes()
+    except Exception:
+        suspended = set()
+
+    df = spot_df[~spot_df["名称"].str.contains("ST|退", na=False)].copy()
+    df = df[~df["代码"].isin(suspended)]
+    mktcap = pd.to_numeric(df["总市值"], errors="coerce")
+    df = df[(mktcap > 0) & (mktcap <= max_cap)].copy()
+
+    if df.empty:
+        return []
+
+    if "换手率" in df.columns:
+        df["_tr"] = pd.to_numeric(df["换手率"], errors="coerce").fillna(0)
+        df = df.nlargest(prefilt_n, "_tr")
+    else:
+        df = df.head(prefilt_n)
+
+    candidates = df["代码"].tolist()
+    print(f"  [小市值] Scanning {len(candidates)} candidates (cap ≤ {sc_cfg['max_cap_yi']}亿)...")
+
+    scored: list[dict] = []
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(score_fn, code): code for code in candidates}
+        for fut in as_completed(futures):
+            scored.append(fut.result())
+    scored.sort(key=lambda x: -x.get("buy_score", 0))
+
+    results: list[dict] = []
+    for s in scored[:top_n * 3]:
+        if s.get("error") or s.get("buy_score", 0) < buy_trig:
+            continue
+        if s["code"] in held_codes:
+            continue
+        results.append(s)
+        if len(results) >= top_n:
+            break
+    return results
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def run(
@@ -898,8 +969,10 @@ def run(
         print(f"  Using {_regime_key} factor weights for scoring")
 
     from functools import partial as _partial
-    _score_one_h   = _partial(_score_one,     weights=_fw)
+    _score_one_h     = _partial(_score_one,     weights=_fw)
     _score_one_buy_w = _partial(_score_one_buy, weights=_fw)
+
+    scored_universe: list[dict] = []   # populated in step 2 if universe scan runs
 
     # ── 1. Score holdings (sell signal check) ─────────────────────────────────
     scored_holdings: list[dict] = []
@@ -958,8 +1031,9 @@ def run(
             print(f"  [CAUTION] Regime={regime_score}/10 — buy threshold raised to "
                   f"{thresholds['buy_score_trigger']}")
 
+    held_codes: set = {h["code"] for h in holdings}
+
     if not sell_only and universe:
-        held_codes = {h["code"] for h in holdings}
         print(f"  Screening {len(universe)} stocks for buy signals...")
         # Pre-warm the realtime quote cache (no-op cache hit when called from
         # run_loop(), which pre-warms at the top of each iteration; kept here
@@ -1012,11 +1086,41 @@ def run(
             if len(buy_alerts) >= top_n:
                 break
 
-    # ── 3. Log signals for backtesting (separate from holdings) ─────────────
+    # ── 3. Small-cap strategy scan ───────────────────────────────────────────
+    smallcap_alerts: list[dict] = []
+    smallcap_enabled = config.get("smallcap", {}).get("enabled", True)
+    if not sell_only and smallcap_enabled:
+        try:
+            _sc_weights = weights_from_config_dict(FACTOR_WEIGHTS_SMALLCAP)
+            _score_sc = _partial(_score_one_buy, weights=_sc_weights)
+            smallcap_alerts = _run_smallcap_scan(
+                held_codes=held_codes if not sell_only else set(),
+                config=config,
+                score_fn=_score_sc,
+                thresholds=thresholds,
+            )
+            for s in smallcap_alerts:
+                print(f"  [小市值] BUY: {s['name']} ({s['code']}) score={s['buy_score']}")
+        except Exception as _e:
+            print(f"  [WARN] Small-cap scan failed: {_e}")
+
+    # ── 4. Log signals for backtesting (separate from holdings) ─────────────
     _append_signals_log(buy_alerts, sell_alerts, run_time, regime_score=regime_score)
 
-    # ── 4. Build + send email ─────────────────────────────────────────────────
-    has_signal = bool(sell_alerts or buy_alerts)
+    # Record daily pools for strategy performance tracking
+    _today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        strategy_tracker.record_pool(_today, "lowvol", buy_alerts or scored_universe[:10])
+    except Exception:
+        pass
+    try:
+        if smallcap_alerts or smallcap_enabled:
+            strategy_tracker.record_pool(_today, "smallcap", smallcap_alerts)
+    except Exception:
+        pass
+
+    # ── 5. Build + send WeChat ────────────────────────────────────────────────
+    has_signal = bool(sell_alerts or buy_alerts or smallcap_alerts)
     if not has_signal and not always_send:
         print("  No signals triggered. No email sent.")
         return buy_alerts
@@ -1048,12 +1152,38 @@ def run(
     if scored_universe:
         top_candidates = [s for s in scored_universe[:15] if not s.get("error") and s.get("buy_score", 0) > 0][:10]
         if top_candidates:
-            label = "自选池排名" if universe_override is not None else "今日关注"
+            label = "自选池排名" if universe_override is not None else "今日关注（低波动）"
             lines = [f"## {label}\n"]
             for s in top_candidates:
                 signal = " ✅" if s in buy_alerts else ""
                 lines.append(f"- **{s['name']}**（{s['code']}）买入分:{s['buy_score']:.0f}{signal}")
             desp += "\n\n" + "\n".join(lines)
+
+    # Append small-cap pool
+    if smallcap_alerts:
+        sc_lines = ["## 今日关注（小市值）\n"]
+        for s in smallcap_alerts:
+            cap_b = s.get("market_cap_b") or ""
+            cap_str = f" {cap_b:.0f}亿" if cap_b else ""
+            sc_lines.append(
+                f"- **{s['name']}**（{s['code']}）"
+                f"买入分:{s['buy_score']:.0f}{cap_str}"
+            )
+        desp += "\n\n" + "\n".join(sc_lines)
+
+    # Append strategy performance comparison (forward returns from past pools)
+    try:
+        spot_df = fetcher._get_spot_df()
+        if spot_df is not None and not spot_df.empty and "代码" in spot_df.columns and "最新价" in spot_df.columns:
+            price_map = dict(zip(
+                spot_df["代码"].astype(str),
+                pd.to_numeric(spot_df["最新价"], errors="coerce"),
+            ))
+            perf_section = strategy_tracker.format_perf_section(price_map)
+            if perf_section:
+                desp += "\n\n" + perf_section
+    except Exception:
+        pass
 
     try:
         send_wechat(title, desp, sendkey, dry_run=dry_run)

@@ -162,6 +162,19 @@ REGIME_WEIGHTS: dict[str, dict] = {
 }
 
 # ---------------------------------------------------------------------------
+# Small-cap strategy configuration.
+# Weights start identical to NORMAL — re-calibrate after running
+# factor_analysis.py on a small-cap-only universe (市值 < max_cap_yi亿).
+# ---------------------------------------------------------------------------
+SMALLCAP_CONFIG: dict = {
+    "max_cap_yi":   50,   # 市值上限（亿元），可在 alert_config.json 中覆盖
+    "prefilter_n":  60,   # 从过滤后的小市值股里按换手率取前N只参与深度评分
+    "top_n":         8,   # 最终输出只数
+}
+
+FACTOR_WEIGHTS_SMALLCAP: dict[str, float] = dict(FACTOR_WEIGHTS_NORMAL)
+
+# ---------------------------------------------------------------------------
 # Fixed return-based thresholds for regime classification.
 # ---------------------------------------------------------------------------
 REGIME_CAUTION_THRESHOLD       = -3.0   # prior-20d < this  -> CAUTION
