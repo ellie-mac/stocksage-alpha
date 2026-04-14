@@ -743,34 +743,35 @@ def _check_opening_auction(
                 "big_gap_down": "⚠️", "gap_down": "📉", "small_gap_down": "📉"}.get(tag, "➡️")
 
     def _action(tag: str, role: str) -> str:
-        """Brief action hint based on gap tag and stock role."""
+        """Context note — describes impact of gap on planned action, not a trade order."""
         _map = {
             "holding": {
-                "big_gap_up":    "可考虑高位减仓",
-                "gap_up":        "持有，注意追高风险",
-                "small_gap_up":  "正常持有",
-                "normal":        "正常持有",
-                "small_gap_down":"小幅低开，继续观察",
-                "gap_down":      "注意止损位",
-                "big_gap_down":  "大幅低开，重新评估",
+                "big_gap_up":    "浮盈扩大，持仓逻辑不变",
+                "gap_up":        "小幅盈利开盘",
+                "small_gap_up":  "开盘平稳",
+                "normal":        "开盘平稳",
+                "small_gap_down":"小幅回调，观察支撑",
+                "gap_down":      "回调开盘，关注支撑位",
+                "big_gap_down":  "大幅回调，重新审视持仓逻辑",
             },
             "pick": {
-                "big_gap_up":    "高开成本高，等回踩再买",
-                "gap_up":        "小幅高开，可少量试探",
-                "small_gap_up":  "正常开盘，可按计划买入",
-                "normal":        "正常开盘，可按计划买入",
-                "small_gap_down":"低开，确认方向后再买",
-                "gap_down":      "低开，暂缓观望",
-                "big_gap_down":  "大幅低开，暂缓买入",
+                # Pre-picks are BUY signals — gap down = cheaper entry, not a reason to skip
+                "big_gap_up":    "入场成本大幅抬升，评估信号强度是否值得追",
+                "gap_up":        "入场成本小幅抬升，信号仍有效",
+                "small_gap_up":  "正常开盘，可按信号介入",
+                "normal":        "正常开盘，可按信号介入",
+                "small_gap_down":"低开提供更优入场价",
+                "gap_down":      "低开提供更优入场价，信号方向不变",
+                "big_gap_down":  "大幅低开，确认趋势后再介入",
             },
             "watchlist": {
-                "big_gap_up":    "高开，等回踩",
-                "gap_up":        "小幅高开，可关注",
-                "small_gap_up":  "正常，可关注",
-                "normal":        "正常，可关注",
-                "small_gap_down":"低开，先观察",
-                "gap_down":      "低开，观望",
-                "big_gap_down":  "大幅低开，观望",
+                "big_gap_up":    "高开，暂观察",
+                "gap_up":        "小幅高开",
+                "small_gap_up":  "平稳开盘",
+                "normal":        "平稳开盘",
+                "small_gap_down":"小幅低开",
+                "gap_down":      "低开，等稳",
+                "big_gap_down":  "大幅低开，观察",
             },
         }
         return _map.get(role, {}).get(tag, "")
