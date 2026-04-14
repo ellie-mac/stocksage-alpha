@@ -15,6 +15,7 @@ _spot_em_failed = False       # True after a timeout; reset after _SPOT_RETRY_SE
 _spot_em_failed_at: float = 0.0
 _SPOT_RETRY_SEC = 300         # retry after 5 min (avoids permanent lock-out on transient failure)
 _hist_em_failed = False  # once set True, skip stock_zh_a_hist and go straight to fallback
+_hist_tdx_failed = False  # once set True, skip mootdx this session
 
 # Module-level caches for full-market LHB and shareholder snapshots.
 # Both are refreshed lazily; the helpers below are the only writers.
@@ -400,11 +401,12 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     with different `days` values share a single cache entry per stock.
 
     Source priority:
-      1. East Money  (stock_zh_a_hist)   — best adjusted data; skipped if known-failed
-      2. BaoStock                         — free, reliable, no V8
-      3. 163/Netease (stock_zh_a_daily)  — V8-based; last resort
+      1. East Money  (stock_zh_a_hist)   — best adjusted (qfq) data
+      2. mootdx/通达信                   — binary TCP, very stable; unadjusted (fallback)
+      3. BaoStock                         — free, no V8; single-socket, Windows-fragile
+      4. 163/Netease (stock_zh_a_daily)  — V8-based; last resort
     """
-    global _hist_em_failed
+    global _hist_em_failed, _hist_tdx_failed
     fetch_days = max(days, _PRICE_FETCH_DAYS)
     cache_key = f"price_{code}_{fetch_days}"
     cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY)
@@ -440,7 +442,42 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         except Exception:
             _hist_em_failed = True  # fail fast for all subsequent calls this session
 
-    # ── Source 2: BaoStock (free, no V8, reliable) ───────────────────────
+    # ── Source 2: mootdx / 通达信 (binary TCP, very stable) ─────────────
+    # Note: returns unadjusted prices (no built-in qfq). Acceptable as fallback
+    # since most A-share stocks have infrequent splits within a 550d window.
+    if not _hist_tdx_failed:
+        try:
+            from mootdx.quotes import Quotes as _MootdxQuotes  # lazy import
+            _tdx = _MootdxQuotes.factory(market='std')
+            df = _tdx.bars(symbol=code, frequency=9, offset=fetch_days + 50)
+            if df is not None and not df.empty:
+                # index name = 'datetime', and there's also a 'datetime' column — drop index
+                # mootdx returns both 'vol' and 'volume' (same data); drop 'vol' to avoid dupe
+                df = df.reset_index(drop=True)
+                if "vol" in df.columns and "volume" in df.columns:
+                    df = df.drop(columns=["vol"])
+                elif "vol" in df.columns:
+                    df = df.rename(columns={"vol": "volume"})
+                df["date"] = pd.to_datetime(df["datetime"]).dt.normalize()
+                for col in ["open", "high", "low", "close", "volume"]:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors="coerce")
+                df = df.sort_values("date").reset_index(drop=True)
+                df["change_pct"] = df["close"].pct_change() * 100
+                df["change_amt"] = df["close"].diff()
+                cutoff = pd.Timestamp.now() - pd.Timedelta(days=fetch_days + 10)
+                df = df[df["date"] >= cutoff].reset_index(drop=True)
+                if not df.empty:
+                    cache.set_df(cache_key, df)
+                    if len(df) > days:
+                        return df.tail(days).reset_index(drop=True)
+                    return df
+        except ImportError:
+            _hist_tdx_failed = True  # mootdx not installed
+        except Exception:
+            _hist_tdx_failed = True
+
+    # ── Source 3: BaoStock (free, no V8, reliable) ───────────────────────
     # BaoStock's Python client is NOT thread-safe: all concurrent callers share
     # one TCP socket.  Without _bs_lock here, concurrent rs.next() calls in
     # different threads consume each other's response bytes, leaving some threads
@@ -514,7 +551,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
-    # ── Source 3: 163/Netease via stock_zh_a_daily (V8 — last resort) ───
+    # ── Source 4: 163/Netease via stock_zh_a_daily (V8 — last resort) ───
     # Note: 163/Netease does not carry BJ exchange stocks; they will 404 silently.
     # BJ stocks (prefix="bj") should have been served by BaoStock above.
     try:
