@@ -701,7 +701,8 @@ def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
     """Fetch historical PE/PB valuation data. Cached until next market open.
 
     Source priority:
-      1. BaoStock  (peTTM, pbMRQ, psTTM — free, permanent)
+      1. BaoStock    (peTTM, pbMRQ, psTTM — free, permanent)
+      2. Tushare Pro (daily_basic — requires ≥2000pts; silent no-op at lower tiers)
     """
     cache_key = f"valuation_{code}"
     cached = cache.get_df(cache_key, cache.smart_valuation_ttl())
@@ -763,15 +764,37 @@ def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
+    # ── Source 2: Tushare Pro daily_basic (≥2000pts) ─────────────────────
+    try:
+        pro = _get_tushare_pro()
+        if pro is not None:
+            ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
+            df = pro.daily_basic(
+                ts_code=ts_code,
+                fields="trade_date,pe,pe_ttm,pb,ps,ps_ttm,dv_ratio,total_mv",
+            )
+            if df is not None and not df.empty:
+                df = df.rename(columns={
+                    "trade_date": "date", "dv_ratio": "div_yield",
+                    "total_mv": "market_cap",
+                })
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.sort_values("date").reset_index(drop=True)
+                cache.set_df(cache_key, df)
+                return df
+    except Exception:
+        pass
+
     return None
 
 
 def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
-    """Fetch financial indicators (ROE, margins, growth rates). Cached for 7 days.
+    """Fetch financial indicators (ROE, margins, growth rates). Cached for 14 days.
 
     Source priority:
-      1. akshare EM  (stock_financial_analysis_indicator)
-      2. akshare THS (stock_financial_abstract_ths) — 同花顺, different server
+      1. akshare EM    (stock_financial_analysis_indicator)
+      2. Tushare Pro   (fina_indicator — requires ≥2000pts; silent no-op at lower tiers)
+      3. akshare THS   (stock_financial_abstract_ths) — 同花顺, different server
     """
     cache_key = f"financial_{code}"
     cached = cache.get_df(cache_key, cache.TTL_FINANCIAL)
@@ -788,7 +811,35 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
-    # ── Source 2: akshare 同花顺 (stock_financial_abstract_ths) ──────────
+    # ── Source 2: Tushare Pro (fina_indicator, ≥2000pts) ─────────────────
+    try:
+        pro = _get_tushare_pro()
+        if pro is not None:
+            ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
+            df = pro.fina_indicator(
+                ts_code=ts_code,
+                fields="end_date,roe,roa,grossprofit_margin,netprofit_margin,"
+                       "revenue_yoy,netprofit_yoy,ocf_to_revenue",
+            )
+            if df is not None and not df.empty:
+                df = df.rename(columns={
+                    "end_date": "date",
+                    "roe": "净资产收益率",
+                    "roa": "总资产净利率(ROA)",
+                    "grossprofit_margin": "销售毛利率(%)",
+                    "netprofit_margin": "销售净利润率",
+                    "revenue_yoy": "营业收入同比增长率(%)",
+                    "netprofit_yoy": "净利润同比增长率(%)",
+                    "ocf_to_revenue": "每股经营性现金流(元)",
+                })
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                df = df.sort_values("date").reset_index(drop=True)
+                cache.set_df(cache_key, df)
+                return df
+    except Exception:
+        pass
+
+    # ── Source 3: akshare 同花顺 (stock_financial_abstract_ths) ──────────
     try:
         df = ak.stock_financial_abstract_ths(symbol=code, indicator="按年度")
         if df is not None and not df.empty:
@@ -1333,6 +1384,134 @@ def get_concept_momentum(code: str) -> Optional[list]:
 
     results.sort(key=lambda x: abs(x["ret_1m"]), reverse=True)
     return results[:5]
+
+
+def get_market_valuation() -> Optional[pd.DataFrame]:
+    """Fetch market/sector-level PE and PB context from AKShare.
+
+    Returns a DataFrame with two sections merged:
+      - Market-wide PE/PB: 上证A股 daily history (乐咕乐股)
+      - Sector PE snapshot: 申万一级行业 current PE/PB/dividend
+
+    Cached for 24h (after close the day's market PE is final).
+    """
+    cache_key = "market_valuation"
+    cached = cache.get_df(cache_key, cache.smart_valuation_ttl())
+    if cached is not None:
+        return cached
+
+    # ── Market-level PE (上证A股 daily history) ───────────────────────────
+    try:
+        df = ak.stock_market_pe_lg(symbol="上证A股")
+        if df is not None and not df.empty:
+            df.columns = [c.strip() for c in df.columns]
+            df = df.rename(columns={"日期": "date", "总市值": "market_cap", "市盈率": "market_pe"})
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values("date").reset_index(drop=True)
+            cache.set_df(cache_key, df)
+            return df
+    except Exception:
+        pass
+
+    return None
+
+
+def get_sw_industry_pe() -> Optional[pd.DataFrame]:
+    """Fetch current PE/PB snapshot for all 申万一级 (Shenwan level-1) industries.
+
+    Returns DataFrame with columns: 行业代码, 行业名称, 成份个数, 静态市盈率,
+    TTM(滚动)市盈率, 市净率, 静态股息率.
+    Cached for 24h (refreshed once per trading day).
+    """
+    cache_key = "sw_industry_pe"
+    cached = cache.get_df(cache_key, cache.smart_valuation_ttl())
+    if cached is not None:
+        return cached
+    try:
+        df = ak.sw_index_first_info()
+        if df is not None and not df.empty:
+            df.columns = [c.strip() for c in df.columns]
+            cache.set_df(cache_key, df)
+            return df
+    except Exception:
+        pass
+    return None
+
+
+def get_sw_industry_map() -> dict:
+    """Build and cache a {stock_code: sw1_industry_name} reverse-lookup map.
+
+    Iterates all 申万一级行业 (31 industries) using index_component_sw()
+    and inverts the member lists.  Cached for 7 days — industry classification
+    rarely changes.
+    Returns {} on failure (callers should degrade gracefully).
+    """
+    cache_key = "sw_industry_map"
+    cached = cache.get(cache_key, cache.TTL_FINANCIAL)
+    if cached is not None:
+        return cached
+    try:
+        sw1 = ak.sw_index_first_info()
+        if sw1 is None or sw1.empty:
+            return {}
+        sw1.columns = [c.strip() for c in sw1.columns]
+        result: dict = {}
+        for _, row in sw1.iterrows():
+            # 行业代码 is like '801010.SI' — strip suffix for index_component_sw
+            raw_code = str(row.get("行业代码", ""))
+            ind_name = str(row.get("行业名称", ""))
+            numeric = raw_code.replace(".SI", "")
+            if not numeric:
+                continue
+            try:
+                members = ak.index_component_sw(symbol=numeric)
+                if members is None or members.empty:
+                    continue
+                members.columns = [c.strip() for c in members.columns]
+                code_col = next(
+                    (c for c in members.columns if "代码" in c or c.lower() == "code"),
+                    None,
+                )
+                if code_col is None:
+                    continue
+                for sc in members[code_col].dropna():
+                    result[str(sc).zfill(6)] = ind_name
+            except Exception:
+                continue
+        if result:
+            cache.set(cache_key, result)
+        return result
+    except Exception:
+        return {}
+
+
+def get_index_constituents(index_code: str) -> list:
+    """Fetch constituent stock codes for a CSI index (e.g. '000300', '000905', '000852').
+
+    Uses akshare index_stock_cons_csindex.  Returns a list of 6-digit code strings.
+    Cached for 24h — constituent changes happen quarterly but daily cache is fine.
+    Returns [] on failure.
+    """
+    cache_key = f"index_cons_{index_code}"
+    cached = cache.get(cache_key, cache.TTL_VALUATION)
+    if cached is not None:
+        return cached
+    try:
+        df = ak.index_stock_cons_csindex(symbol=index_code)
+        if df is None or df.empty:
+            return []
+        df.columns = [c.strip() for c in df.columns]
+        code_col = next(
+            (c for c in df.columns if "成分券代码" in c),
+            next((c for c in df.columns if c == "代码"), None),
+        )
+        if code_col is None:
+            return []
+        codes = [str(c).zfill(6) for c in df[code_col].dropna().tolist()]
+        cache.set(cache_key, codes)
+        return codes
+    except Exception:
+        return []
 
 
 def search_stock_by_name(name: str) -> Optional[str]:
