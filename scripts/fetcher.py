@@ -785,6 +785,13 @@ def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
+    # ── Stale cache fallback (all sources down) ───────────────────────────
+    # PE/PB changes little day-to-day; using data up to 5 days old is fine
+    # for factor scoring and avoids hard failures during BaoStock outages.
+    stale = cache.get_df(cache_key, 5 * 86400)
+    if stale is not None:
+        return stale
+
     return None
 
 
@@ -863,6 +870,12 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
             return df
     except Exception:
         pass
+
+    # ── Stale cache fallback (all sources down) ───────────────────────────
+    # Financial reports change quarterly; 30-day-old data is still valid for scoring.
+    stale = cache.get_df(cache_key, 30 * 86400)
+    if stale is not None:
+        return stale
 
     return None
 
