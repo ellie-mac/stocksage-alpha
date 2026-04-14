@@ -1518,6 +1518,17 @@ def _resolve_styles(style_arg: str, streak: dict, alpha: Optional[float] = None)
     return [int(style_arg)]
 
 
+def _load_json_safe(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except Exception:
+        return {}
+
+
+def _load_alert_config() -> dict:
+    return _load_json_safe(REPO_ROOT / "scripts" / "alert_config.json")
+
+
 def cmd_preauction(args):
     ensure_dirs()
     record = load_today()
@@ -1525,36 +1536,72 @@ def cmd_preauction(args):
         print("[~] 今日竞价文案已生成，跳过（dedup guard）。")
         return
 
-    # Load yesterday's night picks as the reference
-    yesterday = load_yesterday()
-    picks = yesterday.get("night_preview", {}).get("picks", []) if yesterday else []
-    if not picks:
-        # Fallback: try today's morning picks if available
-        picks = record.get("morning", {}).get("picks", [])
-
     day = record.get("day") or get_day_number()
-    codes = [p["code"] for p in picks if "code" in p]
 
-    print("[+] 竞价阶段获取开盘行情...")
-    prices = fetch_current_prices(codes) if codes else {}
+    # Read auction check results written by monitor.py
+    auction = _load_json_safe(REPO_ROOT / "data" / "auction_check_latest.json")
+    verdicts = auction.get("verdicts", {})
+    scores   = auction.get("scores", {})
+    raw      = auction.get("raw", {})
+    groups   = auction.get("groups", {})
+
+    def _fmt_stock(code: str) -> str:
+        v = verdicts.get(code, {})
+        s = scores.get(code, {})
+        r = raw.get(code, {})
+        name     = r.get("name") or s.get("name") or code
+        gap      = v.get("gap_pct", 0)
+        tag      = v.get("tag", "normal")
+        buy_s    = s.get("buy_score")
+        sell_s   = s.get("sell_score")
+        icon = "📈" if gap > 0.3 else ("📉" if gap < -0.3 else "➡️")
+        gap_str  = f"{gap:+.1f}%"
+        if buy_s is not None:
+            score_str = f"买:{buy_s:.0f} 卖:{sell_s:.0f}"
+        else:
+            score_str = "评分不可用"
+        return f"- {icon} {name}({code}): {gap_str} | {score_str}"
+
+    lines = [f"🔔 竞价简报 | {date.today().strftime('%m/%d')}",  ""]
+
+    picks_codes = groups.get("picks", [])
+    if picks_codes:
+        lines.append("**昨晚预选 → 今日开盘**")
+        sorted_picks = sorted(picks_codes, key=lambda c: verdicts.get(c, {}).get("gap_pct", 0), reverse=True)
+        lines.extend(_fmt_stock(c) for c in sorted_picks if c in verdicts)
+        lines.append("")
+
+    hold_codes = groups.get("holdings", [])
+    if hold_codes:
+        lines.append("**持仓开盘情况**")
+        sorted_holds = sorted(hold_codes, key=lambda c: verdicts.get(c, {}).get("gap_pct", 0), reverse=True)
+        lines.extend(_fmt_stock(c) for c in sorted_holds if c in verdicts)
+        lines.append("")
+
+    wl_codes = groups.get("watchlist", [])
+    if wl_codes:
+        lines.append("**热榜自选池**")
+        sorted_wl = sorted(wl_codes, key=lambda c: verdicts.get(c, {}).get("gap_pct", 0), reverse=True)
+        lines.extend(_fmt_stock(c) for c in sorted_wl if c in verdicts)
+        lines.append("")
+
+    if not verdicts:
+        lines.append("（暂无竞价数据，稍后更新）")
+
+    lines += ["#A股 #选股 #量化投资 #竞价", ""]
+    post = "\n".join(lines)
 
     record.setdefault("date", str(date.today()))
     record.setdefault("day",  day)
-    record["preauction"] = {
-        "timestamp": datetime.now().strftime("%H:%M:%S"),
-        "picks":     picks,
-    }
+    record["preauction"] = {"timestamp": datetime.now().strftime("%H:%M:%S")}
     save_today(record)
-    print(f"[+] 竞价记录已保存 → xhs/records/{date.today()}.json  (Day {day})\n")
 
-    post  = generate_preauction_post(picks, prices, day)
     saved = save_post_file(post, "preauction", "auto")
     print(f"{'='*52}")
     print(f"🔔 竞价文案  （已保存 → {saved.relative_to(REPO_ROOT)}）")
     print(f"{'='*52}")
     print(post)
-    print()
-    _send_wechat_notify(f"🔔 Day {day} 竞价文案｜09:25 发布", post)
+    _send_wechat_notify(f"🔔 Day {day} 竞价简报｜09:25", post)
 
 
 def cmd_morning(args):
@@ -1649,49 +1696,71 @@ def cmd_night(args):
         print("[~] 今日晚间文案已生成，跳过（dedup guard）。")
         return
 
-    day  = get_day_number()
-    meta = load_meta()
-    query = args.query or meta.get("last_query") or "综合"
+    day = record.get("day") or get_day_number()
 
-    print(f"[+] 晚间筛选明日候选方向（query='{query}', top={args.top}）...")
-    screener_output = run_screener(query, args.top)
+    # Read preview picks written by monitor.py's 18:00 scan
+    preview_path = REPO_ROOT / "data" / "preview_picks.json"
+    preview = _load_json_safe(preview_path)
+    picks = preview.get("picks", [])
+    regime = preview.get("regime", "unknown")
+    scan_date = preview.get("date", "")
+    scan_time = preview.get("time", "")
 
-    if screener_output is None:
-        print("[!] screener 未返回结果，生成占位文案。")
-        picks = []
-    else:
-        picks = screener_output.get("results", [])[:args.top]
-        meta["last_query"] = query
-        save_meta(meta)
+    if not picks:
+        print("[!] data/preview_picks.json 暂无数据，生成占位文案。")
 
-    record = load_today()
+    # Build content
+    lines = []
+    for i, p in enumerate(picks[:8], 1):
+        code = p.get("code", "")
+        name = obfuscate_stock_name(p.get("name", code))
+        buy  = p.get("buy_score", 0) or 0
+        sell = p.get("sell_score", 0) or 0
+        bullish = p.get("bullish", [])
+        tag  = f"（{bullish[0]}）" if bullish else ""
+        lines.append(f"  {i}. {name}  买:{buy:.0f} 卖:{sell:.0f}{tag}")
+
+    picks_block = "\n".join(lines) if lines else "  （暂无候选标的）"
+
+    regime_label = {
+        "BULL": "强势", "EXTREME_BULL": "极强势",
+        "BEAR": "弱势", "CAUTION": "谨慎",
+    }.get(regime, "中性")
+
+    post = f"""今晚的预选方向出来了
+
+Day {day}，连续记录实验。
+
+18:00 跑了一遍全量因子筛选（市场状态：{regime_label}）。
+
+明日关注候选（买入分 / 卖出分）：
+
+{picks_block}
+
+这是模型分数，不是买入建议。
+明天开盘看实际走势，记录结果。
+
+#量化选股 #A股 #选股实验 #每日复盘 #打板"""
+
+    post = post.strip()
+    saved = save_post_file(post, "night", 1)
+    print(f"{'='*52}")
+    print(f"🌙 晚间预告文案  (Day {day}, 数据时间 {scan_date} {scan_time})")
+    print(f"  已保存 → {saved.relative_to(REPO_ROOT)}")
+    print(f"{'='*52}")
+    print(post)
+    print()
+
     record.setdefault("date", str(date.today()))
     record.setdefault("day",  day)
     record["night_preview"] = {
         "timestamp": datetime.now().strftime("%H:%M:%S"),
-        "query":     query,
         "picks":     picks,
+        "regime":    regime,
     }
     save_today(record)
-    print(f"[+] 晚间预告已保存 → xhs/records/{date.today()}.json  (Day {day})\n")
 
-    history = load_recent_history(14)
-    streak  = compute_streak(history)
-    styles  = _resolve_styles(args.style, streak)
-
-    first_post = None
-    for s in styles:
-        post  = generate_night_post(picks, day, query, style=s)
-        saved = save_post_file(post, "night", s)
-        print(f"{'='*52}")
-        print(f"🌙 晚间文案 — 风格{s}  （已保存 → {saved.relative_to(REPO_ROOT)}）")
-        print(f"{'='*52}")
-        print(post)
-        print()
-        if first_post is None:
-            first_post = post
-    if first_post:
-        _send_wechat_notify(f"🌙 Day {day} 晚间文案｜22:00 发布", first_post)
+    _send_wechat_notify(f"🌙 Day {day} 明日预告｜18:00", post)
 
 
 def cmd_midday(args):
@@ -1700,121 +1769,132 @@ def cmd_midday(args):
     if "midday" in record:
         print("[~] 今日午盘文案已生成，跳过（dedup guard）。")
         return
-    if "morning" not in record:
-        print("[!] 今天还没有早盘记录，请先运行: python xhs/writer.py morning")
-        return
 
-    day           = record.get("day", get_day_number())
-    morning_picks = record["morning"].get("picks", [])
-    codes         = [p["code"] for p in morning_picks if "code" in p]
+    day = record.get("day") or get_day_number()
+    cfg = _load_alert_config()
+    holdings    = cfg.get("holdings", [])
+    watchlist   = cfg.get("watchlist", [])
+    wl_names    = cfg.get("watchlist_names", {})
 
-    print("[+] 正在获取最新行情...")
-    prices = fetch_current_prices(codes) if codes else {}
+    all_codes = list(dict.fromkeys(
+        [h["code"] for h in holdings] + watchlist
+    ))
+    print("[+] 获取早盘行情（11:30）...")
+    prices = fetch_current_prices(all_codes) if all_codes else {}
 
-    history = load_recent_history(14)
-    streak  = compute_streak(history)
-    styles  = _resolve_styles(args.style, streak)
+    def _pct(code: str) -> Optional[float]:
+        return prices.get(code, {}).get("change_pct")
 
-    first_post = None
-    for s in styles:
-        post  = generate_midday_post(morning_picks, prices, day, style=s)
-        saved = save_post_file(post, "midday", s)
-        print(f"{'='*52}")
-        print(f"☀️  午盘文案 — 风格{s}  （已保存 → {saved.relative_to(REPO_ROOT)}）")
-        print(f"{'='*52}")
-        print(post)
-        print()
-        if first_post is None:
-            first_post = post
-    if first_post:
-        _send_wechat_notify(f"☀️ Day {day} 午盘文案｜11:50–12:00 发布", first_post)
+    def _fmt(code: str, name: str) -> str:
+        chg = _pct(code)
+        if chg is None:
+            return f"- {name}({code}): 暂无数据"
+        icon = "📈" if chg > 0 else ("📉" if chg < 0 else "➡️")
+        return f"- {icon} {name}({code}): {chg:+.1f}%"
+
+    lines = [f"☀️ 早盘快照 | {datetime.now().strftime('%H:%M')}", ""]
+
+    if holdings:
+        lines.append("**持仓**")
+        h_rows = [(_pct(h["code"]) or 0, h["code"], h.get("name", h["code"])) for h in holdings]
+        h_rows.sort(key=lambda x: x[0], reverse=True)
+        lines.extend(_fmt(c, n) for _, c, n in h_rows)
+        lines.append("")
+
+    if watchlist:
+        wl_with_chg = [(_pct(c) or 0, c, wl_names.get(c, c)) for c in watchlist]
+        wl_with_chg.sort(key=lambda x: x[0], reverse=True)
+        lines.append("**自选池**")
+        lines.extend(_fmt(c, n) for _, c, n in wl_with_chg[:10])
+        lines.append("")
+
+    lines += ["#A股 #早盘 #选股", ""]
+    post = "\n".join(lines)
+
+    record.setdefault("date", str(date.today()))
+    record.setdefault("day",  day)
+    record["midday"] = {"timestamp": datetime.now().strftime("%H:%M:%S")}
+    save_today(record)
+
+    saved = save_post_file(post, "midday", "auto")
+    print(f"{'='*52}")
+    print(f"☀️  早盘快照  （已保存 → {saved.relative_to(REPO_ROOT)}）")
+    print(f"{'='*52}")
+    print(post)
+    _send_wechat_notify(f"☀️ Day {day} 早盘快照｜11:30", post)
 
 
 def cmd_evening(args):
     ensure_dirs()
     record = load_today()
     if "evening" in record:
-        print("[~] 今日晚盘文案已生成，跳过（dedup guard）。")
-        return
-    if "morning" not in record:
-        print("[!] 今天还没有早盘记录，请先运行: python xhs/writer.py morning")
+        print("[~] 今日收盘文案已生成，跳过（dedup guard）。")
         return
 
-    day           = record.get("day", get_day_number())
-    morning_picks = record["morning"].get("picks", [])
-    query         = record["morning"].get("query", "综合")
+    day = record.get("day") or get_day_number()
+    cfg = _load_alert_config()
+    watchlist = cfg.get("watchlist", [])
+    wl_names  = cfg.get("watchlist_names", {})
 
-    # Merge preauction picks (deduplicated by code) so evening reviews all today's signals
-    preauction_picks = record.get("preauction", {}).get("picks", [])
-    if preauction_picks:
-        morning_codes = {p.get("code") for p in morning_picks if p.get("code")}
-        for p in preauction_picks:
-            if p.get("code") and p["code"] not in morning_codes:
-                morning_picks = morning_picks + [p]
-                morning_codes.add(p["code"])
-
-    codes         = [p["code"] for p in morning_picks if "code" in p]
-
-    print("[+] 正在获取收盘数据...")
-    prices    = fetch_current_prices(codes) if codes else {}
+    all_codes = list(dict.fromkeys(watchlist))
+    print("[+] 获取收盘行情...")
+    prices    = fetch_current_prices(all_codes) if all_codes else {}
     benchmark = fetch_benchmark_change()
 
-    changes = [prices[c]["change_pct"] for c in codes if c in prices]
-    verdict = compute_verdict(changes, benchmark)
-    avg_change = round(sum(changes) / len(changes), 2) if changes else None
-    alpha = (avg_change - benchmark) if (avg_change is not None and benchmark is not None) else None
+    def _pct(code: str) -> Optional[float]:
+        return prices.get(code, {}).get("change_pct")
 
-    tomorrow_picks = []
-    if not args.no_tomorrow:
-        print("[+] 正在筛选明日预告方向...")
-        tomorrow_output = run_screener(query, top_n=3)
-        tomorrow_picks  = tomorrow_output.get("results", [])[:3] if tomorrow_output else []
+    wl_rows = [(_pct(c) or 0, c, wl_names.get(c, c)) for c in watchlist]
+    wl_rows.sort(key=lambda x: x[0], reverse=True)
 
+    gains  = [(c, n, chg) for chg, c, n in wl_rows if chg > 0]
+    losses = [(c, n, chg) for chg, c, n in wl_rows if chg <= 0]
+
+    all_chg = [chg for chg, _, _ in wl_rows if chg != 0]
+    avg_chg = round(sum(all_chg) / len(all_chg), 2) if all_chg else None
+    alpha   = round(avg_chg - benchmark, 2) if (avg_chg is not None and benchmark is not None) else None
+
+    lines = [f"📊 今日自选池收益 | {date.today().strftime('%m/%d')}", ""]
+
+    if avg_chg is not None:
+        bm_str = f"沪深300 {benchmark:+.1f}%" if benchmark is not None else ""
+        alpha_str = f"超额 {alpha:+.1f}%" if alpha is not None else ""
+        lines.append(f"自选池均涨跌: **{avg_chg:+.1f}%**  {bm_str}  {alpha_str}")
+        lines.append("")
+
+    if gains:
+        lines.append("**今日上涨**")
+        for c, n, chg in gains[:8]:
+            lines.append(f"- 📈 {n}({c}): {chg:+.1f}%")
+        lines.append("")
+
+    if losses:
+        lines.append("**今日下跌**")
+        for c, n, chg in losses[:5]:
+            lines.append(f"- 📉 {n}({c}): {chg:+.1f}%")
+        lines.append("")
+
+    lines += ["#A股 #收盘 #自选池 #量化", ""]
+    post = "\n".join(lines)
+
+    verdict = compute_verdict([r[0] for r in wl_rows if r[0] != 0], benchmark)
     record["evening"] = {
-        "timestamp": datetime.now().strftime("%H:%M:%S"),
-        "picks_performance": [
-            {
-                "code":       p.get("code"),
-                "name":       p.get("name"),
-                "change_pct": prices.get(p.get("code", ""), {}).get("change_pct"),
-            }
-            for p in morning_picks
-        ],
+        "timestamp":           datetime.now().strftime("%H:%M:%S"),
+        "avg_change_pct":      avg_chg,
         "benchmark_change_pct": benchmark,
-        "verdict":       verdict,
-        "avg_change_pct": avg_change,
+        "verdict":             verdict,
     }
-    if tomorrow_picks:
-        record["tomorrow_preview"] = {
-            "picks":     tomorrow_picks,
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
-        }
     save_today(record)
-    print(f"[+] 晚盘记录已保存。verdict={verdict} {verdict_emoji(verdict)}\n")
 
-    history = load_recent_history(14)
-    streak  = compute_streak(history)
-    styles  = _resolve_styles(args.style, streak, alpha)
-
-    first_post = None
-    for s in styles:
-        post  = generate_evening_post(
-            morning_picks, prices, benchmark, verdict,
-            day, streak, tomorrow_picks, style=s,
-        )
-        saved = save_post_file(post, "evening", s)
-        print(f"{'='*52}")
-        print(f"🌙 晚盘文案 — 风格{s}  （已保存 → {saved.relative_to(REPO_ROOT)}）")
-        print(f"{'='*52}")
-        print(post)
-        print()
-        if first_post is None:
-            first_post = post
-    if first_post:
-        _send_wechat_notify(
-            f"🌙 Day {day} 晚盘文案｜{verdict_emoji(verdict)} {verdict}｜15:35–15:45 发布",
-            first_post,
-        )
+    saved = save_post_file(post, "evening", "auto")
+    print(f"{'='*52}")
+    print(f"📊 收盘文案  （已保存 → {saved.relative_to(REPO_ROOT)}）")
+    print(f"{'='*52}")
+    print(post)
+    _send_wechat_notify(
+        f"📊 Day {day} 收盘总结｜{verdict_emoji(verdict)} {verdict}｜15:05",
+        post,
+    )
 
 
 def cmd_status(args):

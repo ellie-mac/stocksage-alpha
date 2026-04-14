@@ -483,7 +483,7 @@ def build_wechat_desp(
 # ── Trading session scan windows ───────────────────────────────────────────────
 _SCAN_WINDOWS = [
     ("morning",   (9, 25), (9, 55)),
-    ("midday",    (11, 45), (12, 5)),
+    ("midday",    (11, 25), (11, 50)),   # trigger at 11:30
     ("afternoon", (14, 30), (15, 0)),
 ]
 
@@ -818,6 +818,31 @@ def _check_opening_auction(
         print(f"  [竞价检验] 推送完成（{len(verdicts)} 只）")
     except Exception as e:
         print(f"  [竞价检验] 推送失败: {e}")
+
+    # Write auction check results to file for writer.py preauction slot
+    try:
+        _auction_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                     "data", "auction_check_latest.json")
+        os.makedirs(os.path.dirname(_auction_path), exist_ok=True)
+        with open(_auction_path, "w", encoding="utf-8") as _f:
+            json.dump({
+                "date":     datetime.now().strftime("%Y-%m-%d"),
+                "time":     datetime.now().strftime("%H:%M"),
+                "verdicts": verdicts,
+                "scores":   {c: {"buy_score":  s.get("buy_score"),
+                                 "sell_score": s.get("sell_score"),
+                                 "name":       s.get("name", c)}
+                             for c, s in scores.items() if not s.get("error")},
+                "raw":      {c: {"name": r.get("name", c),
+                                 "gap_pct": r.get("gap_pct"),
+                                 "open":    r.get("open")}
+                             for c, r in raw.items()},
+                "groups":   {"holdings": hold_codes,
+                             "picks":    pick_extra,
+                             "watchlist": wl_extra},
+            }, _f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
     return verdicts
 
@@ -1237,11 +1262,11 @@ def run_loop(
 
                 threading.Thread(target=_run_universe_refresh, daemon=True).start()
 
-        # ── Pre-market scan (01:00 — prev-day closing data, pick candidates) ────
-        if (now.hour == 1 and 0 <= now.minute < 5  # TEST: weekday check removed
+        # ── Evening preview scan (18:00 — picks for tomorrow, feeds XHS night post) ─
+        if (now.hour == 18 and 0 <= now.minute < 5
                 and _premarket_scan_date != now.date()):
             _premarket_scan_date = now.date()
-            print(f"[{run_time}] Pre-market scan (01:00)...")
+            print(f"[{run_time}] Evening preview scan (18:00)...")
             try:
                 _pm_regime = None
                 try:
@@ -1255,12 +1280,24 @@ def run_loop(
                 picked = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
                              _regime=_pm_regime, universe_override=_pm_universe)
                 _premarket_picks = [b["code"] for b in (picked or [])]
-                print(f"  Pre-market picks saved: {_premarket_picks}")
+                # Write picks to file for writer.py
+                _preview_path = os.path.join(_ROOT, "data", "preview_picks.json")
+                os.makedirs(os.path.dirname(_preview_path), exist_ok=True)
+                with open(_preview_path, "w", encoding="utf-8") as _f:
+                    json.dump({
+                        "date":    datetime.now().strftime("%Y-%m-%d"),
+                        "time":    datetime.now().strftime("%H:%M"),
+                        "regime":  _pm_regime[1] if _pm_regime else "unknown",
+                        "picks":   [b for b in (picked or [])
+                                    if not b.get("error")],
+                    }, _f, ensure_ascii=False, indent=2)
+                print(f"  Preview picks saved: {_premarket_picks}")
+                _trigger_xhs_post("night", dry_run)
             except Exception as e:
-                print(f"  [ERROR] Pre-market scan failed: {e}")
+                print(f"  [ERROR] Evening preview scan failed: {e}")
 
-        # ── Night scan (22:00 — post-close, feeds xhs/writer.py night post) ─────
-        if (now.hour == 22 and 0 <= now.minute < 5  # TEST: weekday check removed
+        # ── Night scan (22:00 — post-close signals only, no XHS) ──────────────
+        if (now.hour == 22 and 0 <= now.minute < 5
                 and _night_scan_date != now.date()):
             _night_scan_date = now.date()
             print(f"[{run_time}] Night scan (22:00)...")
@@ -1279,7 +1316,7 @@ def run_loop(
                                  sell_only=False)
                 _night_picks = [b["code"] for b in (_nt_picked or [])]
                 print(f"  Night picks saved: {_night_picks}")
-                _trigger_xhs_post("night", dry_run)
+                # No XHS trigger here — night post moved to 18:00 scan
             except Exception as e:
                 print(f"  [ERROR] Night scan failed: {e}")
 
@@ -1344,6 +1381,10 @@ def run_loop(
                 send_wechat("[StockSage] 今日收盘 📊", closing_desp, sendkey, dry_run=dry_run)
             except Exception as e:
                 print(f"  [WARN] Closing summary push failed: {e}")
+            # XHS evening post: today's watchlist performance summary
+            if "evening" not in _xhs_triggered_today:
+                _xhs_triggered_today.add("evening")
+                _trigger_xhs_post("evening", dry_run)
 
         # ── Daily signal tracker (15:20 — after closing scan) ────────────────
         if (now.hour == 15 and 20 <= now.minute < 30
@@ -1548,14 +1589,10 @@ def run_loop(
                 _scanned_sessions.add(scan_id)
 
                 # ── Post-scan XHS triggers ────────────────────────────────────
-                # morning fires unconditionally so evening/midday can depend on it
-                if (session_key == "morning"
-                        and "morning" not in _xhs_triggered_today):
-                    _xhs_triggered_today.add("morning")
-                    _trigger_xhs_post("morning", dry_run)
-                elif session_key == "afternoon" and "evening" not in _xhs_triggered_today:
-                    _xhs_triggered_today.add("evening")
-                    _trigger_xhs_post("evening", dry_run)
+                # morning slot: no longer triggers XHS (preauction handles 09:25)
+                # evening slot: triggered at 15:05 closing summary (not here)
+                # midday slot: triggered below
+                pass
 
             except Exception as e:
                 print(f"  [ERROR] Full check failed: {e}")
@@ -1621,12 +1658,14 @@ def _trigger_xhs_post(slot: str, dry_run: bool = False) -> None:
         return
     try:
         writer = os.path.join(_ROOT, "xhs", "writer.py")
-        subprocess.Popen(
-            [sys.executable, writer, slot, "--style", "auto"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            cwd=_ROOT,
-        )
+        cmd = [sys.executable, writer, slot]
+        # Only pass --style for slots that accept it
+        if slot in ("morning", "midday", "night", "evening"):
+            cmd += ["--style", "auto"]
+        log_path = os.path.join(_ROOT, "logs", f"xhs_{slot}.log")
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as _log:
+            subprocess.Popen(cmd, stdout=_log, stderr=_log, cwd=_ROOT)
     except Exception as e:
         print(f"[XHS] Failed to trigger {slot}: {e}")
 
