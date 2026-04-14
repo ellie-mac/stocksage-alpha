@@ -2,8 +2,8 @@
 Factor configuration — IC-based weights, excluded factor registry,
 and regime-adaptive weight sets.
 
-Based on rolling 6-period IC analysis (20d forward, Group AB, 152 stocks, 2026-04-13).
-6 periods: primarily down market (mean fwd ret -5.46% to -0.12%), 1-2 up periods.
+Based on rolling 6-period IC analysis (20d forward, Group AB, 151 stocks, 2026-04-14).
+6 periods: mixed market including sharp Apr-2026 correction and partial rebound.
 Re-run factor_analysis.py --rolling 6 periodically to refresh.
 
 To re-activate an excluded factor: move it from EXCLUDED_FACTORS back to FACTOR_WEIGHTS.
@@ -18,46 +18,36 @@ Regime logic (CSI 300 prior-20d return signal):
 """
 
 # ---------------------------------------------------------------------------
-# NORMAL regime — full IC-calibrated weights (2026-04-13 backtest).
+# NORMAL regime — full IC-calibrated weights (2026-04-14 backtest).
 # ---------------------------------------------------------------------------
 FACTOR_WEIGHTS: dict[str, float] = {
-    # ── Tier 1: ICIR ≥ 0.50 AND IC ≥ 0.10 (2× weight) ───────────────────
-    "div_yield":           2.0,   # IC=+0.105, ICIR=3.36 — promoted from 1.5; outstanding consistency
-    "return_skewness":     1.5,   # IC=+0.137, ICIR=1.84 — demoted from 2.0; ICIR dropped 4.87→1.84
-    "ma60_deviation":      2.0,   # IC=+0.143, ICIR=1.22 — ICIR improved 0.98→1.22
-    "idiosyncratic_vol":   2.0,   # IC=+0.176, ICIR=0.54
-    "low_volatility":      2.0,   # IC=+0.168, ICIR=0.52
-    "gap_frequency":       2.0,   # IC=+0.142, ICIR=0.51 — low overnight gap = stable stock
-    "atr_normalized":      2.0,   # IC=+0.154, ICIR=0.55 — low realised range
-    "max_return":          2.0,   # IC=+0.152, ICIR=0.62 — promoted from 1.5; ICIR improved
+    # ── Tier 1: ICIR ≥ 1.0 (2× weight) ───────────────────────────────────
+    "div_yield":             2.0,   # IC=+0.093, ICIR=2.236 — outstanding consistency
+    "upper_shadow_reversal": 1.5,   # IC=+0.081, ICIR=1.550 — re-activated (was excluded; signal reversed)
+    "upday_ratio":           1.0,   # IC=+0.083, ICIR=1.010 — re-activated (ICIR recovered 0.44→1.01)
 
-    # ── Tier 1.5: ICIR ≥ 0.65 (1.5× weight) ──────────────────────────────
-    "asset_growth":        1.5,   # IC=+0.108, ICIR=0.64 — demoted from 2.0
-    "divergence":          1.5,   # IC=+0.095, ICIR=0.77 — demoted from 2.0; ICIR dropped 1.11→0.77
-    "cash_flow_quality":   1.5,   # IC=+0.075, ICIR=0.65
-    "amihud_illiquidity":  1.5,   # IC=+0.080, ICIR=1.50 — N=2 only, treat with caution
+    # ── Tier 2: ICIR ≥ 0.50 AND |IC| ≥ 0.05 (1× weight) ─────────────────
+    "return_skewness":       1.0,   # IC=+0.092, ICIR=0.547 — demoted from 1.5; ICIR dropped 1.84→0.55
+    "market_beta":           1.0,   # IC=+0.082, ICIR=0.761 — re-activated (ICIR crossed threshold 0.45→0.76)
+    "ma60_deviation":        1.0,   # IC=+0.072, ICIR=0.701 — demoted from 2.0; IC dropped 0.143→0.072
+    "main_inflow":           1.0,   # IC=+0.040, ICIR=0.631 — held; consistent institutional flow signal
+    "chip_distribution":     0.5,   # IC=+0.045, ICIR=0.604 — demoted from 1.0; IC slightly weaker
+    "obv_trend":             0.5,   # IC=+0.031, ICIR=0.512 — re-activated (ICIR recovered -0.04→0.51)
 
-    # ── Tier 2: ICIR ≥ 0.50 (1× weight) ──────────────────────────────────
-    "main_inflow":         1.0,   # IC=+0.090, ICIR=0.70
-    "northbound":          1.0,   # IC=+0.074, ICIR=0.71
-    "chip_distribution":   1.0,   # IC=+0.051, ICIR=0.69 — promoted from 0.2; ICIR crossed threshold
-    "price_efficiency":    0.5,   # IC=+0.052, ICIR=0.60 — re-activated from EXCLUDED; ICIR 0.475→0.597
-
-    # ── Tier 3: Weak-positive, ICIR marginal (0.5× weight) ────────────────
-    "turnover_percentile": 0.5,   # IC=+0.032, ICIR=0.28 — demoted from 1.0; ICIR dropped 0.57→0.28
-    "roe_trend":           0.5,   # IC=+0.053, ICIR=0.53
-    "price_inertia":       0.5,   # IC=+0.037, ICIR=0.52 — ICIR improved 0.42→0.52
+    # ── Tier 3: Weak-positive, moderate ICIR (0.5× weight) ───────────────
+    "cash_flow_quality":     0.5,   # IC=+0.070, ICIR=0.474 — demoted from 1.5; ICIR dropped 0.65→0.47
+    "roe_trend":             0.5,   # IC=+0.051, ICIR=0.387 — held
+    "divergence":            0.5,   # IC=+0.033, ICIR=0.444 — demoted from 1.5; ICIR dropped 0.77→0.44
 
     # ── Inverted (IC < 0; higher score = worse forward return) ────────────
-    "limit_hits":            -2.0,  # IC=-0.152, ICIR=-1.64 — strongest inverted signal
-    "institutional_visits":  -1.5,  # IC=-0.078, ICIR=-0.84 — Group B; 机构调研=出货信号
-    "medium_term_momentum":  -1.0,  # IC=-0.120, ICIR=-0.52 — 中期动量均值回归
-    "momentum":              -1.0,  # IC=-0.077, ICIR=-0.53 — strengthened from -0.5; ICIR -0.47→-0.53
-    "limit_open_rate":       -1.0,  # IC=-0.077, ICIR=-0.54 — 高开板率=派发中
-    "quality":               -1.0,  # IC=-0.069, ICIR=-0.50 — high-quality = already priced in
-    "volume":                -0.5,  # IC=-0.055, ICIR=-0.55 — direction REVERSED from +1.0; 量大=追高=反转
-    "price_volume_corr":     -0.5,  # IC=-0.024, ICIR=-0.46 — 量价配合=散户追涨
-    "hammer_bottom":         -0.5,  # IC=-0.037, ICIR=-0.34 — demoted from -1.0; ICIR weakened -0.75→-0.34
+    "intraday_vs_overnight": -1.5,  # IC=-0.102, ICIR=-1.282 — re-activated (ICIR strengthened -0.36→-1.28)
+    "institutional_visits":  -1.5,  # IC=-0.084, ICIR=-0.730 — held; 机构调研=出货信号
+    "limit_hits":            -1.5,  # IC=-0.102, ICIR=-0.588 — reduced from -2.0; ICIR weakened -1.64→-0.59
+    "medium_term_momentum":  -1.0,  # IC=-0.061, ICIR=-0.666 — held; 中期动量均值回归
+    "overhead_resistance":   -1.0,  # IC=-0.050, ICIR=-0.794 — re-activated (was no-data; now available)
+    "quality":               -0.5,  # IC=-0.047, ICIR=-0.352 — reduced from -1.0; ICIR weakened -0.50→-0.35
+    "volume":                -0.5,  # IC=-0.040, ICIR=-0.321 — held; 量大=追高=反转
+    "limit_open_rate":       -0.5,  # IC=-0.037, ICIR=-0.311 — reduced from -1.0; ICIR weakened -0.54→-0.31
 }
 
 # Alias so code can refer to it by regime name
@@ -75,27 +65,24 @@ FACTOR_WEIGHTS_NORMAL = FACTOR_WEIGHTS
 #   - institutional_visits inversion kept (institutions distribute at tops in bull)
 # ---------------------------------------------------------------------------
 FACTOR_WEIGHTS_BULL: dict[str, float] = {
-    # ── Momentum core (maximally upweighted in bull) ───────────────────────
-    "price_inertia":       3.0,   # trend-following is king in bull markets
-    "volume":              1.5,   # bull markets driven by liquidity; moderate positive (reversed in neutral)
-    "divergence":          1.5,   # multi-indicator confluence still useful
-    "main_inflow":         1.5,   # institutional flow drives bull market leads
-    "turnover_percentile": 1.0,   # active stocks attract bull flows
-    "chip_distribution":   1.0,   # momentum confirmation
-    # ── Growth / quality (moderate) ────────────────────────────────────────
-    "asset_growth":        2.0,   # balance-sheet growth rewarded in risk-on
-    "cash_flow_quality":   1.0,   # quality screen avoids blow-ups even in bull
-    "div_yield":           0.5,   # yield matters less in bull but still a quality screen
-    # ── Low-vol cluster: near-zero — keep minimal momentum-trap filter ──────
-    "low_volatility":      0.1,
-    "idiosyncratic_vol":   0.1,
-    "atr_normalized":      0.1,
-    "gap_frequency":       0.1,
-    # ── Inverted signals (kept in bull) ──────────────────────────────────
+    # ── Momentum / flow core (maximally upweighted in bull) ───────────────
+    "main_inflow":           2.0,   # institutional flow drives bull market leads
+    "chip_distribution":     1.5,   # momentum confirmation via chip structure
+    "market_beta":           1.5,   # high-beta outperforms in bull; positive in normal too
+    "upday_ratio":           1.0,   # up-day ratio momentum confirmation
+    "volume":                1.0,   # bull markets driven by liquidity; positive in bull
+    "divergence":            1.0,   # multi-indicator confluence still useful
+    "obv_trend":             1.0,   # volume trend positive in bull
+    # ── Quality anchor (moderate) ─────────────────────────────────────────
+    "cash_flow_quality":     1.0,   # avoids blow-ups even in bull
+    "div_yield":             0.5,   # yield matters less in bull but still a quality screen
+    "return_skewness":       0.5,   # skewness as outlier screen
+    "upper_shadow_reversal": 0.5,   # minor contrarian signal; useful as entry timing in bull
+    # ── Inverted signals (kept in bull) ───────────────────────────────────
     "limit_hits":            -1.0,  # even in bull, post-limit reversal matters
-    "institutional_visits":  -1.0,  # distribution signal holds in bull tops
-    "medium_term_momentum":  -0.5,  # weaker inversion in bull (momentum works)
-    "momentum":              -0.5,  # short-term mean-reversion, weaker in bull
+    "institutional_visits":  -1.0,  # distribution signal holds at bull tops
+    "intraday_vs_overnight": -1.0,  # strong inverted signal (ICIR=-1.28); keep in all regimes
+    "medium_term_momentum":  -0.5,  # weaker inversion in bull (momentum partly works)
 }
 
 # ---------------------------------------------------------------------------
@@ -104,33 +91,28 @@ FACTOR_WEIGHTS_BULL: dict[str, float] = {
 # ---------------------------------------------------------------------------
 FACTOR_WEIGHTS_CAUTION: dict[str, float] = {
     # ── Defensive anchors (upweighted) ────────────────────────────────────
-    "low_volatility":      3.0,   # primary screen in sell-offs
-    "idiosyncratic_vol":   2.5,   # low residual vol = avoids speculative bombs
-    "atr_normalized":      2.5,   # low realised range = avoids volatile names
-    "gap_frequency":       2.5,   # low gap = stocks that don't blow up
-    "cash_flow_quality":   2.0,   # earnings quality critical in corrections
-    "return_skewness":     2.0,   # ICIR=1.84; still very stable signal across regimes
-    "ma60_deviation":      2.0,   # IC=+0.143, ICIR=1.22; proximity to MA60
-    "divergence":          1.5,   # IC=+0.095, ICIR=0.77; robust across regimes
-    "amihud_illiquidity":  1.5,   # ICIR=3.17; liquidity premium stable in corrections
+    "div_yield":             3.0,   # IC=0.093, ICIR=2.236; yield support strongest in corrections
+    "return_skewness":       2.5,   # IC=0.092, ICIR=0.547; positive skew = fewer blow-ups
+    "ma60_deviation":        2.0,   # IC=0.072, ICIR=0.701; proximity to MA60 = mean-reversion anchor
+    "cash_flow_quality":     2.0,   # IC=0.070, ICIR=0.474; earnings quality critical in corrections
+    "upper_shadow_reversal": 1.5,   # IC=0.081, ICIR=1.550; oversold reversal signal amplified
+    "upday_ratio":           1.5,   # IC=0.083, ICIR=1.010; resilient stocks survive corrections
+    "chip_distribution":     1.0,   # IC=0.045, ICIR=0.604; low overhang = less selling pressure
+    "divergence":            1.0,   # IC=0.033, ICIR=0.444; multi-signal confirmation
 
     # ── Moderate (kept but trimmed) ───────────────────────────────────────
-    "roe_trend":           1.0,   # improving ROE = resilient business
-    "price_inertia":       1.0,   # inertia less reliable when trend breaks
-    "asset_growth":        0.5,
-    "div_yield":           1.0,   # yield support matters more in down markets
-
-    # ── Volume inverted in corrections (confirmed by IC reversal) ────────────
-    "volume":              -0.5,  # reversed in neutral; doubly negative in corrections
+    "roe_trend":             1.0,   # improving ROE = resilient business
+    "main_inflow":           0.5,   # flow matters less when market is falling broadly
 
     # ── Inverted (kept / amplified in caution) ────────────────────────────
-    "limit_hits":              -2.0,  # ICIR=-1.92; strongest signal in down markets
-    "institutional_visits":    -1.5,  # distribution signal amplified in corrections
-    "quality":                 -1.0,  # confirmed inverted; high quality = already priced in
-    "medium_term_momentum":    -1.5,  # mean-reversion especially strong in corrections
-    "hammer_bottom":           -1.0,  # weak rebounds fail more in corrections
-    "limit_open_rate":         -1.0,  # distribution signal
-    "price_volume_corr":       -1.0,  # volume-confirmed moves reverse harder in corrections
+    "intraday_vs_overnight": -2.0,  # IC=-0.102, ICIR=-1.282; gap-down stocks = weak hands
+    "institutional_visits":  -2.0,  # distribution signal amplified in corrections
+    "limit_hits":            -2.0,  # post-limit reversal stronger in corrections
+    "medium_term_momentum":  -1.5,  # mean-reversion especially strong in corrections
+    "overhead_resistance":   -1.5,  # IC=-0.050, ICIR=-0.794; overhead selling pressure heavy in corrections
+    "quality":               -0.5,  # inverted confirmed; high quality = already priced in
+    "limit_open_rate":       -0.5,  # distribution signal
+    "volume":                -0.5,  # 量大=追高=反转; more negative in corrections
 }
 
 # ---------------------------------------------------------------------------
@@ -139,17 +121,19 @@ FACTOR_WEIGHTS_CAUTION: dict[str, float] = {
 # on most defensive names. Hold 40% — avoids missing V-shaped recoveries.
 # ---------------------------------------------------------------------------
 FACTOR_WEIGHTS_CRISIS: dict[str, float] = {
-    "low_volatility":      4.0,   # dominant — low-beta stocks survive crashes
-    "idiosyncratic_vol":   3.0,   # low residual vol = avoids speculative collapse
-    "atr_normalized":      3.0,   # low realised range = capital preservation in crash
-    "gap_frequency":       3.0,   # low gap = stocks that don't implode overnight
-    "cash_flow_quality":   2.0,   # cash-backed earnings = survival in crisis
-    "return_skewness":     2.0,   # ICIR=1.84; stable signal; keep in crash
-    "ma60_deviation":      1.5,   # stocks near/below MA60 have better risk-reward
-    "amihud_illiquidity":  1.0,   # illiquidity premium exists even in crises
+    # ── Survival anchors — factors with consistent positive IC ────────────
+    "div_yield":             4.0,   # IC=0.093, ICIR=2.236; yield = capital preservation anchor
+    "return_skewness":       3.0,   # IC=0.092, ICIR=0.547; positive skew = fewer catastrophic drops
+    "upper_shadow_reversal": 2.0,   # IC=0.081, ICIR=1.550; oversold reversal; useful in V-bounces
+    "upday_ratio":           2.0,   # IC=0.083, ICIR=1.010; stocks that hold up = survivors
+    "ma60_deviation":        1.5,   # IC=0.072, ICIR=0.701; near-MA60 = mean-reversion support
+    "cash_flow_quality":     1.5,   # cash-backed earnings = survival in crisis
     # ── Strong inverted signals survive even in crash ──────────────────────
-    "limit_hits":          -2.0,  # ICIR=-1.92; stocks with limit history crash hardest
-    "institutional_visits": -1.0, # distribution signal
+    "intraday_vs_overnight": -2.0,  # IC=-0.102, ICIR=-1.282; gap-down stocks crash hardest
+    "institutional_visits":  -2.0,  # distribution signal amplified in crisis
+    "limit_hits":            -2.0,  # stocks with limit history collapse hardest
+    "overhead_resistance":   -1.5,  # IC=-0.050, ICIR=-0.794; heavy overhang = continued selling
+    "medium_term_momentum":  -1.0,  # fallen momentum leaders fail to bounce
     # All other factors dropped — too noisy in crash environment
 }
 
@@ -195,26 +179,36 @@ REGIME_MA_LONG  = 60    # long  MA — price below this → CRISIS
 # Excluded factors — reasons documented; functions still in factors*.py.
 # ---------------------------------------------------------------------------
 EXCLUDED_FACTORS: dict[str, str] = {
-    # ── Noise / signal collapsed (2026-04-13 backtest) ───────────────────
-    "nearness_to_high":    "signal collapsed: IC=+0.021, ICIR=0.099 (was ICIR=0.48); 2026-04-13",
-    "upday_ratio":         "degraded: IC=+0.054, ICIR=0.435 (was ICIR=0.55); dropped below threshold 2026-04-13",
-    "turnover_acceleration": "degraded: IC=+0.030, ICIR=0.311 (was ICIR=0.52); dropped below threshold 2026-04-13",
-    "bb_squeeze":          "degraded: IC=+0.028, ICIR=0.216 (was IC=+0.152, ICIR=0.987); signal collapsed",
-    "piotroski":           "noise: IC=-0.023, ICIR=-0.194; not strong enough to include or invert",
-    "obv_trend":           "noise: IC=-0.006, ICIR=-0.043; no signal",
-    "intraday_vs_overnight": "noise: IC=-0.054, ICIR=-0.361; below -0.50 threshold",
-    "bollinger_position":  "noise: IC=+0.018, ICIR=0.111; signal too weak",
-    "growth":              "noise: IC=-0.012, ICIR=-0.094; insufficient signal",
-    "market_relative_strength": "noise: IC=-0.002, ICIR=-0.012; no signal",
-    "momentum_concavity":  "noise: IC=+0.029, ICIR=0.207; never recovered",
-    "volume_expansion":    "noise: IC=+0.005, ICIR=0.030; no signal",
-    "market_beta":         "noise: IC=+0.063, ICIR=0.452; below 0.50 threshold",
-    "trend_linearity":     "noise: IC=-0.037, ICIR=-0.186",
-    "reversal":            "noise: IC=+0.020, ICIR=0.113; subsumed by price_inertia",
-    "position_52w":        "noise: IC=-0.033, ICIR=-0.415; below -0.50 inversion threshold",
-    "upper_shadow_reversal": "noise: IC=-0.005, ICIR=-0.054; no signal",
-    "concept_momentum":    "noise: IC=-0.016, ICIR=-0.247; Group B, no stable signal",
-    "lhb":                 "noise: IC=+0.008, ICIR=0.085; Group B, no signal",
+    # ── Signal collapsed / degraded to noise (2026-04-14 backtest) ───────
+    "idiosyncratic_vol":   "collapsed: IC=+0.045, ICIR=0.215 (was IC=+0.176, ICIR=0.54); 2026-04-14",
+    "gap_frequency":       "collapsed: IC=+0.018, ICIR=0.107 (was IC=+0.142, ICIR=0.51); 2026-04-14",
+    "atr_normalized":      "collapsed: IC=+0.036, ICIR=0.214 (was IC=+0.154, ICIR=0.55); 2026-04-14",
+    "max_return":          "collapsed: IC=+0.046, ICIR=0.279 (was IC=+0.152, ICIR=0.62); 2026-04-14",
+    "asset_growth":        "collapsed: IC=+0.018, ICIR=0.138 (was IC=+0.108, ICIR=0.64); noise territory",
+    "amihud_illiquidity":  "insufficient periods: N=0 in new backtest; 2026-04-14",
+    "northbound":          "reversed: IC=-0.001, ICIR=-0.031 (was IC=+0.074, ICIR=0.71); no signal",
+    "price_inertia":       "reversed: IC=-0.012, ICIR=-0.094 (was IC=+0.037, ICIR=0.52); direction flipped",
+    "turnover_percentile": "reversed: IC=-0.000, ICIR=-0.002; no signal; 2026-04-14",
+    "price_efficiency":    "collapsed: IC=+0.009, ICIR=0.111 (was ICIR=0.60); 2026-04-14",
+    "momentum":            "reversed: IC=+0.011, ICIR=0.132 (was IC=-0.077, ICIR=-0.53); direction flipped; 2026-04-14",
+    "price_volume_corr":   "noise: IC=-0.009, ICIR=-0.097 (was -0.46); insufficient to invert; 2026-04-14",
+    "hammer_bottom":       "noise: IC=-0.019, ICIR=-0.257; insufficient to invert; 2026-04-14",
+    "low_volatility":      "collapsed: IC=+0.052, ICIR=0.266 (was IC=+0.168, ICIR=0.52); 2026-04-14",
+    "nearness_to_high":    "noise: IC=+0.019, ICIR=0.114; 2026-04-14",
+    "turnover_acceleration": "noise: IC=-0.008, ICIR=-0.043; 2026-04-14",
+    "bb_squeeze":          "inverted-noise: IC=-0.037, ICIR=-0.290; below -0.50 threshold; 2026-04-14",
+    "piotroski":           "noise: IC=-0.007, ICIR=-0.064; 2026-04-14",
+    "bollinger_position":  "noise: IC=-0.010, ICIR=-0.063; 2026-04-14",
+    "growth":              "noise: IC=-0.001, ICIR=-0.005; 2026-04-14",
+    "market_relative_strength": "inverted-noise: IC=-0.040, ICIR=-0.315; below -0.50 threshold; 2026-04-14",
+    "momentum_concavity":  "noise: IC=-0.024, ICIR=-0.090; 2026-04-14",
+    "volume_expansion":    "inverted-noise: IC=-0.030, ICIR=-0.320; below -0.50 threshold; 2026-04-14",
+    "trend_linearity":     "noise: IC=-0.012, ICIR=-0.144; 2026-04-14",
+    "reversal":            "noise: IC=+0.031, ICIR=0.268; marginal, subsumed by price_inertia; 2026-04-14",
+    "position_52w":        "noise: IC=+0.005, ICIR=0.078; 2026-04-14",
+    "concept_momentum":    "weak: IC=+0.040, ICIR=0.421; below ICIR threshold; Group B; 2026-04-14",
+    "lhb":                 "noise: IC=-0.014, ICIR=-0.138; Group B; 2026-04-14",
+    "ma_alignment":        "noise: IC=+0.000, ICIR=0.002; 2026-04-14",
 
     # ── Data unavailable ──────────────────────────────────────────────────
     "value":               "no data: EM quote blocked, PE/PB=0 -> NaN score",
@@ -225,7 +219,6 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "ar_quality":          "no data: 应收账款 not in financial indicators API",
     "size_factor":         "no data: circ_cap unreliable in IC analysis (always current value)",
     "sector_sympathy":     "no data: returns None in backtest (requires real-time industry classification)",
-    "overhead_resistance": "no data: returns None in backtest (cyq_df often unavailable)",
     "rsi_signal":          "no data / noise: IC~0 across all periods",
     "macd_signal":         "no data / noise: IC~0 across all periods",
 
