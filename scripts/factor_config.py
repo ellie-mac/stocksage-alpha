@@ -181,82 +181,92 @@ SMALLCAP_CONFIG: dict = {
 # Re-calibrate by running:
 #   python factor_analysis.py --rolling 6 --step 20 --group AB \
 #       --universe smallcap_universe.json --out factor_ic_smallcap.json
+# Calibrated 2026-04-15 from factor_ic_smallcap.json (200 stocks, 6 periods x 20d)
 FACTOR_WEIGHTS_SMALLCAP: dict[str, float] = {
-    # ── Tier 1: ICIR ≥ 1.0 ────────────────────────────────────────────────
-    "div_yield":             2.0,
-    "upper_shadow_reversal": 1.5,
-    "upday_ratio":           1.0,
-    # ── Tier 2 ────────────────────────────────────────────────────────────
-    "return_skewness":       1.0,
-    "market_beta":           1.0,
-    "ma60_deviation":        1.0,
-    "main_inflow":           1.0,
-    "chip_distribution":     0.5,
-    "obv_trend":             0.5,
-    # ── Tier 3 ────────────────────────────────────────────────────────────
-    "cash_flow_quality":     0.5,
-    "roe_trend":             0.5,
-    "divergence":            0.5,
-    # ── Inverted ──────────────────────────────────────────────────────────
-    "intraday_vs_overnight": -1.5,
-    "institutional_visits":  -1.5,
-    "limit_hits":            -1.5,
-    "medium_term_momentum":  -1.0,
-    "overhead_resistance":   -1.0,
-    "quality":               -0.5,
-    "volume":                -0.5,
-    "limit_open_rate":       -0.5,
+    # ── Tier 1: ICIR ≥ 1.0 (positive) ───────────────────────────────────
+    "piotroski":             1.5,   # IC=+0.0746, ICIR=1.367
+    "amihud_illiquidity":    1.5,   # IC=+0.1590, ICIR=1.333 (illiquid small-cap premium)
+    "ma60_deviation":        1.5,   # IC=+0.1254, ICIR=1.292
+    "return_skewness":       1.5,   # IC=+0.1442, ICIR=1.137
+    "nearness_to_high":      1.0,   # IC=+0.0962, ICIR=1.125
+    "max_return":            1.0,   # IC=+0.1726, ICIR=1.084
+    "reversal":              1.0,   # IC=+0.0892, ICIR=1.063
+    "atr_normalized":        1.0,   # IC=+0.1738, ICIR=0.918
+    "gap_frequency":         1.0,   # IC=+0.1436, ICIR=0.892
+    "low_volatility":        1.0,   # IC=+0.1686, ICIR=0.779
+    "idiosyncratic_vol":     1.0,   # IC=+0.1674, ICIR=0.758
+    # ── Tier 2: ICIR 0.4–0.75 (positive) ────────────────────────────────
+    "market_beta":           0.5,   # IC=+0.0538, ICIR=0.605
+    "chip_distribution":     0.5,   # IC=+0.0358, ICIR=0.589
+    "main_inflow":           0.5,   # IC=+0.0407, ICIR=0.465
+    "northbound":            0.5,   # IC=+0.0349, ICIR=0.438
+    "divergence":            0.5,   # IC=+0.0428, ICIR=0.424
+    "upper_shadow_reversal": 0.5,   # IC=+0.0258, ICIR=0.423
+    # ── Inverted: ICIR ≤ -0.5 ────────────────────────────────────────────
+    "limit_open_rate":       -2.0,  # IC=-0.1082, ICIR=-3.551 (strongest signal)
+    "limit_hits":            -2.0,  # IC=-0.1219, ICIR=-1.775
+    "momentum":              -1.0,  # IC=-0.1293, ICIR=-1.050 (mean-reversion dominant)
+    "medium_term_momentum":  -1.0,  # IC=-0.0910, ICIR=-0.922
+    "volume_expansion":      -1.0,  # IC=-0.1140, ICIR=-0.874
+    "market_relative_strength": -1.0,  # IC=-0.0765, ICIR=-0.862
+    "price_volume_corr":     -1.0,  # IC=-0.0617, ICIR=-0.857
+    "intraday_vs_overnight": -1.0,  # IC=-0.1024, ICIR=-0.837
+    "ma_alignment":          -1.0,  # IC=-0.0679, ICIR=-0.833
+    "price_inertia":         -0.5,  # IC=-0.0460, ICIR=-0.676
 }
 
 FACTOR_WEIGHTS_SMALLCAP_CAUTION: dict[str, float] = {
-    "div_yield":             3.0,
-    "return_skewness":       2.5,
+    # Defensive: boost quality + illiquidity premium, tighten momentum penalties
+    "amihud_illiquidity":    2.0,
     "ma60_deviation":        2.0,
-    "cash_flow_quality":     2.0,
-    "upper_shadow_reversal": 1.5,
-    "upday_ratio":           1.5,
-    "chip_distribution":     1.0,
-    "divergence":            1.0,
-    "roe_trend":             1.0,
-    "main_inflow":           0.5,
-    "intraday_vs_overnight": -2.0,
-    "institutional_visits":  -2.0,
+    "return_skewness":       2.0,
+    "piotroski":             2.0,
+    "low_volatility":        1.5,
+    "nearness_to_high":      1.0,
+    "reversal":              1.0,
+    "upper_shadow_reversal": 1.0,
+    "chip_distribution":     0.5,
+    "divergence":            0.5,
+    "limit_open_rate":       -2.0,
     "limit_hits":            -2.0,
     "medium_term_momentum":  -1.5,
-    "overhead_resistance":   -1.5,
-    "quality":               -0.5,
-    "limit_open_rate":       -0.5,
-    "volume":                -0.5,
+    "momentum":              -1.5,
+    "intraday_vs_overnight": -1.5,
+    "volume_expansion":      -1.0,
+    "ma_alignment":          -1.0,
+    "market_relative_strength": -1.0,
 }
 
 FACTOR_WEIGHTS_SMALLCAP_CRISIS: dict[str, float] = {
-    "div_yield":             4.0,
-    "return_skewness":       3.0,
-    "upper_shadow_reversal": 2.0,
-    "upday_ratio":           2.0,
+    # Max defensive: only highest-conviction factors
+    "amihud_illiquidity":    2.5,
+    "piotroski":             2.0,
+    "low_volatility":        2.0,
     "ma60_deviation":        1.5,
-    "cash_flow_quality":     1.5,
-    "intraday_vs_overnight": -2.0,
-    "institutional_visits":  -2.0,
+    "return_skewness":       1.5,
+    "limit_open_rate":       -2.0,
     "limit_hits":            -2.0,
-    "overhead_resistance":   -1.5,
-    "medium_term_momentum":  -1.0,
+    "momentum":              -2.0,
+    "medium_term_momentum":  -1.5,
+    "intraday_vs_overnight": -1.5,
+    "volume_expansion":      -1.0,
 }
 
 FACTOR_WEIGHTS_SMALLCAP_BULL: dict[str, float] = {
-    "main_inflow":           2.0,
-    "chip_distribution":     1.5,
-    "market_beta":           1.5,
-    "upday_ratio":           1.0,
-    "volume":                1.0,
+    # Aggressive: lean into momentum-adjacent signals, keep key negatives
+    "max_return":            2.0,
+    "atr_normalized":        1.5,
+    "gap_frequency":         1.5,
+    "main_inflow":           1.5,
+    "idiosyncratic_vol":     1.0,
+    "market_beta":           1.0,
+    "return_skewness":       1.0,
+    "chip_distribution":     1.0,
     "divergence":            1.0,
-    "obv_trend":             1.0,
-    "cash_flow_quality":     1.0,
-    "div_yield":             0.5,
-    "return_skewness":       0.5,
+    "northbound":            0.5,
     "upper_shadow_reversal": 0.5,
-    "limit_hits":            -1.0,
-    "institutional_visits":  -1.0,
+    "limit_open_rate":       -2.0,
+    "limit_hits":            -1.5,
     "intraday_vs_overnight": -1.0,
     "medium_term_momentum":  -0.5,
 }
