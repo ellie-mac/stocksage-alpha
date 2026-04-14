@@ -1653,14 +1653,16 @@ def is_trading_day(date=None) -> bool:
 
 
 def get_suspension_list(trade_date: str = None) -> pd.DataFrame:
-    """Return stocks suspended or resuming on *trade_date* ('YYYYMMDD').
+    """Return stocks suspended on *trade_date* ('YYYYMMDD').
 
     Defaults to today.  Returned DataFrame columns:
       code          — 6-digit stock code
       trade_date    — 'YYYYMMDD'
       suspend_type  — 'S' (停牌) | 'R' (复牌)
 
-    Source: Tushare suspend_d (120pts, confirmed working).
+    Sources:
+      1. Tushare suspend_d (120pts)
+      2. AKShare stock_tfp_em (EM停复牌, by date)
     Cached for 24h per date.
     """
     if trade_date is None:
@@ -1671,6 +1673,7 @@ def get_suspension_list(trade_date: str = None) -> pd.DataFrame:
     if cached is not None:
         return cached
 
+    # Source 1: Tushare suspend_d
     try:
         pro = _get_tushare_pro()
         if pro is not None:
@@ -1679,11 +1682,26 @@ def get_suspension_list(trade_date: str = None) -> pd.DataFrame:
                 fields="ts_code,trade_date,suspend_type",
             )
             if df is not None and not df.empty:
-                # Convert ts_code '000001.SZ' → '000001'
                 df["code"] = df["ts_code"].str[:6]
                 df = df[["code", "trade_date", "suspend_type"]].reset_index(drop=True)
                 cache.set_df(cache_key, df)
                 return df
+    except Exception:
+        pass
+
+    # Source 2: AKShare stock_tfp_em (EM停复牌列表)
+    try:
+        import akshare as _ak
+        raw = _ak.stock_tfp_em(date=trade_date)
+        if raw is not None and not raw.empty and "代码" in raw.columns:
+            codes = raw["代码"].astype(str).str.strip().tolist()
+            df = pd.DataFrame({
+                "code": codes,
+                "trade_date": trade_date,
+                "suspend_type": "S",
+            })
+            cache.set_df(cache_key, df)
+            return df
     except Exception:
         pass
 
