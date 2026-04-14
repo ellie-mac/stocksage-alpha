@@ -528,28 +528,44 @@ def build_watchlist(
 
     Returns (watchlist_codes, code_to_name).
     """
-    print("Fetching hot-rank list...")
-    hot_codes: list[str] = []
-    hot_names: dict[str, str] = {}
-    try:
-        df_hot = ak.stock_hot_rank_em()
-        code_col = next((c for c in df_hot.columns if "代码" in c), None)
-        name_col = next((c for c in df_hot.columns if "名称" in c), None)
-        if code_col:
-            rows = df_hot.head(top_n_hot)
-            for _, row in rows.iterrows():
-                code = str(row[code_col]).zfill(6)
-                hot_codes.append(code)
-                if name_col:
-                    hot_names[code] = str(row[name_col])
-            print(f"  Hot rank fetched: {len(hot_codes)} stocks")
-        else:
-            print(f"  [WARN] Unknown columns: {list(df_hot.columns)}")
-    except Exception as e:
-        print(f"  [ERR] Hot rank fetch failed: {e}")
+    print("Fetching hot-rank lists (EastMoney + THS)...")
+    # rank_score: code -> float (lower = hotter); names: code -> str
+    rank_scores: dict[str, float] = {}
+    hot_names:   dict[str, str]   = {}
 
-    if not hot_codes:
+    def _ingest(df: object, source: str) -> None:
+        """Parse a hot-rank dataframe and accumulate rank scores."""
+        code_col = next((c for c in df.columns if "代码" in c), None)
+        name_col = next((c for c in df.columns if "名称" in c or "简称" in c), None)
+        if not code_col:
+            print(f"  [WARN] {source}: unknown columns {list(df.columns)}")
+            return
+        rows = df.head(top_n_hot)
+        n = len(rows)
+        for pos, (_, row) in enumerate(rows.iterrows()):
+            code = str(row[code_col]).zfill(6)
+            # Normalised rank: 0.0 (rank 1) → 1.0 (rank n)
+            score = pos / max(n - 1, 1)
+            rank_scores[code] = rank_scores.get(code, 0.0) + score
+            if name_col and code not in hot_names:
+                hot_names[code] = str(row[name_col])
+        print(f"  {source}: {n} stocks ingested")
+
+    try:
+        _ingest(ak.stock_hot_rank_em(), "EastMoney")
+    except Exception as e:
+        print(f"  [ERR] EastMoney hot rank: {e}")
+
+    try:
+        _ingest(ak.stock_hot_rank_wc(), "THS")
+    except Exception as e:
+        print(f"  [ERR] THS hot rank: {e}")
+
+    if not rank_scores:
         return [], {}
+
+    # Stocks on both lists get lower combined score (hotter); sort ascending
+    hot_codes = sorted(rank_scores, key=lambda c: rank_scores[c])
 
     # Build reverse maps: code -> sector, code -> name (from sector_map)
     code_to_sector: dict[str, str] = {}
