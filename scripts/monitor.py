@@ -1101,6 +1101,12 @@ def run_loop(
     sell_alert_state:   dict = {}   # code -> last sell-alert datetime (cross-tier dedup)
     t_trade_state:      dict = {}   # code -> {sell_price, cover_price, date}
     _error_notified:    dict = {}   # error_key -> last WeChat push datetime (1h rate limit)
+    _etf_buy_state:     dict = {}   # code -> last ETF buy-alert datetime  (20-min cooldown)
+    _etf_sell_state:    dict = {}   # code -> last ETF sell-alert datetime (20-min cooldown)
+    _etf_activity:      dict = {}   # code -> {"buys": int, "sells": int}  (reset daily)
+    _etf_activity_date: Optional[object] = None
+    _etf_closing_date:  Optional[object] = None
+    _ETF_COOLDOWN_MIN = 20
     _xhs_triggered_today: set = set()  # slots triggered today
     _xhs_date: Optional[object] = None              # date _xhs_triggered_today belongs to
     _auction_checked_date: Optional[object] = None   # date of last 竞价检验
@@ -1386,6 +1392,50 @@ def run_loop(
                 _xhs_triggered_today.add("evening")
                 _trigger_xhs_post("evening", dry_run)
 
+        # ── ETF closing summary (15:05, same window as holdings) ────────────────
+        etf_list_cfg = config.get("etf_watchlist", [])
+        if (etf_list_cfg and now.hour == 15 and 5 <= now.minute < 10
+                and _etf_closing_date != now.date()):
+            _etf_closing_date = now.date()
+            etf_rows = []
+            etf_no_data = []
+            for _etf_entry in etf_list_cfg:
+                _ec = _etf_entry if isinstance(_etf_entry, str) else _etf_entry.get("code", "")
+                _en = (_etf_entry.get("name", _ec) if isinstance(_etf_entry, dict) else _ec)
+                try:
+                    _eq = fetcher.get_realtime_quote(_ec)
+                    if not _eq or not _eq.get("price"):
+                        etf_no_data.append(_en)
+                        continue
+                    _echg = _eq.get("change_pct") or 0.0
+                    _act  = _etf_activity.get(_ec, {})
+                    _buys  = _act.get("buys", 0)
+                    _sells = _act.get("sells", 0)
+                    _sig = ""
+                    if _buys:  _sig += f" 买{_buys}次"
+                    if _sells: _sig += f" 卖{_sells}次"
+                    etf_rows.append(
+                        f"- **{_en}** {'📈' if _echg >= 0 else '📉'} {_echg:+.1f}%{_sig}"
+                    )
+                except Exception:
+                    etf_no_data.append(_en)
+            if etf_rows or etf_no_data:
+                if etf_no_data:
+                    etf_rows.append(
+                        f"\n*无数据（{len(etf_no_data)}只）: "
+                        f"{', '.join(etf_no_data[:5])}{'...' if len(etf_no_data) > 5 else ''}*"
+                    )
+                etf_closing_desp = (
+                    f"**{now.strftime('%Y-%m-%d')} ETF 收盘快报**\n\n"
+                    + "\n".join(etf_rows)
+                    + "\n\n> T+0 / 仅供参考"
+                )
+                try:
+                    send_wechat("[StockSage ETF] 今日收盘 📊", etf_closing_desp,
+                                sendkey, dry_run=dry_run)
+                except Exception as _e:
+                    print(f"  [WARN] ETF closing summary push failed: {_e}")
+
         # ── Daily signal tracker (15:20 — after closing scan) ────────────────
         if (now.hour == 15 and 20 <= now.minute < 30
                 and _signal_tracker_date != now.date()):
@@ -1480,6 +1530,110 @@ def run_loop(
                 send_wechat(title, desp, sendkey, dry_run=dry_run)
             except Exception as e:
                 print(f"  [ERROR] 微信推送失败: {e}")
+
+        # ── ETF watchlist scan (every fast-check cycle, T+0 20-min cooldown) ──
+        etf_list = config.get("etf_watchlist", [])
+        if etf_list and is_trading_hours():
+            # Reset daily activity counter
+            if _etf_activity_date != now.date():
+                _etf_activity = {e["code"]: {"buys": 0, "sells": 0} for e in etf_list}
+                _etf_activity_date = now.date()
+
+            print(f"[{run_time}] ETF scan ({len(etf_list)} ETFs)...", end=" ", flush=True)
+            etf_buy_alerts: list[dict] = []
+            etf_sell_alerts: list[dict] = []
+            _etf_regime = _regime_this_iter  # reuse if already fetched, else None
+
+            with ThreadPoolExecutor(max_workers=min(len(etf_list), 4)) as _ex:
+                _futs = {_ex.submit(_score_one_buy, e["code"]): e for e in etf_list}
+                for _fut in as_completed(_futs):
+                    _etf_entry = _futs[_fut]
+                    _s = _fut.result()
+                    # Merge shares/cost from etf_watchlist entry
+                    _s["shares"]     = _etf_entry.get("shares", 0)
+                    _s["cost_price"] = _etf_entry.get("cost_price", 0)
+                    cost = _s["cost_price"] or 0
+                    price = _s.get("price") or 0
+                    _s["pnl_pct"] = round((price - cost) / cost * 100, 2) if cost > 0 else 0.0
+
+                    code = _s["code"]
+                    _etf_activity.setdefault(code, {"buys": 0, "sells": 0})
+                    _t = thresholds
+                    _sell_trigger = _t.get("sell_score_trigger", 60)
+                    _stall        = _t.get("stall_sell_score", 40)
+                    _stop_loss    = _t.get("stop_loss_pct", -8.0)
+
+                    # ── ETF sell check (T+0: no T+1 lock, 20-min cooldown) ─────
+                    _sell_reasons: list[str] = []
+                    if (_s.get("shares", 0) or 0) > 0:
+                        if _s["sell_score"] >= _sell_trigger:
+                            _sell_reasons.append(
+                                f"综合卖出评分 {_s['sell_score']:.0f}/100 ≥ {_sell_trigger}")
+                        elif _stall <= _s["sell_score"] < _sell_trigger:
+                            _sell_reasons.append(
+                                f"逢高减仓参考: 卖出信号 **{_s['sell_score']:.0f}**"
+                                f"（阈值 {_stall}–{_sell_trigger}）")
+                        if _s["pnl_pct"] <= _stop_loss:
+                            _sell_reasons.append(f"止损触发: 浮亏 {_s['pnl_pct']:+.1f}%")
+                    _last_sell = _etf_sell_state.get(code)
+                    _sell_ok = (not _last_sell or
+                                (now - _last_sell).total_seconds() >= _ETF_COOLDOWN_MIN * 60)
+                    if _sell_reasons and _sell_ok:
+                        _etf_sell_state[code] = now
+                        _etf_activity[code]["sells"] += 1
+                        etf_sell_alerts.append({**_s, "reasons": _sell_reasons})
+
+                    # ── ETF buy check ─────────────────────────────────────────
+                    _rs = _etf_regime[0] if _etf_regime else 5.0
+                    _buy_trigger = thresholds.get("buy_score_trigger", 65)
+                    if _rs <= 2:
+                        _buy_trigger = round(_buy_trigger * 1.25, 1)
+                    elif _rs <= 4:
+                        _buy_trigger = round(_buy_trigger * 1.15, 1)
+                    _last_buy = _etf_buy_state.get(code)
+                    _buy_ok = (not _last_buy or
+                               (now - _last_buy).total_seconds() >= _ETF_COOLDOWN_MIN * 60)
+                    if (_s["buy_score"] >= _buy_trigger and
+                            _s["sell_score"] < _sell_trigger * 0.7 and
+                            _buy_ok):
+                        _etf_buy_state[code] = now
+                        _etf_activity[code]["buys"] += 1
+                        etf_buy_alerts.append(_s)
+
+            print(f"{len(etf_buy_alerts)} buy / {len(etf_sell_alerts)} sell")
+
+            if (etf_buy_alerts or etf_sell_alerts) and _market_open:
+                _parts = []
+                _sell_trig = thresholds.get("sell_score_trigger", 60)
+                _stall_s   = thresholds.get("stall_sell_score", 40)
+                strong_s = [a for a in etf_sell_alerts if a["sell_score"] >= _sell_trig]
+                stall_s  = [a for a in etf_sell_alerts if _stall_s <= a["sell_score"] < _sell_trig]
+                strong_b = [a for a in etf_buy_alerts if a["buy_score"] >= 80]
+                add_b    = [a for a in etf_buy_alerts if a["buy_score"] < 80]
+                if strong_s: _parts.append(f"🔴 {len(strong_s)} 强卖")
+                if stall_s:  _parts.append(f"⚠️ {len(stall_s)} 减仓参考")
+                if strong_b: _parts.append(f"✅ {len(strong_b)} 强买")
+                if add_b:    _parts.append(f"💡 {len(add_b)} 加仓参考")
+                _stop = thresholds.get("stop_loss_pct", -8.0)
+                _etf_lines = []
+                for _a in etf_sell_alerts:
+                    _etf_lines.append(
+                        f"### {_a['name']} ({_a['code']})\n"
+                        f"卖出评分: **{_a['sell_score']:.0f}** | 浮盈: **{_a['pnl_pct']:+.1f}%**")
+                    for _r in _a["reasons"]:
+                        _etf_lines.append(f"- {_r}")
+                for _a in etf_buy_alerts:
+                    _p = _a.get("price") or 0
+                    _etf_lines.append(
+                        f"### {_a['name']} ({_a['code']})\n"
+                        f"买入评分: **{_a['buy_score']:.0f}** | 现价: **{_p}**")
+                _etf_lines.append("\n> T+0 / 仅供参考")
+                try:
+                    send_wechat(
+                        f"[StockSage ETF] {' | '.join(_parts)}",
+                        "\n".join(_etf_lines), sendkey, dry_run=dry_run)
+                except Exception as _e:
+                    print(f"  [ERROR] ETF 推送失败: {_e}")
 
         # ── Watchlist scan (every 30 min, medium frequency) ──────────────────
         # Normalise codes: strip SH/SZ/BJ prefix so fetcher can look them up
