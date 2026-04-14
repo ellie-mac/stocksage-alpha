@@ -642,6 +642,8 @@ def _check_opening_auction(
     watchlist: list[str],
     sendkey: str,
     dry_run: bool = False,
+    weights=None,
+    thresholds: Optional[dict] = None,
 ) -> dict:
     """
     竞价质量检验 — 在每日 9:25 集合竞价结束后运行一次。
@@ -698,13 +700,28 @@ def _check_opening_auction(
         except Exception:
             return None
 
-    raw: dict[str, dict] = {}
+    # Run gap calculation + factor scoring in parallel
+    _w = weights or DEFAULT_WEIGHTS
+
+    def _score(code: str) -> Optional[dict]:
+        try:
+            return research(code, _w)
+        except Exception:
+            return None
+
+    raw:    dict[str, dict] = {}
+    scores: dict[str, dict] = {}
     with ThreadPoolExecutor(max_workers=8) as ex:
-        futs = {ex.submit(_one, c): c for c in all_codes}
-        for fut in as_completed(futs):
+        gap_futs   = {ex.submit(_one,   c): ("gap",   c) for c in all_codes}
+        score_futs = {ex.submit(_score, c): ("score", c) for c in all_codes}
+        for fut in as_completed({**gap_futs, **score_futs}):
+            role, code = (gap_futs if fut in gap_futs else score_futs)[fut]
             r = fut.result()
             if r:
-                raw[r["code"]] = r
+                if role == "gap":
+                    raw[code] = r
+                else:
+                    scores[code] = r
 
     # Build verdict per code
     verdicts: dict[str, dict] = {}
@@ -738,72 +755,55 @@ def _check_opening_auction(
         verdicts[code] = {"text": text, "tag": tag, "gap_pct": gp, "norm_gap": ng}
 
     # ── Format WeChat message ──────────────────────────────────────────────────
+    _thr        = thresholds or {}
+    _buy_thr    = _thr.get("buy_score",  60.0)
+    _sell_thr   = _thr.get("sell_score", 60.0)
+
     def _icon(tag: str) -> str:
         return {"big_gap_up": "⚠️", "gap_up": "📈", "small_gap_up": "📈",
                 "big_gap_down": "⚠️", "gap_down": "📉", "small_gap_down": "📉"}.get(tag, "➡️")
 
-    def _action(tag: str, role: str) -> str:
-        """Context note — describes impact of gap on planned action, not a trade order."""
-        _map = {
-            "holding": {
-                "big_gap_up":    "浮盈扩大，持仓逻辑不变",
-                "gap_up":        "小幅盈利开盘",
-                "small_gap_up":  "开盘平稳",
-                "normal":        "开盘平稳",
-                "small_gap_down":"小幅回调，观察支撑",
-                "gap_down":      "回调开盘，关注支撑位",
-                "big_gap_down":  "大幅回调，重新审视持仓逻辑",
-            },
-            "pick": {
-                # Pre-picks are BUY signals — gap down = cheaper entry, not a reason to skip
-                "big_gap_up":    "入场成本大幅抬升，评估信号强度是否值得追",
-                "gap_up":        "入场成本小幅抬升，信号仍有效",
-                "small_gap_up":  "正常开盘，可按信号介入",
-                "normal":        "正常开盘，可按信号介入",
-                "small_gap_down":"低开提供更优入场价",
-                "gap_down":      "低开提供更优入场价，信号方向不变",
-                "big_gap_down":  "大幅低开，确认趋势后再介入",
-            },
-            "watchlist": {
-                "big_gap_up":    "高开，暂观察",
-                "gap_up":        "小幅高开",
-                "small_gap_up":  "平稳开盘",
-                "normal":        "平稳开盘",
-                "small_gap_down":"小幅低开",
-                "gap_down":      "低开，等稳",
-                "big_gap_down":  "大幅低开，观察",
-            },
-        }
-        return _map.get(role, {}).get(tag, "")
+    def _score_line(code: str) -> str:
+        """Return score-based recommendation string."""
+        s = scores.get(code)
+        if not s or s.get("error"):
+            return "评分不可用"
+        bs = s.get("buy_score",  0)
+        ss = s.get("sell_score", 0)
+        if ss >= _sell_thr:
+            return f"卖出信号 (买:{bs:.0f} 卖:{ss:.0f})"
+        if bs >= _buy_thr:
+            return f"买入信号 (买:{bs:.0f} 卖:{ss:.0f})"
+        return f"中性观察 (买:{bs:.0f} 卖:{ss:.0f})"
 
-    def _fmt_group(title: str, codes_list: list[str], role: str) -> str:
+    def _fmt_group(title: str, codes_list: list[str]) -> str:
         rows = []
         for c in codes_list:
             if c not in verdicts:
                 continue
-            v   = verdicts[c]
-            act = _action(v["tag"], role)
+            v = verdicts[c]
+            name = raw[c]["name"] if c in raw else c
             rows.append((v["gap_pct"], c,
-                         f"- {_icon(v['tag'])} **{raw[c]['name']}** ({c}): "
-                         f"{v['text']}  → {act}"))
+                         f"- {_icon(v['tag'])} **{name}** ({c}): "
+                         f"{v['text']}  |  {_score_line(c)}"))
         if not rows:
             return ""
-        rows.sort(key=lambda x: x[0], reverse=True)   # sort by gap_pct desc
+        rows.sort(key=lambda x: x[0], reverse=True)
         return "## " + title + "\n" + "\n".join(r[2] for r in rows)
 
     sections = []
-    g1 = _fmt_group("持仓开盘情况", hold_codes, "holding")
+    g1 = _fmt_group("持仓开盘情况", hold_codes)
     if g1:
         sections.append(g1)
 
     pick_extra = [c for c in pre_picks if c not in set(hold_codes)]
-    g2 = _fmt_group("预选股（夜间+凌晨）", pick_extra, "pick")
+    g2 = _fmt_group("预选股（夜间+凌晨）", pick_extra)
     if g2:
         sections.append(g2)
 
     wl_extra = [c for c in watchlist
                 if c not in set(hold_codes) and c not in set(pre_picks)][:10]
-    g3 = _fmt_group("热榜自选池", wl_extra, "watchlist")
+    g3 = _fmt_group("热榜自选池", wl_extra)
     if g3:
         sections.append(g3)
 
@@ -1488,11 +1488,13 @@ def run_loop(
                     # Union of 22:00 night picks + 01:00 pre-market picks (deduped, order preserved)
                     _auction_picks = list(dict.fromkeys(_night_picks + _premarket_picks))
                     _check_opening_auction(
-                        holdings  = holdings,
-                        pre_picks = _auction_picks,
-                        watchlist = config.get("watchlist", []),
-                        sendkey   = sendkey,
-                        dry_run   = dry_run,
+                        holdings   = holdings,
+                        pre_picks  = _auction_picks,
+                        watchlist  = config.get("watchlist", []),
+                        sendkey    = sendkey,
+                        dry_run    = dry_run,
+                        weights    = _fw,
+                        thresholds = thresholds,
                     )
                 except Exception as e:
                     print(f"  [竞价检验] 异常: {e}")
