@@ -2,7 +2,10 @@
 Data fetching module — wraps akshare with error handling and caching.
 """
 
+import socket
 import threading
+
+socket.setdefaulttimeout(40)  # 40s cap on all socket ops (akshare HTTP + BaoStock TCP)
 
 import akshare as ak
 import pandas as pd
