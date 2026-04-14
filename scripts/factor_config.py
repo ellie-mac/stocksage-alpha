@@ -172,7 +172,99 @@ SMALLCAP_CONFIG: dict = {
     "top_n":         8,   # 最终输出只数
 }
 
-FACTOR_WEIGHTS_SMALLCAP: dict[str, float] = dict(FACTOR_WEIGHTS_NORMAL)
+# Written as an explicit literal (NOT derived from FACTOR_WEIGHTS_NORMAL) so that
+# updates to the main strategy weights never silently bleed into the small-cap strategy.
+# Re-calibrate by running:
+#   python factor_analysis.py --rolling 6 --step 20 --group AB \
+#       --universe smallcap_universe.json --out factor_ic_smallcap.json
+FACTOR_WEIGHTS_SMALLCAP: dict[str, float] = {
+    # ── Tier 1: ICIR ≥ 1.0 ────────────────────────────────────────────────
+    "div_yield":             2.0,
+    "upper_shadow_reversal": 1.5,
+    "upday_ratio":           1.0,
+    # ── Tier 2 ────────────────────────────────────────────────────────────
+    "return_skewness":       1.0,
+    "market_beta":           1.0,
+    "ma60_deviation":        1.0,
+    "main_inflow":           1.0,
+    "chip_distribution":     0.5,
+    "obv_trend":             0.5,
+    # ── Tier 3 ────────────────────────────────────────────────────────────
+    "cash_flow_quality":     0.5,
+    "roe_trend":             0.5,
+    "divergence":            0.5,
+    # ── Inverted ──────────────────────────────────────────────────────────
+    "intraday_vs_overnight": -1.5,
+    "institutional_visits":  -1.5,
+    "limit_hits":            -1.5,
+    "medium_term_momentum":  -1.0,
+    "overhead_resistance":   -1.0,
+    "quality":               -0.5,
+    "volume":                -0.5,
+    "limit_open_rate":       -0.5,
+}
+
+FACTOR_WEIGHTS_SMALLCAP_CAUTION: dict[str, float] = {
+    "div_yield":             3.0,
+    "return_skewness":       2.5,
+    "ma60_deviation":        2.0,
+    "cash_flow_quality":     2.0,
+    "upper_shadow_reversal": 1.5,
+    "upday_ratio":           1.5,
+    "chip_distribution":     1.0,
+    "divergence":            1.0,
+    "roe_trend":             1.0,
+    "main_inflow":           0.5,
+    "intraday_vs_overnight": -2.0,
+    "institutional_visits":  -2.0,
+    "limit_hits":            -2.0,
+    "medium_term_momentum":  -1.5,
+    "overhead_resistance":   -1.5,
+    "quality":               -0.5,
+    "limit_open_rate":       -0.5,
+    "volume":                -0.5,
+}
+
+FACTOR_WEIGHTS_SMALLCAP_CRISIS: dict[str, float] = {
+    "div_yield":             4.0,
+    "return_skewness":       3.0,
+    "upper_shadow_reversal": 2.0,
+    "upday_ratio":           2.0,
+    "ma60_deviation":        1.5,
+    "cash_flow_quality":     1.5,
+    "intraday_vs_overnight": -2.0,
+    "institutional_visits":  -2.0,
+    "limit_hits":            -2.0,
+    "overhead_resistance":   -1.5,
+    "medium_term_momentum":  -1.0,
+}
+
+FACTOR_WEIGHTS_SMALLCAP_BULL: dict[str, float] = {
+    "main_inflow":           2.0,
+    "chip_distribution":     1.5,
+    "market_beta":           1.5,
+    "upday_ratio":           1.0,
+    "volume":                1.0,
+    "divergence":            1.0,
+    "obv_trend":             1.0,
+    "cash_flow_quality":     1.0,
+    "div_yield":             0.5,
+    "return_skewness":       0.5,
+    "upper_shadow_reversal": 0.5,
+    "limit_hits":            -1.0,
+    "institutional_visits":  -1.0,
+    "intraday_vs_overnight": -1.0,
+    "medium_term_momentum":  -0.5,
+}
+
+REGIME_WEIGHTS_SMALLCAP: dict[str, dict] = {
+    "NORMAL":       FACTOR_WEIGHTS_SMALLCAP,
+    "CAUTION":      FACTOR_WEIGHTS_SMALLCAP_CAUTION,
+    "CRISIS":       FACTOR_WEIGHTS_SMALLCAP_CRISIS,
+    "BULL":         FACTOR_WEIGHTS_SMALLCAP_BULL,
+    "EXTREME_BULL": FACTOR_WEIGHTS_SMALLCAP_BULL,
+    "BEAR":         FACTOR_WEIGHTS_SMALLCAP_CRISIS,
+}
 
 # ---------------------------------------------------------------------------
 # Fixed return-based thresholds for regime classification.

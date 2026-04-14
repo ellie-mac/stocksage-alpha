@@ -38,7 +38,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from research import research
 from factors_extended import score_market_regime
 from factors import DEFAULT_WEIGHTS, weights_from_config_dict
-from factor_config import REGIME_WEIGHTS, SMALLCAP_CONFIG, FACTOR_WEIGHTS_SMALLCAP
+from factor_config import REGIME_WEIGHTS, SMALLCAP_CONFIG, REGIME_WEIGHTS_SMALLCAP
 import fetcher
 import strategy_tracker
 import cache
@@ -1091,7 +1091,7 @@ def run(
     smallcap_enabled = config.get("smallcap", {}).get("enabled", True)
     if not sell_only and smallcap_enabled:
         try:
-            _sc_weights = weights_from_config_dict(FACTOR_WEIGHTS_SMALLCAP)
+            _sc_weights = weights_from_config_dict(REGIME_WEIGHTS_SMALLCAP[_regime_key])
             _score_sc = _partial(_score_one_buy, weights=_sc_weights)
             smallcap_alerts = _run_smallcap_scan(
                 held_codes=held_codes if not sell_only else set(),
