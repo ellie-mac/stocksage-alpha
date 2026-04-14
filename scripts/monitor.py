@@ -739,68 +739,72 @@ def _check_opening_auction(
 
     # ── Format WeChat message ──────────────────────────────────────────────────
     def _icon(tag: str) -> str:
-        if tag in ("big_gap_up",):   return "⚠️"
-        if tag in ("gap_up",):       return "📈"
-        if tag in ("small_gap_up",): return "📈"
-        if tag in ("big_gap_down",): return "⚠️"
-        if tag in ("gap_down",):     return "📉"
-        if tag in ("small_gap_down",): return "📉"
-        return "➡️"
+        return {"big_gap_up": "⚠️", "gap_up": "📈", "small_gap_up": "📈",
+                "big_gap_down": "⚠️", "gap_down": "📉", "small_gap_down": "📉"}.get(tag, "➡️")
 
-    def _fmt_group(title: str, codes_list: list[str]) -> str:
-        lines = [f"## {title}"]
-        shown = False
+    def _action(tag: str, role: str) -> str:
+        """Brief action hint based on gap tag and stock role."""
+        _map = {
+            "holding": {
+                "big_gap_up":    "可考虑高位减仓",
+                "gap_up":        "持有，注意追高风险",
+                "small_gap_up":  "正常持有",
+                "normal":        "正常持有",
+                "small_gap_down":"小幅低开，继续观察",
+                "gap_down":      "注意止损位",
+                "big_gap_down":  "大幅低开，重新评估",
+            },
+            "pick": {
+                "big_gap_up":    "高开成本高，等回踩再买",
+                "gap_up":        "小幅高开，可少量试探",
+                "small_gap_up":  "正常开盘，可按计划买入",
+                "normal":        "正常开盘，可按计划买入",
+                "small_gap_down":"低开，确认方向后再买",
+                "gap_down":      "低开，暂缓观望",
+                "big_gap_down":  "大幅低开，暂缓买入",
+            },
+            "watchlist": {
+                "big_gap_up":    "高开，等回踩",
+                "gap_up":        "小幅高开，可关注",
+                "small_gap_up":  "正常，可关注",
+                "normal":        "正常，可关注",
+                "small_gap_down":"低开，先观察",
+                "gap_down":      "低开，观望",
+                "big_gap_down":  "大幅低开，观望",
+            },
+        }
+        return _map.get(role, {}).get(tag, "")
+
+    def _fmt_group(title: str, codes_list: list[str], role: str) -> str:
+        rows = []
         for c in codes_list:
             if c not in verdicts:
                 continue
-            v = verdicts[c]
-            lines.append(f"- {_icon(v['tag'])} **{raw[c]['name']}** ({c}): {v['text']}")
-            shown = True
-        return "\n".join(lines) if shown else ""
+            v   = verdicts[c]
+            act = _action(v["tag"], role)
+            rows.append((v["gap_pct"], c,
+                         f"- {_icon(v['tag'])} **{raw[c]['name']}** ({c}): "
+                         f"{v['text']}  → {act}"))
+        if not rows:
+            return ""
+        rows.sort(key=lambda x: x[0], reverse=True)   # sort by gap_pct desc
+        return "## " + title + "\n" + "\n".join(r[2] for r in rows)
 
     sections = []
-    g1 = _fmt_group("持仓开盘情况", hold_codes)
+    g1 = _fmt_group("持仓开盘情况", hold_codes, "holding")
     if g1:
         sections.append(g1)
 
     pick_extra = [c for c in pre_picks if c not in set(hold_codes)]
-    g2 = _fmt_group("昨夜预选股", pick_extra)
+    g2 = _fmt_group("预选股（夜间+凌晨）", pick_extra, "pick")
     if g2:
         sections.append(g2)
 
     wl_extra = [c for c in watchlist
                 if c not in set(hold_codes) and c not in set(pre_picks)][:10]
-    g3 = _fmt_group("自选池", wl_extra)
+    g3 = _fmt_group("热榜自选池", wl_extra, "watchlist")
     if g3:
         sections.append(g3)
-
-    # Actionable advice for notable gaps
-    advice = []
-    for c in hold_codes:
-        if c not in verdicts:
-            continue
-        tag = verdicts[c]["tag"]
-        gp  = verdicts[c]["gap_pct"]
-        ng  = verdicts[c].get("norm_gap") or 0
-        nm  = raw[c]["name"]
-        if tag == "big_gap_down":
-            advice.append(f"- **{nm}** 大幅低开，确认止损位是否仍然有效")
-        elif tag == "big_gap_up" and ng >= 3.0:
-            advice.append(f"- **{nm}** 极端高开（{ng}×ATR），可考虑逢高减仓")
-
-    for c in pick_extra:
-        if c not in verdicts:
-            continue
-        tag = verdicts[c]["tag"]
-        gp  = verdicts[c]["gap_pct"]
-        nm  = raw[c]["name"]
-        if tag == "big_gap_up":
-            advice.append(f"- **{nm}** 高开 {gp:+.1f}%，买入成本已抬升，等回踩或降仓位")
-        elif tag in ("big_gap_down", "gap_down"):
-            advice.append(f"- **{nm}** 低开 {gp:+.1f}%，与预选信号方向相悖，观望为宜")
-
-    if advice:
-        sections.append("## 操作参考\n" + "\n".join(advice))
 
     if not sections:
         print("  [竞价检验] 无数据可推送，跳过")
@@ -1480,8 +1484,8 @@ def run_loop(
             if session_key == "morning" and _auction_checked_date != now.date():
                 _auction_checked_date = now.date()
                 try:
-                    # Use 22:00 night picks as primary; fall back to 01:00 pre-market picks
-                    _auction_picks = _night_picks or _premarket_picks
+                    # Union of 22:00 night picks + 01:00 pre-market picks (deduped, order preserved)
+                    _auction_picks = list(dict.fromkeys(_night_picks + _premarket_picks))
                     _check_opening_auction(
                         holdings  = holdings,
                         pre_picks = _auction_picks,
