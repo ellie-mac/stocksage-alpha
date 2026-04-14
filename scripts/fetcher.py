@@ -483,6 +483,11 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                     while rs.error_code == "0" and rs.next():
                         result.append(rs.get_row_data())
                     return result, rs.fields
+                except OSError:
+                    # WinError 10038 / broken socket — reset so next caller gets
+                    # a fresh login instead of reusing the dead connection.
+                    _reset_baostock()
+                    return [], []
                 finally:
                     _bs_lock.release()
 
