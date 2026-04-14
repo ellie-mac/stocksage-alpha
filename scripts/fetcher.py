@@ -1349,25 +1349,60 @@ def get_concept_momentum(code: str) -> Optional[list]:
 
 
 def get_market_valuation() -> Optional[pd.DataFrame]:
-    """Fetch market/sector-level PE and PB context from AKShare.
+    """Fetch index-level PE context. Returns daily history with columns:
+    date, market_pe (TTM), and optionally market_cap / market_dv.
 
-    Returns a DataFrame with two sections merged:
-      - Market-wide PE/PB: 上证A股 daily history (乐咕乐股)
-      - Sector PE snapshot: 申万一级行业 current PE/PB/dividend
+    Source priority:
+      1. AKShare 乐咕乐股  (stock_market_pe_lg, 上证A股, 1600+ days)
+      2. AKShare 乐咕乐股  (stock_index_pe_lg, 沪深300, 5100+ days — different endpoint)
+      3. CSI 官网          (stock_zh_index_value_csindex, 000300, last ~20 trading days)
 
-    Cached for 24h (after close the day's market PE is final).
+    Cached until next market open.
     """
     cache_key = "market_valuation"
     cached = cache.get_df(cache_key, cache.smart_valuation_ttl())
     if cached is not None:
         return cached
 
-    # ── Market-level PE (上证A股 daily history) ───────────────────────────
+    # ── Source 1: 乐咕乐股 上证A股 broad-market PE ─────────────────────────
     try:
         df = ak.stock_market_pe_lg(symbol="上证A股")
         if df is not None and not df.empty:
             df.columns = [c.strip() for c in df.columns]
             df = df.rename(columns={"日期": "date", "总市值": "market_cap", "市盈率": "market_pe"})
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values("date").reset_index(drop=True)
+            cache.set_df(cache_key, df)
+            return df
+    except Exception:
+        pass
+
+    # ── Source 2: 乐咕乐股 沪深300 index PE (different endpoint/server) ────
+    try:
+        df = ak.stock_index_pe_lg(symbol="沪深300")
+        if df is not None and not df.empty:
+            df.columns = [c.strip() for c in df.columns]
+            pe_col = next(
+                (c for c in df.columns if "滚动市盈率" in c
+                 and "中位" not in c and "等权" not in c),
+                next((c for c in df.columns if "市盈率" in c), None),
+            )
+            df = df.rename(columns={"日期": "date"})
+            if pe_col:
+                df = df.rename(columns={pe_col: "market_pe"})
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values("date").reset_index(drop=True)
+            cache.set_df(cache_key, df)
+            return df
+    except Exception:
+        pass
+
+    # ── Source 3: CSI 官网 (中证指数, 沪深300, last ~20 trading days) ──────
+    try:
+        df = ak.stock_zh_index_value_csindex(symbol="000300")
+        if df is not None and not df.empty:
+            df.columns = [c.strip() for c in df.columns]
+            df = df.rename(columns={"日期": "date", "市盈率2": "market_pe", "股息率2": "market_dv"})
             df["date"] = pd.to_datetime(df["date"])
             df = df.sort_values("date").reset_index(drop=True)
             cache.set_df(cache_key, df)
