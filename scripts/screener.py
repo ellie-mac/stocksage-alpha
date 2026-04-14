@@ -310,6 +310,15 @@ def screen_stocks(
 
     df = df_full_raw[~df_full_raw["名称"].str.contains("ST|退", na=False)].copy()
 
+    # Filter out suspended stocks
+    try:
+        suspended = fetcher.get_suspended_codes()
+        if suspended:
+            before = len(df)
+            df = df[~df["代码"].isin(suspended)].copy()
+    except Exception:
+        pass
+
     # Rename columns
     rename_map = {
         "代码": "code",          "名称": "name",

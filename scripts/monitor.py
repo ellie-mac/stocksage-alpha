@@ -968,6 +968,17 @@ def run(
             fetcher.get_realtime_quote("000001")
         except Exception:
             pass
+        # Filter suspended stocks before scoring
+        try:
+            suspended = fetcher.get_suspended_codes()
+            if suspended:
+                universe_filtered = [c for c in universe if c not in suspended]
+                if len(universe_filtered) < len(universe):
+                    print(f"  [Suspension] Filtered {len(universe)-len(universe_filtered)} suspended stock(s)")
+                universe = universe_filtered
+        except Exception:
+            pass
+
         scored_universe: list[dict] = []
         with ThreadPoolExecutor(max_workers=8) as ex:
             futures = {ex.submit(_score_one_buy_w, code): code for code in universe}

@@ -19,7 +19,8 @@ _spot_em_failed_at: float = 0.0
 _SPOT_RETRY_SEC = 300         # retry after 5 min (avoids permanent lock-out on transient failure)
 _hist_em_failed = False  # once set True, skip stock_zh_a_hist and go straight to fallback
 _hist_ts_failed = False  # once set True, skip Tushare daily this session
-_hist_tdx_failed = False  # once set True, skip mootdx this session
+_hist_tdx_failed = False  # once set True, skip mootdx for price history this session
+_rt_tdx_failed   = False  # once set True, skip mootdx for realtime quotes this session
 
 _ts_pro = None           # Tushare Pro API handle; initialised lazily from alert_config token
 
@@ -407,6 +408,55 @@ def _get_realtime_quote_sina(code: str) -> Optional[dict]:
         return None
 
 
+def _get_realtime_quote_tdx(code: str) -> Optional[dict]:
+    """
+    mootdx/通达信 real-time quote via binary TCP.
+    Current price is always unadjusted (== actual market price), so no
+    adjustment needed for realtime — this is the correct value to display
+    and compare against cost_price.
+    """
+    global _rt_tdx_failed
+    if _rt_tdx_failed:
+        return None
+    try:
+        from mootdx.quotes import Quotes as _MootdxQuotes
+        _tdx = _MootdxQuotes.factory(market='std')
+        mkt = 1 if _market_from_code(code) == "sh" else 0
+        df = _tdx.quotes(security_list=[(mkt, code)])
+        if df is None or df.empty:
+            return None
+        r = df.iloc[0]
+        price      = float(r.get("price",      0) or 0)
+        prev_close = float(r.get("last_close",  0) or r.get("pre_close", 0) or 0)
+        open_p     = float(r.get("open",        0) or 0)
+        high       = float(r.get("high",        0) or 0)
+        low        = float(r.get("low",         0) or 0)
+        vol        = float(r.get("vol",         r.get("volume", 0)) or 0)
+        amount     = float(r.get("amount",      0) or 0)
+        if price <= 0:
+            return None
+        change_amt = round(price - prev_close, 4) if prev_close else 0.0
+        change_pct = round(change_amt / prev_close * 100, 2) if prev_close else 0.0
+        return {
+            "code":       code,
+            "name":       str(r.get("name", "")),
+            "price":      price,
+            "change_pct": change_pct,
+            "change_amt": change_amt,
+            "open":       open_p,
+            "prev_close": prev_close,
+            "high":       high,
+            "low":        low,
+            "volume":     vol,
+            "amount":     amount,
+        }
+    except ImportError:
+        _rt_tdx_failed = True
+        return None
+    except Exception:
+        return None
+
+
 def get_realtime_quote(code: str) -> Optional[dict]:
     """Return real-time quote fields for a single stock code."""
     try:
@@ -439,11 +489,14 @@ def get_realtime_quote(code: str) -> Optional[dict]:
                     "return_10d":    float(r.get("10日涨跌幅", 0) or 0),
                     "return_20d":    float(r.get("20日涨跌幅", 0) or 0),
                 }
-        # East Money full-market fetch failed — fall back to Sina, then Tencent
+        # East Money full-market fetch failed — fall back to Sina, then Tencent, then mootdx
         result = _get_realtime_quote_sina(code)
         if result:
             return result
-        return _get_realtime_quote_tencent(code)
+        result = _get_realtime_quote_tencent(code)
+        if result:
+            return result
+        return _get_realtime_quote_tdx(code)
     except Exception as e:
         return {"error": f"Failed to fetch quote: {e}"}
 
