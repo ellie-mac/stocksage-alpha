@@ -18,6 +18,7 @@ _spot_em_failed = False       # True after a timeout; reset after _SPOT_RETRY_SE
 _spot_em_failed_at: float = 0.0
 _SPOT_RETRY_SEC = 300         # retry after 5 min (avoids permanent lock-out on transient failure)
 _hist_em_failed = False  # once set True, skip stock_zh_a_hist and go straight to fallback
+_hist_ts_failed = False  # once set True, skip Tushare daily this session
 _hist_tdx_failed = False  # once set True, skip mootdx this session
 
 _ts_pro = None           # Tushare Pro API handle; initialised lazily from alert_config token
@@ -477,11 +478,12 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
 
     Source priority:
       1. East Money  (stock_zh_a_hist)   — best adjusted (qfq) data
-      2. mootdx/通达信                   — binary TCP, very stable; unadjusted (fallback)
+      2. Tushare Pro (daily, adj=qfq)    — basic tier, reliable; data available 15:00-16:00
       3. BaoStock                         — free, no V8; single-socket, Windows-fragile
-      4. 163/Netease (stock_zh_a_daily)  — V8-based; last resort
+      4. 163/Netease (stock_zh_a_daily)  — V8-based
+      5. mootdx/通达信                   — binary TCP; unadjusted (last resort)
     """
-    global _hist_em_failed, _hist_tdx_failed
+    global _hist_em_failed, _hist_ts_failed, _hist_tdx_failed
     fetch_days = max(days, _PRICE_FETCH_DAYS)
     cache_key = f"price_{code}_{fetch_days}"
     cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY)
@@ -517,40 +519,41 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         except Exception:
             _hist_em_failed = True  # fail fast for all subsequent calls this session
 
-    # ── Source 2: mootdx / 通达信 (binary TCP, very stable) ─────────────
-    # Note: returns unadjusted prices (no built-in qfq). Acceptable as fallback
-    # since most A-share stocks have infrequent splits within a 550d window.
-    if not _hist_tdx_failed:
+    # ── Source 2: Tushare Pro daily (adj=qfq) ────────────────────────────
+    # Basic tier (120pts), 500 calls/min, data available ~15:00-16:00 each day.
+    if not _hist_ts_failed:
         try:
-            from mootdx.quotes import Quotes as _MootdxQuotes  # lazy import
-            _tdx = _MootdxQuotes.factory(market='std')
-            df = _tdx.bars(symbol=code, frequency=9, offset=fetch_days + 50)
-            if df is not None and not df.empty:
-                # index name = 'datetime', and there's also a 'datetime' column — drop index
-                # mootdx returns both 'vol' and 'volume' (same data); drop 'vol' to avoid dupe
-                df = df.reset_index(drop=True)
-                if "vol" in df.columns and "volume" in df.columns:
-                    df = df.drop(columns=["vol"])
-                elif "vol" in df.columns:
-                    df = df.rename(columns={"vol": "volume"})
-                df["date"] = pd.to_datetime(df["datetime"]).dt.normalize()
-                for col in ["open", "high", "low", "close", "volume"]:
-                    if col in df.columns:
-                        df[col] = pd.to_numeric(df[col], errors="coerce")
-                df = df.sort_values("date").reset_index(drop=True)
-                df["change_pct"] = df["close"].pct_change() * 100
-                df["change_amt"] = df["close"].diff()
-                cutoff = pd.Timestamp.now() - pd.Timedelta(days=fetch_days + 10)
-                df = df[df["date"] >= cutoff].reset_index(drop=True)
-                if not df.empty:
-                    cache.set_df(cache_key, df)
-                    if len(df) > days:
-                        return df.tail(days).reset_index(drop=True)
-                    return df
-        except ImportError:
-            _hist_tdx_failed = True  # mootdx not installed
+            pro = _get_tushare_pro()
+            if pro is None:
+                _hist_ts_failed = True
+            else:
+                ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
+                end_ts = datetime.now()
+                start_ts = end_ts - timedelta(days=fetch_days + 10)
+                df = pro.daily(
+                    ts_code=ts_code,
+                    adj="qfq",
+                    start_date=start_ts.strftime("%Y%m%d"),
+                    end_date=end_ts.strftime("%Y%m%d"),
+                    fields="trade_date,open,high,low,close,vol,amount,pct_chg,change",
+                )
+                if df is not None and not df.empty:
+                    df = df.rename(columns={
+                        "trade_date": "date", "vol": "volume",
+                        "pct_chg": "change_pct", "change": "change_amt",
+                    })
+                    df["date"] = pd.to_datetime(df["date"])
+                    df = df.sort_values("date").reset_index(drop=True)
+                    for col in ["open", "high", "low", "close", "volume", "change_pct", "change_amt"]:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors="coerce")
+                    if not df.empty:
+                        cache.set_df(cache_key, df)
+                        if len(df) > days:
+                            return df.tail(days).reset_index(drop=True)
+                        return df
         except Exception:
-            _hist_tdx_failed = True
+            _hist_ts_failed = True
 
     # ── Source 3: BaoStock (free, no V8, reliable) ───────────────────────
     # BaoStock's Python client is NOT thread-safe: all concurrent callers share
@@ -655,7 +658,42 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         cache.set_df(cache_key, df)
         return df
     except Exception:
-        return None
+        pass
+
+    # ── Source 5: mootdx / 通达信 (unadjusted — last resort) ─────────────
+    # WARNING: returns unadjusted prices. Price-based factors (momentum, MA, etc.)
+    # may be slightly off for stocks with recent corporate actions.
+    if not _hist_tdx_failed:
+        try:
+            from mootdx.quotes import Quotes as _MootdxQuotes  # lazy import
+            _tdx = _MootdxQuotes.factory(market='std')
+            df = _tdx.bars(symbol=code, frequency=9, offset=fetch_days + 50)
+            if df is not None and not df.empty:
+                df = df.reset_index(drop=True)
+                if "vol" in df.columns and "volume" in df.columns:
+                    df = df.drop(columns=["vol"])
+                elif "vol" in df.columns:
+                    df = df.rename(columns={"vol": "volume"})
+                df["date"] = pd.to_datetime(df["datetime"]).dt.normalize()
+                for col in ["open", "high", "low", "close", "volume"]:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors="coerce")
+                df = df.sort_values("date").reset_index(drop=True)
+                df["change_pct"] = df["close"].pct_change() * 100
+                df["change_amt"] = df["close"].diff()
+                cutoff = pd.Timestamp.now() - pd.Timedelta(days=fetch_days + 10)
+                df = df[df["date"] >= cutoff].reset_index(drop=True)
+                if not df.empty:
+                    cache.set_df(cache_key, df)
+                    if len(df) > days:
+                        return df.tail(days).reset_index(drop=True)
+                    return df
+        except ImportError:
+            _hist_tdx_failed = True
+        except Exception:
+            _hist_tdx_failed = True
+
+    return None
 
 
 def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
@@ -663,7 +701,6 @@ def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
 
     Source priority:
       1. akshare EM  (stock_a_lg_indicator)
-      2. Tushare Pro (daily_basic) — requires tushare.token in alert_config.json
     """
     cache_key = f"valuation_{code}"
     cached = cache.get_df(cache_key, cache.TTL_VALUATION)
@@ -688,25 +725,6 @@ def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
-    # ── Source 2: Tushare Pro ─────────────────────────────────────────────
-    try:
-        pro = _get_tushare_pro()
-        if pro is not None:
-            ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
-            df = pro.daily_basic(ts_code=ts_code, fields=(
-                "trade_date,pe,pe_ttm,pb,ps,ps_ttm,dv_ratio,total_mv"
-            ))
-            if df is not None and not df.empty:
-                df = df.rename(columns={
-                    "trade_date": "date", "dv_ratio": "div_yield", "total_mv": "market_cap"
-                })
-                df["date"] = pd.to_datetime(df["date"])
-                df = df.sort_values("date").reset_index(drop=True)
-                cache.set_df(cache_key, df)
-                return df
-    except Exception:
-        pass
-
     return None
 
 
@@ -715,7 +733,7 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
 
     Source priority:
       1. akshare EM  (stock_financial_analysis_indicator)
-      2. Tushare Pro (fina_indicator) — requires tushare.token in alert_config.json
+      2. akshare THS (stock_financial_abstract_ths) — 同花顺, different server
     """
     cache_key = f"financial_{code}"
     cached = cache.get_df(cache_key, cache.TTL_FINANCIAL)
@@ -732,7 +750,32 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
-    # Tushare fina_indicator requires 2000 pts — not available on free tier.
+    # ── Source 2: akshare 同花顺 (stock_financial_abstract_ths) ──────────
+    try:
+        df = ak.stock_financial_abstract_ths(symbol=code, indicator="按年度")
+        if df is not None and not df.empty:
+            df = df.reset_index(drop=True)
+            df.columns = [c.strip() for c in df.columns]
+            # Map THS column names to the standard names factors expect
+            rename = {
+                "报告期": "date",
+                "摊薄净资产收益率": "净资产收益率",
+                "净资产收益率(加权)": "加权净资产收益率",
+                "销售净利率": "销售净利润率",
+                "营业总收入": "营业收入",
+                "营业总收入同比增长率": "营业收入同比增长率(%)",
+                "净利润同比增长率": "净利润同比增长率(%)",
+                "每股经营现金流量": "每股经营性现金流(元)",
+            }
+            df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                df = df.sort_values("date").reset_index(drop=True)
+            cache.set_df(cache_key, df)
+            return df
+    except Exception:
+        pass
+
     return None
 
 
