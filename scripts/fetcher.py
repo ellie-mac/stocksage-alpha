@@ -20,6 +20,28 @@ _SPOT_RETRY_SEC = 300         # retry after 5 min (avoids permanent lock-out on 
 _hist_em_failed = False  # once set True, skip stock_zh_a_hist and go straight to fallback
 _hist_tdx_failed = False  # once set True, skip mootdx this session
 
+_ts_pro = None           # Tushare Pro API handle; initialised lazily from alert_config token
+
+
+def _get_tushare_pro():
+    """Return a cached tushare Pro API handle, or None if token not configured / import fails."""
+    global _ts_pro
+    if _ts_pro is not None:
+        return _ts_pro
+    try:
+        import tushare as ts
+        import json, os
+        cfg_path = os.path.join(os.path.dirname(__file__), "..", "alert_config.json")
+        with open(cfg_path, encoding="utf-8") as _f:
+            token = json.load(_f).get("tushare", {}).get("token", "")
+        if not token:
+            return None
+        ts.set_token(token)
+        _ts_pro = ts.pro_api()
+        return _ts_pro
+    except Exception:
+        return None
+
 # Module-level caches for full-market LHB and shareholder snapshots.
 # Both are refreshed lazily; the helpers below are the only writers.
 _lhb_cache: dict = {"df": None, "ts": 0.0}   # {"df": DataFrame, "ts": float}
@@ -308,6 +330,53 @@ def _warm_sina_cache(codes: list) -> None:
             _sina_cache_ts = _t.time()
 
 
+def _get_realtime_quote_tencent(code: str) -> Optional[dict]:
+    """
+    Tencent Finance real-time quote via qt.gtimg.cn.
+    Field layout (split by '~'):
+      [1]=name [2]=code [3]=price [4]=prev_close [5]=open [6]=volume(手)
+      [31]=change_amt [32]=change_pct(%) [33]=high [34]=low
+      [36]=volume(手) [37]=amount(万元) [38]=turnover_rate [39]=pe_ttm
+    """
+    import urllib.request as _ur
+    market = _market_from_code(code)
+    if market == "bj":
+        return None
+    key = f"{market}{code}"
+    url = f"https://qt.gtimg.cn/q={key}"
+    try:
+        req = _ur.Request(url, headers={"Referer": "https://finance.qq.com"})
+        with _ur.urlopen(req, timeout=5) as resp:
+            text = resp.read().decode("gbk", errors="replace")
+        if '"' not in text:
+            return None
+        inner = text.split('"')[1]
+        parts = inner.split("~")
+        if len(parts) < 38 or not parts[3]:
+            return None
+        price      = float(parts[3] or 0)
+        prev_close = float(parts[4] or 0)
+        change_amt = float(parts[31] or 0) if len(parts) > 31 else price - prev_close
+        change_pct = float(parts[32] or 0) if len(parts) > 32 else 0.0
+        return {
+            "code":         code,
+            "name":         parts[1],
+            "price":        price,
+            "change_pct":   round(change_pct, 2),
+            "change_amt":   round(change_amt, 3),
+            "open":         float(parts[5] or 0),
+            "prev_close":   prev_close,
+            "high":         float(parts[33] or 0) if len(parts) > 33 else 0.0,
+            "low":          float(parts[34] or 0) if len(parts) > 34 else 0.0,
+            "volume":       float(parts[36] or 0) if len(parts) > 36 else float(parts[6] or 0),
+            "amount":       float(parts[37] or 0) * 10000 if len(parts) > 37 else 0.0,
+            "turnover_rate": float(parts[38] or 0) if len(parts) > 38 else 0.0,
+            "pe_ttm":       float(parts[39] or 0) if len(parts) > 39 else 0.0,
+        }
+    except Exception:
+        return None
+
+
 def _get_realtime_quote_sina(code: str) -> Optional[dict]:
     """
     Fallback: return quote from module-level Sina cache (populated by _warm_sina_cache).
@@ -368,8 +437,11 @@ def get_realtime_quote(code: str) -> Optional[dict]:
                     "return_10d":    float(r.get("10日涨跌幅", 0) or 0),
                     "return_20d":    float(r.get("20日涨跌幅", 0) or 0),
                 }
-        # East Money full-market fetch failed — fall back to Sina per-stock API
-        return _get_realtime_quote_sina(code)
+        # East Money full-market fetch failed — fall back to Sina, then Tencent
+        result = _get_realtime_quote_sina(code)
+        if result:
+            return result
+        return _get_realtime_quote_tencent(code)
     except Exception as e:
         return {"error": f"Failed to fetch quote: {e}"}
 
@@ -587,43 +659,96 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
 
 
 def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
-    """Fetch historical PE/PB valuation data. Cached for 24 hours."""
+    """Fetch historical PE/PB valuation data. Cached for 24 hours.
+
+    Source priority:
+      1. akshare EM  (stock_a_lg_indicator)
+      2. Tushare Pro (daily_basic) — requires tushare.token in alert_config.json
+    """
     cache_key = f"valuation_{code}"
     cached = cache.get_df(cache_key, cache.TTL_VALUATION)
     if cached is not None:
         return cached
+
+    # ── Source 1: akshare East Money ─────────────────────────────────────
     try:
         df = ak.stock_a_lg_indicator(symbol=code)
-        df.columns = [c.strip() for c in df.columns]
-        df = df.rename(columns={
-            "trade_date": "date", "pe": "pe", "pe_ttm": "pe_ttm",
-            "pb": "pb", "ps": "ps", "ps_ttm": "ps_ttm",
-            "dv_ratio": "div_yield", "dv_ttm": "div_yield_ttm",
-            "total_mv": "market_cap",
-        })
-        df["date"] = pd.to_datetime(df["date"])
-        df = df.sort_values("date").reset_index(drop=True)
-        cache.set_df(cache_key, df)
-        return df
+        if df is not None and not df.empty:
+            df.columns = [c.strip() for c in df.columns]
+            df = df.rename(columns={
+                "trade_date": "date", "pe": "pe", "pe_ttm": "pe_ttm",
+                "pb": "pb", "ps": "ps", "ps_ttm": "ps_ttm",
+                "dv_ratio": "div_yield", "dv_ttm": "div_yield_ttm",
+                "total_mv": "market_cap",
+            })
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values("date").reset_index(drop=True)
+            cache.set_df(cache_key, df)
+            return df
     except Exception:
-        return None
+        pass
+
+    # ── Source 2: Tushare Pro ─────────────────────────────────────────────
+    try:
+        pro = _get_tushare_pro()
+        if pro is not None:
+            ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
+            df = pro.daily_basic(ts_code=ts_code, fields=(
+                "trade_date,pe,pe_ttm,pb,ps,ps_ttm,dv_ratio,total_mv"
+            ))
+            if df is not None and not df.empty:
+                df = df.rename(columns={
+                    "trade_date": "date", "dv_ratio": "div_yield", "total_mv": "market_cap"
+                })
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.sort_values("date").reset_index(drop=True)
+                cache.set_df(cache_key, df)
+                return df
+    except Exception:
+        pass
+
+    return None
 
 
 def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
-    """Fetch financial indicators (ROE, margins, growth rates). Cached for 7 days."""
+    """Fetch financial indicators (ROE, margins, growth rates). Cached for 7 days.
+
+    Source priority:
+      1. akshare EM  (stock_financial_analysis_indicator)
+      2. Tushare Pro (fina_indicator) — requires tushare.token in alert_config.json
+    """
     cache_key = f"financial_{code}"
     cached = cache.get_df(cache_key, cache.TTL_FINANCIAL)
     if cached is not None:
         return cached
+
+    # ── Source 1: akshare East Money ─────────────────────────────────────
     try:
         df = ak.stock_financial_analysis_indicator(symbol=code, start_year="2020")
-        if df is None or df.empty:
-            return None
-        df = df.reset_index(drop=True)
-        cache.set_df(cache_key, df)
-        return df
+        if df is not None and not df.empty:
+            df = df.reset_index(drop=True)
+            cache.set_df(cache_key, df)
+            return df
     except Exception:
-        return None
+        pass
+
+    # ── Source 2: Tushare Pro ─────────────────────────────────────────────
+    try:
+        pro = _get_tushare_pro()
+        if pro is not None:
+            ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
+            df = pro.fina_indicator(ts_code=ts_code, fields=(
+                "ann_date,end_date,roe,roe_dt,roa,grossprofit_margin,"
+                "netprofit_margin,revenue_yoy,netprofit_yoy,assets_yoy"
+            ))
+            if df is not None and not df.empty:
+                df = df.sort_values("end_date", ascending=False).reset_index(drop=True)
+                cache.set_df(cache_key, df)
+                return df
+    except Exception:
+        pass
+
+    return None
 
 
 def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
