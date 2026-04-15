@@ -114,7 +114,7 @@ def _send_wechat_notify(title: str, content: str):
     import urllib.request, urllib.parse
     try:
         # ── PushPlus (reads from root alert_config.json) ──────────────────────
-        main_cfg_file = REPO_ROOT / "scripts" / "alert_config.json"
+        main_cfg_file = REPO_ROOT / "alert_config.json"
         if main_cfg_file.exists():
             main_cfg = json.loads(main_cfg_file.read_text(encoding="utf-8"))
             pp_token = main_cfg.get("pushplus", {}).get("token", "").strip()
@@ -488,18 +488,8 @@ _PINYIN_PREFIX: dict[str, str] = {
 
 
 def obfuscate_stock_name(name: str) -> str:
-    """
-    Obfuscate stock name per XHS content policy.
-    Replaces first 2 chars with pinyin initials when known; otherwise drops first char.
-    2-char names are left unchanged (already abbreviated enough).
-    """
-    if not name or len(name) <= 2:
-        return name
-    for prefix, pinyin in _PINYIN_PREFIX.items():
-        if name.startswith(prefix):
-            return pinyin + name[len(prefix):]
-    # Fallback: drop first character
-    return name[1:]
+    """Return the stock name as-is (obfuscation disabled — user handles compliance manually)."""
+    return name
 
 
 # ---------------------------------------------------------------------------
