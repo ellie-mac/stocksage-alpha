@@ -448,14 +448,27 @@ def _fmt_buy_section_md(buy_alerts: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _fmt_holdings_table_md(scored_holdings: list[dict]) -> str:
+def _fmt_holdings_table_md(scored_holdings: list[dict],
+                           sell_trigger: float = 60,
+                           buy_trigger: float = 65) -> str:
+    """Compact inline format: 3 holdings per row, flagged with ✅/🔴 when threshold crossed."""
     if not scored_holdings:
         return ""
-    rows = []
+    chips = []
     for s in scored_holdings:
-        rows.append(
-            f"- **{s['name']}** 卖:{s['sell_score']:.0f} 买:{s['buy_score']:.0f}"
-        )
+        name = s["name"]
+        sell = s["sell_score"]
+        buy  = s["buy_score"]
+        flag = ""
+        if sell >= sell_trigger:
+            flag = "🔴"
+        elif buy >= buy_trigger:
+            flag = "✅"
+        chips.append(f"【{name}】卖{sell:.0f}买{buy:.0f}{flag}")
+    # Group 3 per row
+    rows = []
+    for i in range(0, len(chips), 3):
+        rows.append("  ".join(chips[i:i+3]))
     return "\n".join(rows)
 
 
@@ -476,7 +489,9 @@ def build_wechat_desp(
     parts.append(_fmt_buy_section_md(buy_alerts))
     if scored_holdings:
         parts.append("## 当前持仓\n")
-        parts.append(_fmt_holdings_table_md(scored_holdings))
+        parts.append(_fmt_holdings_table_md(scored_holdings,
+                                            sell_trigger=sell_trigger,
+                                            buy_trigger=65))
     parts.append("\n\n> 仅供参考，不构成投资建议")
     return "\n".join(parts)
 
