@@ -19,7 +19,12 @@ Regime logic (CSI 300 prior-20d return signal):
 """
 
 # ---------------------------------------------------------------------------
-# NORMAL regime — full IC-calibrated weights (2026-04-15, 705-stock run).
+# NORMAL regime — IC-calibrated weights.
+# Primary source: 6p-Group-A 200-stock run (2026-04-15, factor_ic_main.json).
+# Supplemented by: 12p-Group-AB 154-stock run (bbj0sci1b, factor_ic.json) —
+#   added roe_trend (ICIR=0.551) and upday_ratio (ICIR=0.717) from this run.
+#   Unstable signals (momentum, volume, cash_flow_quality) kept at prior weights
+#   pending 24p backtest validation.
 # ---------------------------------------------------------------------------
 FACTOR_WEIGHTS: dict[str, float] = {
     # ── Tier 1: ICIR ≥ 1.0 ────────────────────────────────────────────────
@@ -30,8 +35,10 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "div_yield":             1.0,   # IC=+0.0281, ICIR=0.959 (was 2.0; ICIR normalised with larger sample)
     "position_52w":          1.0,   # IC=+0.1154, ICIR=0.934 (new: nearness to 52w high is positive)
     "growth":                1.0,   # IC=+0.0545, ICIR=0.900 (new activation)
+    "upday_ratio":           0.5,   # IC=+0.0564, ICIR=+0.717 (new: 12p-AB run; up-day frequency = trend quality)
+    "roe_trend":             0.5,   # IC=+0.0642, ICIR=+0.551 (new: 12p-AB run; ROE improvement = quality momentum)
     "main_inflow":           0.5,   # IC=+0.0546, ICIR=0.568
-    "volume":                0.5,   # IC=+0.0195, ICIR=0.562
+    "volume":                0.5,   # IC=+0.0195, ICIR=0.562 (unstable vs 12p-AB; monitor via backtest)
     "medium_term_momentum":  0.5,   # IC=+0.0567, ICIR=0.541 (FLIPPED: was -0.5; large-cap momentum works)
     "market_beta":           0.5,   # IC=+0.0451, ICIR=0.483
     "momentum":              0.5,   # IC=+0.0772, ICIR=0.435
@@ -125,7 +132,9 @@ FACTOR_WEIGHTS_CAUTION: dict[str, float] = {
     "div_yield":             2.0,   # ICIR=0.959; yield = capital preservation
     "position_52w":          1.5,   # ICIR=0.934; relative strength = resilient stocks
     "growth":                1.0,   # ICIR=0.900; quality growth survives corrections
+    "roe_trend":             1.0,   # ICIR=0.551; ROE improvement = quality resilience in corrections
     "main_inflow":           0.5,   # ICIR=0.568; capital staying in = resilience
+    "upday_ratio":           0.5,   # ICIR=0.717; consistent up-days = relative strength
     # ── Inverted (amplified in caution) ───────────────────────────────────
     "limit_hits":            -2.0,  # ICIR=-0.925; post-limit reversal stronger in corrections
     "chip_distribution":     -1.5,  # ICIR=-0.750; distribution amplified in weakness
@@ -149,6 +158,7 @@ FACTOR_WEIGHTS_CRISIS: dict[str, float] = {
     "div_yield":             2.0,   # ICIR=0.959; yield = capital preservation anchor
     "position_52w":          2.0,   # ICIR=0.934; relative strength = survivors in crash
     "growth":                1.5,   # ICIR=0.900; quality growth holds up in crisis
+    "roe_trend":             1.0,   # ICIR=0.551; ROE momentum = earnings quality in crash
     # ── Strong inverted signals survive even in crash ─────────────────────
     "limit_hits":            -2.0,  # ICIR=-0.925; stocks with limit history collapse hardest
     "chip_distribution":     -2.0,  # ICIR=-0.750; heavy distribution = continued collapse
