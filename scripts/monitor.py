@@ -1245,9 +1245,11 @@ def run_loop(
     _etf_buy_state:     dict = {}   # code -> last ETF buy-alert datetime  (20-min cooldown)
     _etf_sell_state:    dict = {}   # code -> last ETF sell-alert datetime (20-min cooldown)
     _etf_activity:      dict = {}   # code -> {"buys": int, "sells": int}  (reset daily)
-    _etf_activity_date: Optional[object] = None
-    _etf_closing_date:  Optional[object] = None
+    _etf_activity_date:     Optional[object] = None
+    _etf_closing_date:      Optional[object] = None
+    _etf_status_last_sent:  Optional[object] = None   # last periodic ETF status push
     _ETF_COOLDOWN_MIN = 20
+    _ETF_STATUS_INTERVAL_MIN = 5    # periodic ETF status every 5 min
     _xhs_triggered_today: set = set()  # slots triggered today
     _xhs_date: Optional[object] = None              # date _xhs_triggered_today belongs to
     _auction_checked_date: Optional[object] = None   # date of last 竞价检验
@@ -1676,6 +1678,7 @@ def run_loop(
             print(f"[{run_time}] ETF scan ({len(etf_list)} ETFs)...", end=" ", flush=True)
             etf_buy_alerts: list[dict] = []
             etf_sell_alerts: list[dict] = []
+            etf_all_scores: list[dict] = []   # all scored ETFs for periodic status
             _etf_regime = _regime_this_iter  # reuse if already fetched, else None
 
             with ThreadPoolExecutor(max_workers=min(len(etf_list), 4)) as _ex:
@@ -1690,6 +1693,7 @@ def run_loop(
                     price = _s.get("price") or 0
                     _s["pnl_pct"] = round((price - cost) / cost * 100, 2) if cost > 0 else 0.0
 
+                    etf_all_scores.append(_s)
                     code = _s["code"]
                     _etf_activity.setdefault(code, {"buys": 0, "sells": 0})
                     _t = thresholds
@@ -1768,6 +1772,45 @@ def run_loop(
                         "\n".join(_etf_lines), sendkey, dry_run=dry_run)
                 except Exception as _e:
                     print(f"  [ERROR] ETF 推送失败: {_e}")
+
+            # ── Periodic ETF status (every 30 min, even without alerts) ──────
+            _need_etf_status = (
+                _market_open and etf_all_scores and (
+                    _etf_status_last_sent is None or
+                    (now - _etf_status_last_sent).total_seconds() >= _ETF_STATUS_INTERVAL_MIN * 60
+                )
+            )
+            if _need_etf_status:
+                _sorted_buy = sorted(etf_all_scores, key=lambda x: x.get("buy_score", 0), reverse=True)
+                _top_buy = _sorted_buy[:5]
+                _status_lines = ["**Top ETF 买入评分**\n"]
+                for _se in _top_buy:
+                    _p = _se.get("price") or 0
+                    _pnl = _se.get("pnl_pct", 0)
+                    _pnl_str = f" | 浮盈: {_pnl:+.1f}%" if _se.get("shares", 0) > 0 else ""
+                    _status_lines.append(
+                        f"- {_se['name']} ({_se['code']}): "
+                        f"买入 **{_se.get('buy_score', 0):.0f}** / "
+                        f"卖出 {_se.get('sell_score', 0):.0f} | 价 {_p}{_pnl_str}"
+                    )
+                _hold_etfs = [s for s in etf_all_scores if s.get("shares", 0) > 0]
+                if _hold_etfs:
+                    _status_lines.append("\n**持仓 ETF**\n")
+                    for _se in sorted(_hold_etfs, key=lambda x: x.get("pnl_pct", 0), reverse=True):
+                        _p = _se.get("price") or 0
+                        _status_lines.append(
+                            f"- {_se['name']} ({_se['code']}): "
+                            f"买入 {_se.get('buy_score', 0):.0f} / 卖出 {_se.get('sell_score', 0):.0f} "
+                            f"| 浮盈 {_se.get('pnl_pct', 0):+.1f}%"
+                        )
+                _status_lines.append(f"\n> 共扫描 {len(etf_all_scores)} 只 ETF")
+                try:
+                    send_wechat(
+                        f"[StockSage ETF] 池子状态 ({run_time})",
+                        "\n".join(_status_lines), sendkey, dry_run=dry_run)
+                    _etf_status_last_sent = now
+                except Exception as _e:
+                    print(f"  [ERROR] ETF 状态推送失败: {_e}")
 
         # ── Watchlist scan (every 5 min, trading hours only) ─────────────────
         # Normalise codes: strip SH/SZ/BJ prefix so fetcher can look them up
