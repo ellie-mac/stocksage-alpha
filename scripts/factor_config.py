@@ -10,10 +10,10 @@ Re-run: python factor_analysis.py --rolling 6 --step 20 --group A --universe mai
 To re-activate an excluded factor: move it from EXCLUDED_FACTORS back to FACTOR_WEIGHTS.
 
 Regime logic (CSI 300 prior-20d return signal):
-  NORMAL       — default              : full IC-optimised weights, 100% exposure
+  NORMAL       — default              : IC-optimised weights, 85% exposure (was 100%; capped 2026-04-15)
   CAUTION      — prior-20d < -3%      : shift to defensive, 70% exposure
   CRISIS       — prior-20d < -6%      : defensive anchors only, 40% exposure
-  BULL         — prior-20d > +3.5%    : growth/momentum tilt, 80% exposure
+  BULL         — prior-20d > +2.5%    : growth/momentum tilt, 80% exposure (threshold lowered 3.5->2.5 on 2026-04-15)
   EXTREME_BULL — prior-20d > +6%      : bull weights, 70% exposure
   BEAR         — CSI300 < MA60        : crisis weights, 15% exposure
 """
@@ -133,7 +133,7 @@ FACTOR_WEIGHTS_CRISIS: dict[str, float] = {
 REGIME_LABELS = ("NORMAL", "CAUTION", "CRISIS")
 
 REGIME_EXPOSURE: dict[str, float] = {
-    "NORMAL":       1.0,   # full exposure
+    "NORMAL":       0.85,  # capped exposure — regime detection lags; 0.85 limits damage during undetected bull runs (was 1.0)
     "CAUTION":      0.7,   # prior-20d < -3%  (mild decline)
     "CRISIS":       0.4,   # prior-20d < -6%  (severe decline)
     "BULL":         0.8,   # prior-20d > +2.5% (moderate-to-strong rally)
@@ -271,7 +271,7 @@ REGIME_WEIGHTS_SMALLCAP: dict[str, dict] = {
 # ---------------------------------------------------------------------------
 REGIME_CAUTION_THRESHOLD       = -3.0   # prior-20d < this  -> CAUTION
 REGIME_CRISIS_THRESHOLD        = -6.0   # prior-20d < this  -> CRISIS
-REGIME_BULL_THRESHOLD          = +3.5   # prior-20d > this  -> BULL (tested optimal)
+REGIME_BULL_THRESHOLD          = +2.5   # prior-20d > this  -> BULL (lowered 3.5->2.5 on 2026-04-15: catches rally one period earlier; A-share moves skip the +3.5–6% zone)
 REGIME_EXTREME_BULL_THRESHOLD  = +6.0   # prior-20d > this  -> EXTREME_BULL
 
 # ---------------------------------------------------------------------------
