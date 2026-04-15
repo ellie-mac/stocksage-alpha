@@ -831,6 +831,7 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
 
     Source priority:
       1. akshare EM  (stock_financial_analysis_indicator)
+      2. akshare THS (stock_financial_abstract_ths) — columns renamed to match score_growth keys
     """
     cache_key = f"financial_{code}"
     cached = cache.get_df(cache_key, cache.TTL_FINANCIAL)
@@ -842,6 +843,28 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
         df = ak.stock_financial_analysis_indicator(symbol=code, start_year="2020")
         if df is not None and not df.empty:
             df = df.reset_index(drop=True)
+            cache.set_df(cache_key, df)
+            return df
+    except Exception:
+        pass
+
+    # ── Source 2: akshare THS abstract (fallback) ────────────────────────
+    try:
+        df = ak.stock_financial_abstract_ths(symbol=code, indicator="按年度")
+        if df is not None and not df.empty:
+            # Convert pct strings ("46.84%", False) → float or NaN
+            def _pct(v):
+                try:
+                    return float(str(v).replace("%", "").strip())
+                except Exception:
+                    return float("nan")
+
+            df = df.copy()
+            df["净利润增长率(%)"]     = df["净利润同比增长率"].apply(_pct)
+            df["总营收同比增长率(%)"] = df["营业总收入同比增长率"].apply(_pct)
+            df["净资产收益率(%)"]     = df["净资产收益率"].apply(_pct)
+            # Sort most-recent first (报告期 is year int/str)
+            df = df.sort_values("报告期", ascending=False).reset_index(drop=True)
             cache.set_df(cache_key, df)
             return df
     except Exception:
