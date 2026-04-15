@@ -907,11 +907,12 @@ def _run_smallcap_scan(
     scored.sort(key=lambda x: -x.get("buy_score", 0))
 
     results: list[dict] = []
-    for s in scored[:top_n * 3]:
-        if s.get("error") or s.get("buy_score", 0) < buy_trig:
+    for s in scored:
+        if s.get("error") or not s.get("buy_score"):
             continue
         if s["code"] in held_codes:
             continue
+        s["_sc_signal"] = s["buy_score"] >= buy_trig   # flag threshold-crossers
         results.append(s)
         if len(results) >= top_n:
             break
@@ -928,6 +929,7 @@ def run(
     universe_override: Optional[list] = None,      # pass watchlist to skip full screener_universe
     sell_alert_state: Optional[dict] = None,        # cross-tier sell dedup {code: last_datetime}
     _regime: Optional[tuple] = None,               # (score, signal) pre-fetched by run_loop
+    etf_scores: Optional[list] = None,             # top ETF scores to merge into push
 ) -> None:
     config     = load_config()
     holdings   = load_holdings()
@@ -1087,18 +1089,20 @@ def run(
                 break
 
     # ── 3. Small-cap strategy scan ───────────────────────────────────────────
-    smallcap_alerts: list[dict] = []
+    smallcap_candidates: list[dict] = []   # top N regardless of threshold
+    smallcap_alerts:    list[dict] = []   # subset that crossed buy threshold (for has_signal)
     smallcap_enabled = config.get("smallcap", {}).get("enabled", True)
     if not sell_only and smallcap_enabled:
         try:
             _sc_weights = weights_from_config_dict(REGIME_WEIGHTS_SMALLCAP[_regime_key])
             _score_sc = _partial(_score_one_buy, weights=_sc_weights)
-            smallcap_alerts = _run_smallcap_scan(
+            smallcap_candidates = _run_smallcap_scan(
                 held_codes=held_codes if not sell_only else set(),
                 config=config,
                 score_fn=_score_sc,
                 thresholds=thresholds,
             )
+            smallcap_alerts = [s for s in smallcap_candidates if s.get("_sc_signal")]
             for s in smallcap_alerts:
                 print(f"  [小市值] BUY: {s['name']} ({s['code']}) score={s['buy_score']}")
         except Exception as _e:
@@ -1114,7 +1118,7 @@ def run(
     except Exception:
         pass
     try:
-        if smallcap_alerts or smallcap_enabled:
+        if smallcap_candidates or smallcap_enabled:
             strategy_tracker.record_pool(_today, "smallcap", smallcap_alerts)
     except Exception:
         pass
@@ -1159,17 +1163,33 @@ def run(
                 lines.append(f"- **{s['name']}**（{s['code']}）买入分:{s['buy_score']:.0f}{signal}")
             desp += "\n\n" + "\n".join(lines)
 
-    # Append small-cap pool
-    if smallcap_alerts:
+    # Always append small-cap top candidates (threshold-crossers marked ✅)
+    if smallcap_candidates:
         sc_lines = ["## 今日关注（小市值）\n"]
-        for s in smallcap_alerts:
+        for s in smallcap_candidates:
             cap_b = s.get("market_cap_b") or ""
             cap_str = f" {cap_b:.0f}亿" if cap_b else ""
+            signal_mark = " ✅" if s.get("_sc_signal") else ""
             sc_lines.append(
                 f"- **{s['name']}**（{s['code']}）"
-                f"买入分:{s['buy_score']:.0f}{cap_str}"
+                f"买入分:{s['buy_score']:.0f}{cap_str}{signal_mark}"
             )
         desp += "\n\n" + "\n".join(sc_lines)
+
+    # Merge ETF top scores into push when provided by run_loop
+    if etf_scores:
+        _sorted_etf = sorted(etf_scores, key=lambda x: x.get("buy_score", 0), reverse=True)
+        etf_lines = ["## ETF 评分\n"]
+        for _se in _sorted_etf[:5]:
+            _p    = _se.get("price") or 0
+            _pnl  = _se.get("pnl_pct", 0)
+            _pnl_str = f" | 浮盈 {_pnl:+.1f}%" if _se.get("shares", 0) > 0 else ""
+            etf_lines.append(
+                f"- **{_se['name']}** ({_se['code']}): "
+                f"买 {_se.get('buy_score', 0):.0f} / 卖 {_se.get('sell_score', 0):.0f}"
+                f" | 价 {_p}{_pnl_str}"
+            )
+        desp += "\n\n" + "\n".join(etf_lines)
 
     # Append strategy performance comparison (forward returns from past pools)
     try:
@@ -1248,8 +1268,9 @@ def run_loop(
     _etf_activity_date:     Optional[object] = None
     _etf_closing_date:      Optional[object] = None
     _etf_status_last_sent:  Optional[object] = None   # last periodic ETF status push
+    _etf_all_scores_latest: list = []               # last ETF scan results (passed to watchlist push)
     _ETF_COOLDOWN_MIN = 20
-    _ETF_STATUS_INTERVAL_MIN = 5    # periodic ETF status every 5 min
+    _ETF_STATUS_INTERVAL_MIN = 60   # periodic standalone ETF status (main push gets ETF via etf_scores)
     _xhs_triggered_today: set = set()  # slots triggered today
     _xhs_date: Optional[object] = None              # date _xhs_triggered_today belongs to
     _auction_checked_date: Optional[object] = None   # date of last 竞价检验
@@ -1739,6 +1760,7 @@ def run_loop(
                         etf_buy_alerts.append(_s)
 
             print(f"{len(etf_buy_alerts)} buy / {len(etf_sell_alerts)} sell")
+            _etf_all_scores_latest = etf_all_scores  # persist for next watchlist push
 
             if (etf_buy_alerts or etf_sell_alerts) and _market_open:
                 _parts = []
@@ -1845,7 +1867,8 @@ def run_loop(
             print(f"[{run_time}] Watchlist scan ({len(watchlist)} stocks)...")
             try:
                 run(dry_run=dry_run, universe_override=watchlist,
-                    sell_alert_state=sell_alert_state, _regime=_regime_this_iter)
+                    sell_alert_state=sell_alert_state, _regime=_regime_this_iter,
+                    etf_scores=_etf_all_scores_latest if _etf_all_scores_latest else None)
                 _watchlist_last_scan = now
             except Exception as e:
                 print(f"  [ERROR] Watchlist scan failed: {e}")
