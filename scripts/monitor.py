@@ -1946,7 +1946,7 @@ def _trigger_xhs_post(slot: str, dry_run: bool = False) -> None:
         return
     try:
         writer = os.path.join(_ROOT, "xhs", "writer.py")
-        cmd = [sys.executable, writer, slot]
+        cmd = [sys.executable, "-X", "utf8", writer, slot]
         # Only pass --style for slots that accept it
         if slot in ("morning", "midday", "night", "evening"):
             cmd += ["--style", "auto"]
