@@ -52,34 +52,66 @@ FACTOR_WEIGHTS: dict[str, float] = {
 FACTOR_WEIGHTS_NORMAL = FACTOR_WEIGHTS
 
 # ---------------------------------------------------------------------------
-# BULL regime — prior-20d CSI 300 return > +3.5% (strong rally / recovery).
+# BULL regime — prior-20d CSI 300 return > +2.5% (confirmed rally).
 #
-# In A-share bull markets, high-beta growth and momentum stocks lead.
-# Low-vol/defensive factors tend to lag speculative rallies.
+# Root cause of P07 -18.68% L/S spread (2026-04-15 backtest analysis):
+#   - NORMAL weights penalise limit_hits=-1.5: 连板股 scored last, but they
+#     are the bull market leaders in A-shares. This single signal inverted the
+#     entire model cross-section during the Oct-Dec 2025 rally.
+#   - volume_expansion=-0.5 further penalised expanding-volume breakout stocks.
+#   - chip_distribution=-1.0 penalised momentum-driven stocks with heavy chips.
+#
 # Key changes vs NORMAL:
-#   - low_volatility cluster drastically reduced
-#   - growth/momentum inversions removed
-#   - volume and price_inertia upweighted
-#   - institutional_visits inversion kept (institutions distribute at tops in bull)
+#   - limit_hits  NEUTRALISED (0): stop scoring 连板股 as "bad stocks"
+#   - volume_expansion FLIPPED (+1): expanding volume = bull confirmation
+#   - chip_distribution NEUTRALISED (0): momentum > distribution in bull
+#   - return_skewness / div_yield ZEROED: defensive anchors lag rallies
+#   - momentum / medium_term_momentum RAISED to 2.0
 # ---------------------------------------------------------------------------
 FACTOR_WEIGHTS_BULL: dict[str, float] = {
-    # ── Momentum / growth core ────────────────────────────────────────────
-    "momentum":              1.5,   # large-cap momentum positive; amplified in bull
-    "medium_term_momentum":  1.5,   # confirmed positive in large-cap; bull amplifies
-    "growth":                1.5,   # growth stocks lead in bull
+    # ── Momentum / growth core (amplified) ───────────────────────────────
+    "momentum":              2.0,   # raised 1.5→2.0: core bull signal
+    "medium_term_momentum":  2.0,   # raised 1.5→2.0
+    "growth":                1.5,   # quality growth leads in bull
     "market_beta":           1.0,   # high-beta outperforms in bull
-    "main_inflow":           1.0,   # capital inflows drive bull
-    "volume":                1.0,   # volume confirms bull trend
-    "position_52w":          1.0,   # breakout stocks lead in bull
-    # ── Technical signals ────────────────────────────────────────────────
-    "overhead_resistance":   0.5,   # still relevant but less dominant in bull
-    "return_skewness":       0.5,   # outlier/blow-up screen
-    "div_yield":             0.5,   # yield matters less in bull
-    # ── Inverted signals ─────────────────────────────────────────────────
-    "limit_hits":            -1.0,  # post-limit reversal still matters
-    "chip_distribution":     -1.0,  # distribution signal; keep in bull tops
-    "intraday_vs_overnight": -0.5,  # weaker in bull but keep
-    "volume_expansion":      -0.5,  # late-stage chasing signal
+    "main_inflow":           1.0,   # capital inflows confirm trend
+    "volume":                1.0,   # volume confirms bull
+    "position_52w":          1.0,   # breakout stocks lead
+    # ── Volume/momentum signals FLIPPED for bull ─────────────────────────
+    "volume_expansion":      1.0,   # FLIPPED −0.5→+1.0: expansion = continuation in bull
+    # ── Technical screen (mild) ──────────────────────────────────────────
+    "overhead_resistance":   0.5,   # mild; less dominant when market pushes through resistance
+    # ── Neutralised: these caused the P07 model inversion ────────────────
+    "limit_hits":            0.0,   # NEUTRALISED −1.0→0: stop penalising 连板股
+    "chip_distribution":     0.0,   # NEUTRALISED −1.0→0: momentum > distribution in bull
+    "return_skewness":       0.0,   # NEUTRALISED +0.5→0: in bull you want outlier up-moves
+    "div_yield":             0.0,   # NEUTRALISED +0.5→0: yield stocks lag rallies
+    # ── Keep: overnight gaps still risky even in bull ─────────────────────
+    "intraday_vs_overnight": -0.5,
+}
+
+# ---------------------------------------------------------------------------
+# EXTREME_BULL regime — prior-20d > +6% (parabolic / 连板行情 phase).
+#
+# Previously shared BULL weights. Now separated: at >+6% prior return the
+# market is in a 连板 frenzy. 连板 stocks (high limit_hits) become the
+# explicit leaders; max momentum exposure; defensive factors zeroed.
+# ---------------------------------------------------------------------------
+FACTOR_WEIGHTS_EXTREME_BULL: dict[str, float] = {
+    # ── Max momentum: parabolic phase ────────────────────────────────────
+    "momentum":              2.5,
+    "medium_term_momentum":  2.5,
+    "market_beta":           1.5,   # highest-beta leads in extreme bull
+    "main_inflow":           1.5,   # persistent inflows = continuation
+    "growth":                1.0,
+    "volume":                1.0,
+    "volume_expansion":      1.5,   # extreme bull = persistent volume surge
+    "position_52w":          0.5,   # everything breaks out; less discriminating
+    # ── 连板股 are THE leaders in A-share extreme bull ─────────────────────
+    "limit_hits":            1.0,   # POSITIVE: reward 连板 leaders explicitly
+    # ── All defensive screens removed ────────────────────────────────────
+    "overhead_resistance":   0.0,   # market pushes through all resistance
+    "intraday_vs_overnight": -0.5,  # keep: even parabolic tops have gap risks
 }
 
 # ---------------------------------------------------------------------------
@@ -147,7 +179,7 @@ REGIME_WEIGHTS: dict[str, dict] = {
     "CAUTION":      FACTOR_WEIGHTS_CAUTION,
     "CRISIS":       FACTOR_WEIGHTS_CRISIS,
     "BULL":         FACTOR_WEIGHTS_BULL,
-    "EXTREME_BULL": FACTOR_WEIGHTS_BULL,   # same bull weights, just less exposure
+    "EXTREME_BULL": FACTOR_WEIGHTS_EXTREME_BULL,  # separate: 连板行情 weights (was reusing BULL)
     "BEAR":         FACTOR_WEIGHTS_CRISIS, # BEAR uses crisis weights: max defensive
 }
 
