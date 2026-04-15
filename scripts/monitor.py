@@ -1665,6 +1665,7 @@ def run_loop(
                 print(f"  [ERROR] 微信推送失败: {e}")
 
         # ── ETF watchlist scan (every fast-check cycle, T+0 20-min cooldown) ──
+        _regime_this_iter = None
         etf_list = config.get("etf_watchlist", [])
         if etf_list and _is_trading_hours():
             # Reset daily activity counter
