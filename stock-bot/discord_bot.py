@@ -91,7 +91,8 @@ _HELP = """**StockSage 命令**
 `z` 系统状态  |  `q` 全局概览
 `p` 今日推荐  |  `ic` 因子IC摘要
 `ich` 因子列表  |  `icf 因子名` 因子说明  |  `fx 600519` 单股分析
-`bs` 回测进度  |  `bt` / `bt16s` 个股回测  |  `bte` / `bte12` ETF回测
+`bs` 回测进度  |  `br` 回测结果摘要
+`bt` / `bt16s` 个股回测  |  `bte` / `bte12` ETF回测
 `sug` 给我建议  |  `do` 执行上条建议
 `sch` 快捷命令列表  |  `sc 1-8` 执行快捷命令
 `h` 帮助  💬 其他走AI对话（消耗token）"""
@@ -161,7 +162,8 @@ _SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 `sc 5` 批量预热财务缓存（batch_financials）
 `sc 6` 重建股票池（build_universe）
 `sc 7` 扫盘推送 📱微信
-`sc 8` 全市场扫描 (--test-now) 📱微信"""
+`sc 8` 全市场扫描 (--test-now) 📱微信
+`sc 9` monitor 日志最近20行"""
 
 
 def _h_shortcut(num: str) -> str:
@@ -236,6 +238,9 @@ def _h_shortcut(num: str) -> str:
     elif num == "8":
         return _h_test_now()
 
+    elif num == "9":
+        return _h_logs(20)
+
     else:
         return f"未知快捷命令 `sc {num}`\n\n{_SC_LIST}"
 
@@ -269,6 +274,56 @@ def _h_research(code: str) -> str:
         return f"❌ 分析 {code} 超时（>3min）。数据拉取慢，建议直接在服务器运行: `python scripts/research.py {code}`"
     except Exception as e:
         return f"❌ 分析失败: {e}"
+
+
+def _h_backtest_result() -> str:
+    """Show summary of the most recent completed backtest JSON."""
+    import time
+    results = sorted(
+        (ROOT / "data").glob("backtest_*.json"),
+        key=lambda f: f.stat().st_mtime, reverse=True
+    )
+    if not results:
+        return "data/ 下没有回测结果文件"
+    f = results[0]
+    age_min = int((time.time() - f.stat().st_mtime) / 60)
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except Exception as e:
+        return f"❌ 读取 {f.name} 失败: {e}"
+
+    lines = [f"**{f.name}**（{age_min}分钟前完成）\n"]
+
+    stats = data.get("stats", {})
+    if stats:
+        lines.append("**汇总统计**")
+        mapping = {
+            "annualized_ret_pct":         "年化收益",
+            "sharpe_ratio":               "Sharpe",
+            "information_ratio":          "IR",
+            "max_drawdown_pct":           "最大回撤",
+            "win_rate_pct":               "胜率",
+            "mean_alpha_pct":             "平均超额",
+            "mean_long_short_spread_pct": "多空价差",
+            "n_periods":                  "期数",
+        }
+        for key, label in mapping.items():
+            v = stats.get(key)
+            if v is not None:
+                lines.append(f"  {label}: {v}")
+
+    periods = data.get("period_results", [])
+    if periods:
+        lines.append(f"\n**各期收益（共{len(periods)}期）**")
+        for p in periods[-6:]:
+            port = p.get("portfolio_ret", 0)
+            bench = p.get("benchmark_ret")
+            alpha = p.get("alpha")
+            bench_s = f"{bench:+.2f}%" if bench is not None else "N/A"
+            alpha_s = f"{alpha:+.2f}%" if alpha is not None else "N/A"
+            lines.append(f"  P{p['period']}: 策略{port:+.2f}%  基准{bench_s}  超额{alpha_s}")
+
+    return "\n".join(lines)
 
 
 def _h_factor_info(name: str) -> str:
@@ -962,6 +1017,8 @@ def _dispatch_inner(t: str) -> str | None:
     #     return _h_start_monitor()
     # elif t in ("kb", "终止回测", "kill backtest"):  # → sc 3
     #     return _h_kill_backtest()
+    elif t in ("br", "回测结果", "backtest result"):
+        return _h_backtest_result()
     elif t in ("回测状态", "bs", "backtest status"):
         try:
             return _h_backtest_status()
