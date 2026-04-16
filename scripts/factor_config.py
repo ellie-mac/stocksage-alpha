@@ -317,6 +317,62 @@ REGIME_BULL_THRESHOLD          = +2.5   # prior-20d > this  -> BULL (lowered 3.5
 REGIME_EXTREME_BULL_THRESHOLD  = +6.0   # prior-20d > this  -> EXTREME_BULL
 
 # ---------------------------------------------------------------------------
+# ETF-specific factor weights.
+#
+# ETFs are scored with the same research() pipeline as individual stocks, but
+# most financial/fundamental factors (growth, quality, roe_trend, div_yield,
+# cash_flow_quality, overhead_resistance) return 0/NaN because ETFs have no
+# earnings reports.  Using A-share individual-stock weights therefore produces
+# systematically suppressed scores.
+#
+# Key design choices vs NORMAL weights:
+#   - All financial factors zeroed (growth, roe_trend, cash_flow_quality…)
+#   - limit_hits / limit_open_rate / chip_distribution → 0 (ETFs don't hit ±10%)
+#   - momentum / medium_term_momentum → positive (ETFs trend-follow, don't mean-revert)
+#   - volume_expansion / price_inertia → positive (volume confirms ETF breakouts)
+#   - low_volatility / atr_normalized → boosted (prefer stable sector ETFs)
+#   - overhead_resistance → 0 (CYQ chip data unavailable for ETFs)
+# ---------------------------------------------------------------------------
+FACTOR_WEIGHTS_ETF: dict[str, float] = {
+    # ── Trend / momentum ─────────────────────────────────────────────────
+    "momentum":             1.5,   # ETFs trend-follow; short-term momentum positive
+    "medium_term_momentum": 1.5,   # 3-6 month trend continuation
+    "position_52w":         1.0,   # strength in 52-week range
+    "return_skewness":      1.0,   # stable uptrend = positive skew
+    "upday_ratio":          1.0,   # % of positive days
+    "price_inertia":        1.0,   # momentum continuation (FLIPPED from -0.5)
+    "divergence":           0.5,   # relative strength vs market
+    "ma60_deviation":       0.5,   # proximity to MA60
+
+    # ── Volume / flow ─────────────────────────────────────────────────────
+    "volume":               1.0,   # volume breakout
+    "main_inflow":          1.0,   # capital inflow into ETF holdings
+    "volume_expansion":     0.5,   # FLIPPED from -0.5: expansion = buying interest
+
+    # ── Volatility / stability ────────────────────────────────────────────
+    "low_volatility":       1.5,   # prefer low-vol stable ETFs
+    "atr_normalized":       1.0,   # low realized daily range
+    "gap_frequency":        0.5,   # FLIPPED from -0.5: low gap = stable tracking
+    "market_beta":          0.5,   # market sensitivity
+
+    # ── Zeroed: financial/fundamental factors (no data for ETFs) ─────────
+    "growth":               0.0,
+    "quality":              0.0,
+    "roe_trend":            0.0,
+    "cash_flow_quality":    0.0,
+    "div_yield":            0.0,
+    "overhead_resistance":  0.0,
+    "chip_distribution":    0.0,
+    "northbound":           0.0,
+
+    # ── Zeroed: A-share-specific signals (ETFs don't hit limit up/down) ──
+    "limit_hits":           0.0,
+    "limit_open_rate":      0.0,
+    "hammer_bottom":        0.0,
+    "intraday_vs_overnight": 0.0,
+}
+
+# ---------------------------------------------------------------------------
 # MA periods for regime detection (applied to CSI 300 close).
 # ---------------------------------------------------------------------------
 REGIME_MA_SHORT = 20    # short MA — price below this → CAUTION

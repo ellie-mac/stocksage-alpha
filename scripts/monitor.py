@@ -38,7 +38,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from research import research
 from factors_extended import score_market_regime
 from factors import DEFAULT_WEIGHTS, weights_from_config_dict
-from factor_config import REGIME_WEIGHTS, SMALLCAP_CONFIG, REGIME_WEIGHTS_SMALLCAP
+from factor_config import REGIME_WEIGHTS, SMALLCAP_CONFIG, REGIME_WEIGHTS_SMALLCAP, FACTOR_WEIGHTS_ETF
 import fetcher
 import strategy_tracker
 import cache
@@ -1717,8 +1717,9 @@ def run_loop(
             etf_all_scores: list[dict] = []   # all scored ETFs for periodic status
             _etf_regime = _regime_this_iter  # reuse if already fetched, else None
 
+            _etf_w = weights_from_config_dict(FACTOR_WEIGHTS_ETF)
             with ThreadPoolExecutor(max_workers=min(len(etf_list), 4)) as _ex:
-                _futs = {_ex.submit(_score_one_buy, e["code"]): e for e in etf_list}
+                _futs = {_ex.submit(_score_one_buy, e["code"], _etf_w): e for e in etf_list}
                 for _fut in as_completed(_futs):
                     _etf_entry = _futs[_fut]
                     _s = _fut.result()
