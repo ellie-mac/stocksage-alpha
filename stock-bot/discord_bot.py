@@ -162,7 +162,7 @@ def _h_research(code: str) -> str:
         return "用法: `fx 600519` 或 `研究 600519`"
     try:
         r = subprocess.run(
-            [sys.executable, "-X", "utf8", str(SCRIPTS / "research.py"), code],
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "research.py"), code, "--text"],
             cwd=str(ROOT), capture_output=True, text=True, timeout=180,
             encoding="utf-8", errors="replace"
         )
@@ -178,9 +178,9 @@ def _h_research(code: str) -> str:
                 return f"❌ {code} 无报告输出\n```\n{stderr_clean[-500:]}\n```"
             return f"❌ {code} 无输出（股票代码可能不正确，或数据获取失败）"
         out = stdout
-        if len(out) > 1800:
-            out = out[:1800] + "\n...(已截断)"
-        return f"**{code} 分析报告**\n```\n{out}\n```"
+        if len(out) > 1900:
+            out = out[:1900] + "\n...(已截断)"
+        return out
     except subprocess.TimeoutExpired:
         return f"❌ 分析 {code} 超时（>3min）。数据拉取慢，建议直接在服务器运行: `python scripts/research.py {code}`"
     except Exception as e:

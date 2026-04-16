@@ -540,6 +540,262 @@ def _interpret_sell_score(score: float) -> str:
         return "No significant sell signal"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Text report (--text mode, for Discord bot fx command)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _stars(score: float, max_score: float = 100) -> str:
+    pct = score / max_score
+    filled = round(pct * 5)
+    return "★" * filled + "☆" * (5 - filled)
+
+
+def _score_tag(score: float) -> str:
+    if score >= 80: return "极强 🟢"
+    if score >= 65: return "偏强 🟢"
+    if score >= 50: return "中性 🟡"
+    if score >= 35: return "偏弱 🔴"
+    return "极弱 🔴"
+
+
+def _factor_bar(score: float, max_score: float = 10) -> str:
+    """Return a compact level label for a single factor score."""
+    pct = (score or 0) / max_score if max_score else 0
+    if pct >= 0.75: return "强"
+    if pct >= 0.50: return "中上"
+    if pct >= 0.25: return "中下"
+    return "弱"
+
+
+_FACTOR_ZH_REPORT = {
+    "value":               "估值",
+    "growth":              "成长",
+    "momentum":            "动量",
+    "quality":             "质量",
+    "northbound":          "北向(流向)",
+    "volume":              "放量突破",
+    "position_52w":        "52周位置",
+    "div_yield":           "股息率",
+    "volume_ratio":        "量比",
+    "ma_alignment":        "均线排列",
+    "low_volatility":      "低波动",
+    "reversal":            "反转信号",
+    "accruals":            "应计质量",
+    "asset_growth":        "资产扩张",
+    "piotroski":           "Piotroski",
+    "short_interest":      "融券做空",
+    "rsi_signal":          "RSI",
+    "macd_signal":         "MACD",
+    "turnover_percentile": "换手分位",
+    "chip_distribution":   "筹码集中",
+    "shareholder_change":  "股东变化",
+    "lhb":                 "龙虎榜",
+    "lockup_pressure":     "解禁压力",
+    "insider":             "内部交易",
+    "institutional_visits":"机构调研",
+    "industry_momentum":   "行业动量",
+    "northbound_actual":   "北向持仓",
+    "earnings_revision":   "业绩预期",
+    "limit_hits":          "涨停强度",
+    "price_inertia":       "价格惯性",
+    "social_heat":         "社交热度",
+    "market_regime":       "市场状态",
+    "concept_momentum":    "概念动量",
+    "idiosyncratic_vol":   "特质波动",
+    "gap_frequency":       "跳空频率",
+    "atr_normalized":      "ATR波动",
+    "return_skewness":     "收益偏度",
+    "ma60_deviation":      "MA60偏离",
+    "divergence":          "背离信号",
+    "main_inflow":         "主力流入",
+    "cash_flow_quality":   "现金流质量",
+    "amihud_illiquidity":  "流动性",
+    "max_return":          "最大涨幅",
+    "turnover_acceleration":"换手加速",
+    "upday_ratio":         "上涨天比",
+    "roe_trend":           "ROE趋势",
+    "nearness_to_high":    "接近高点",
+    "hammer_bottom":       "锤形底",
+    "limit_open_rate":     "开板率",
+    "medium_term_momentum":"中期动量",
+    "price_volume_corr":   "量价相关",
+}
+
+
+def format_text_report(result: dict) -> str:
+    """Generate a concise Chinese text report from research() result dict."""
+    if "error" in result:
+        return f"❌ {result['error']}"
+
+    name      = result.get("name", "")
+    code      = result.get("code", "")
+    basic     = result.get("basic", {})
+    price     = result.get("price", {})
+    val       = result.get("valuation", {})
+    factors   = result.get("factors", {})
+    total     = result.get("total_score", 0) or 0
+    sell      = result.get("total_sell_score", 0) or 0
+    signals   = result.get("signals_summary", {})
+    financial = result.get("financial", {})
+
+    industry  = basic.get("industry", "")
+    mktcap    = basic.get("market_cap_billion", 0)
+    cur_price = price.get("current", 0) or 0
+    chg_pct   = price.get("change_pct", 0) or 0
+    chg_sign  = "+" if chg_pct >= 0 else ""
+    pe        = val.get("pe_ttm")
+    pb        = val.get("pb")
+    pe_pct    = val.get("pe_percentile")
+
+    lines = []
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    cap_str = f"{mktcap:.0f}亿" if mktcap else "N/A"
+    lines.append(f"【{name} {code}】{industry} | 市值{cap_str} | {cur_price:.2f}元 ({chg_sign}{chg_pct:.1f}%)")
+    lines.append("")
+
+    # ── Overall score ─────────────────────────────────────────────────────────
+    stars = _stars(total)
+    tag   = _score_tag(total)
+    lines.append(f"▌ 综合买入分: {total:.1f}/100  {stars}  {tag}")
+    if sell >= 50:
+        lines.append(f"▌ 卖出压力:   {sell:.1f}/100  ⚠️ 有较强卖出信号")
+    elif sell >= 35:
+        lines.append(f"▌ 卖出压力:   {sell:.1f}/100  注意")
+    lines.append("")
+
+    # ── Fundamentals ──────────────────────────────────────────────────────────
+    lines.append("基本面")
+    # Valuation
+    pe_str = f"PE {pe:.1f}x" if pe else "PE N/A"
+    pb_str = f"PB {pb:.2f}x" if pb else ""
+    if pe_pct is not None:
+        if pe_pct >= 75:
+            pe_comment = f"，历史高位({pe_pct:.0f}%分位) ⚠️"
+        elif pe_pct <= 25:
+            pe_comment = f"，历史低位({pe_pct:.0f}%分位) ✅"
+        else:
+            pe_comment = f"，历史{pe_pct:.0f}%分位"
+    else:
+        pe_comment = ""
+    val_score = (factors.get("value") or {}).get("score", 0) or 0
+    lines.append(f"  估值  {pe_str}  {pb_str}{pe_comment}  [{_factor_bar(val_score)}]")
+
+    # Growth
+    rev_g = financial.get("revenue_growth_yoy")
+    np_g  = financial.get("net_profit_growth_yoy")
+    roe   = financial.get("roe")
+    gr_score = (factors.get("growth") or {}).get("score", 0) or 0
+    g_parts = []
+    if rev_g is not None: g_parts.append(f"营收增速{rev_g:+.1f}%")
+    if np_g  is not None: g_parts.append(f"净利增速{np_g:+.1f}%")
+    g_str = "  ".join(g_parts) if g_parts else "数据不足"
+    lines.append(f"  成长  {g_str}  [{_factor_bar(gr_score)}]")
+
+    # Quality
+    q_score = (factors.get("quality") or {}).get("score", 0) or 0
+    roe_str = f"ROE {roe:.1f}%" if roe else "ROE N/A"
+    pf_score = (factors.get("piotroski") or {}).get("score", 0) or 0
+    pf_val = (factors.get("piotroski") or {}).get("details", {}).get("f_score")
+    pf_str = f"  Piotroski {pf_val}/9" if pf_val is not None else ""
+    lines.append(f"  质量  {roe_str}{pf_str}  [{_factor_bar(q_score)}]")
+    lines.append("")
+
+    # ── Technicals ────────────────────────────────────────────────────────────
+    lines.append("技术面")
+    tech = result.get("technical", {})
+
+    mom_score = (factors.get("momentum") or {}).get("score", 0) or 0
+    mom_detail = (factors.get("momentum") or {}).get("details", {})
+    ret_20 = mom_detail.get("ret_20d")
+    mom_str = f"近20日{ret_20:+.1f}%" if ret_20 is not None else ""
+    lines.append(f"  动量      {mom_str}  [{_factor_bar(mom_score)}]")
+
+    ma_score  = (factors.get("ma_alignment") or {}).get("score", 0) or 0
+    ma_signal = (factors.get("ma_alignment") or {}).get("details", {}).get("signal", "")
+    lines.append(f"  均线排列  {ma_signal}  [{_factor_bar(ma_score)}]")
+
+    rsi_score  = (factors.get("rsi_signal") or {}).get("score", 0) or 0
+    rsi_detail = (factors.get("rsi_signal") or {}).get("details", {})
+    rsi_val    = rsi_detail.get("rsi14")
+    rsi_str    = f"RSI {rsi_val:.0f}" if rsi_val is not None else "RSI N/A"
+    if rsi_val:
+        if rsi_val >= 75: rsi_str += " ⚠️超买"
+        elif rsi_val <= 30: rsi_str += " 超卖✅"
+    lines.append(f"  RSI       {rsi_str}  [{_factor_bar(rsi_score)}]")
+
+    macd_score  = (factors.get("macd_signal") or {}).get("score", 0) or 0
+    macd_signal = (factors.get("macd_signal") or {}).get("details", {}).get("signal", "")
+    lines.append(f"  MACD      {macd_signal}  [{_factor_bar(macd_score)}]")
+
+    mtm_score = (factors.get("medium_term_momentum") or {}).get("score", 0) or 0
+    lines.append(f"  中期动量  [{_factor_bar(mtm_score)}]")
+    lines.append("")
+
+    # ── Fund flow ─────────────────────────────────────────────────────────────
+    lines.append("资金面")
+    inf_score  = (factors.get("main_inflow") or {}).get("score", 0) or 0
+    inf_detail = (factors.get("main_inflow") or {}).get("details", {})
+    inf_val    = inf_detail.get("net_inflow_5d_m")
+    inf_str    = f"主力近5日净{'流入' if (inf_val or 0) > 0 else '流出'} {abs(inf_val or 0):.1f}百万" if inf_val is not None else "主力流向 N/A"
+    lines.append(f"  {inf_str}  [{_factor_bar(inf_score)}]")
+
+    nba_score  = (factors.get("northbound_actual") or {}).get("score", 0) or 0
+    nba_signal = (factors.get("northbound_actual") or {}).get("details", {}).get("signal", "")
+    lines.append(f"  北向持仓  {nba_signal}  [{_factor_bar(nba_score)}]")
+
+    margin = result.get("margin", {})
+    if margin.get("available"):
+        m_trend = {"increasing": "融资余额上升 ✅", "decreasing": "融资余额下降", "flat": "融资余额平稳"}.get(
+            margin.get("trend", ""), "")
+        m_chg = margin.get("change_5d_pct")
+        m_chg_str = f" ({m_chg:+.1f}%/5d)" if m_chg is not None else ""
+        lines.append(f"  {m_trend}{m_chg_str}")
+    lines.append("")
+
+    # ── Top bullish signals ───────────────────────────────────────────────────
+    bullish = signals.get("top_bullish", [])
+    if bullish:
+        lines.append(f"强势因子 ({signals.get('bullish_count', 0)}个触发)")
+        for b in bullish[:4]:
+            fname = _FACTOR_ZH_REPORT.get(b["factor"], b["factor"])
+            sig   = b.get("signal", "")
+            sig_str = f"  {sig}" if sig else ""
+            lines.append(f"  ✅ {fname}{sig_str}")
+        lines.append("")
+
+    # ── Risk warnings ─────────────────────────────────────────────────────────
+    bearish = signals.get("top_bearish", [])
+    if bearish:
+        lines.append(f"风险因子 ({signals.get('bearish_count', 0)}个触发)")
+        for b in bearish[:3]:
+            fname = _FACTOR_ZH_REPORT.get(b["factor"], b["factor"])
+            sig   = b.get("signal", "")
+            sig_str = f"  {sig}" if sig else ""
+            lines.append(f"  ⚠️ {fname}{sig_str}")
+        lines.append("")
+
+    # ── Action suggestion ─────────────────────────────────────────────────────
+    lines.append("操作建议")
+    bullish_n = signals.get("bullish_count", 0)
+    bearish_n = signals.get("bearish_count", 0)
+    if total >= 70 and sell < 40:
+        action = "信号偏多，可考虑关注/轻仓介入，注意止损"
+    elif total >= 70 and sell >= 40:
+        action = "买入分高但有卖出信号，谨慎操作，建议等待企稳"
+    elif total >= 55 and sell < 35:
+        action = "信号中性偏强，可观望等待更明确信号"
+    elif sell >= 55:
+        action = "卖出信号较强，持仓者建议减仓或止损"
+    elif total < 40:
+        action = "信号偏弱，不建议追入，等待改善"
+    else:
+        action = "信号混合，建议观望"
+    lines.append(f"  → {action}")
+
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -547,9 +803,14 @@ if __name__ == "__main__":
     parser.add_argument("target", nargs="+", help="Stock code (600519) or Chinese name (贵州茅台)")
     parser.add_argument("--weights", type=str, default="",
                         help='Weight preference string, e.g. "focus on growth" or "重视成长"')
+    parser.add_argument("--text", action="store_true",
+                        help="Output human-readable Chinese text report instead of JSON")
     args = parser.parse_args()
 
     target_str = " ".join(args.target)
     w = parse_weights(args.weights) if args.weights else DEFAULT_WEIGHTS
     result = research(target_str, weights=w)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if args.text:
+        print(format_text_report(result))
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
