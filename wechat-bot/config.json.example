@@ -1,8 +1,10 @@
 {
   "port": 5050,
-
-  "api_token": "换成你自己的随机字符串",
-
+  "api_token": "换成你自己的随机字符串（REST API 鉴权用）",
+  "telegram": {
+    "bot_token": "从 @BotFather 获取的 token，格式如 123456:ABC-xxx",
+    "allowed_ids": [123456789]
+  },
   "wechat": {
     "token":            "企业微信应用的Token（接收消息设置里）",
     "encoding_aes_key": "EncodingAESKey（留空则使用明文模式）",
