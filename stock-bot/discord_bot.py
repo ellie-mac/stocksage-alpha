@@ -485,7 +485,7 @@ def _h_suggest() -> str:
         pass
 
     if not monitor_running:
-        actions.append(("sm", "monitor.py 未运行，需要启动"))
+        actions.append(("sc 1", "monitor.py 未运行，需要启动"))
 
     # Rule 2: backtest running or done?
     logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
@@ -509,14 +509,14 @@ def _h_suggest() -> str:
     if h_path.exists():
         h = json.loads(h_path.read_text(encoding="utf-8"))
         if h:
-            actions.append(("c", f"有 {len(h)} 只持仓，建议检查盈亏"))
+            actions.append((None, f"有 {len(h)} 只持仓，建议检查盈亏"))
 
     # Rule 4: last scan too old?
     sig_path = ROOT / "data" / "signals_log.json"
     if sig_path.exists():
         sig_age = time.time() - sig_path.stat().st_mtime
         if sig_age > 14400:  # >4 hours
-            actions.append(("s", f"信号日志 {int(sig_age/3600):.0f}h 未更新，建议扫盘"))
+            actions.append(("sc 7", f"信号日志 {int(sig_age/3600):.0f}h 未更新，建议扫盘"))
 
     if not actions:
         actions.append((None, "系统运行正常，无需操作"))
