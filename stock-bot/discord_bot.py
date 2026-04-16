@@ -3,26 +3,34 @@ StockSage Discord Bot  (with Claude AI)
 ========================================
 支持自然语言对话 + 固定命令两种模式。
 
-配置 (wechat-bot/config.json):
+配置 (stock-bot/config.json):
     discord.bot_token    - Discord Developer Portal → Bot → Token
     discord.allowed_ids  - 只接受这些用户 ID（留空=接受所有人）
     claude.api_key       - Anthropic API Key（留空=仅固定命令模式）
 
 启动:
-    python -X utf8 wechat-bot/discord_bot.py
+    python -X utf8 stock-bot/discord_bot.py
 
-固定命令 (Claude API 未配置时也能用):
-    帮助 / help          列出所有命令
-    状态 / status        查看进程 & 日志
-    持仓                 触发持仓盈亏推送
-    信号 / 扫盘          立即扫描买卖信号
-    今日推荐 / 推荐       当日选股结果
-    日志 [N]             monitor 最近 N 行日志
-    重启 monitor         重启 monitor.py 循环
-    回测 [N期] [main|smallcap]   启动回测，如: 回测 16期 main
+固定命令 (不消耗 Claude API):
+    h                    帮助
+    z                    系统状态（进程 + 日志）
+    q                    全局概览（进程/回测/持仓/推荐）
+    c                    持仓盈亏推送 📱微信
+    hh                   持仓列表
+    s                    扫盘信号 📱微信
+    p                    今日推荐
+    l / l30              monitor 最近日志
+    ic                   因子 IC 摘要
+    r                    重启 monitor
+    sm                   启动 monitor
+    bs                   回测进度
+    kb                   终止回测
+    bt / bt16 / bt16s    启动回测（s=小盘）
+    sug                  给出操作建议
+    do                   执行上条建议
 
-对话模式 (需配置 claude.api_key):
-    直接用自然语言提问或下指令即可，Claude 会自动理解并执行。
+对话模式 (消耗 claude.api_key 额度):
+    其他内容走 Claude AI 自然语言对话。
 """
 
 from __future__ import annotations
@@ -63,7 +71,7 @@ def _dc_cfg() -> dict:
 def _bot_token() -> str:
     t = _dc_cfg().get("bot_token", "")
     if not t or t.startswith("Discord"):
-        raise RuntimeError("请先在 wechat-bot/config.json 填入 discord.bot_token")
+        raise RuntimeError("请先在 stock-bot/config.json 填入 discord.bot_token")
     return t
 
 def _allowed_ids() -> set[int]:
@@ -74,19 +82,18 @@ def _claude_api_key() -> str:
     return _cfg().get("claude", {}).get("api_key", "")
 
 # ── Command handlers ──────────────────────────────────────────────────────────
-_HELP = """**StockSage 可用命令**
+_HELP = """**StockSage 命令**
+`z` 系统状态  |  `q` 全局概览
+`c` 持仓推送 📱微信  |  `hh` 持仓列表
+`s` 扫盘信号 📱微信  |  `p` 今日推荐
+`l` / `l30` 日志  |  `ic` 因子IC摘要
+`r` 重启monitor  |  `sm` 启动monitor
+`bs` 回测进度  |  `kb` 终止回测
+`bt` / `bt16` / `bt16s` 启动回测（s=小盘）
+`sug` 给我建议  |  `do` 执行上条建议
+`h` 帮助
 
-• `帮助` — 显示此帮助
-• `状态` — 系统进程 & 最近日志
-• `持仓` — 触发持仓盈亏推送
-• `信号` / `扫盘` — 立即扫描买卖信号
-• `今日推荐` — 当日选股结果
-• `日志 [N]` — monitor 最近 N 条日志
-• `重启 monitor` — 重启 monitor.py 循环
-• `回测 [N期] [main|smallcap]` — 启动回测，例: `回测 16期 main`
-
-💬 配置了 Claude API Key 后可直接用自然语言对话。
-"""
+💬 其他内容走AI对话（消耗token）"""
 
 def _h_status() -> str:
     lines = [f"**系统状态** @ {datetime.now():%Y-%m-%d %H:%M:%S}\n"]
@@ -142,7 +149,8 @@ def _h_picks() -> str:
         return "latest_picks.json 不存在，今日可能尚未选股。"
     data  = json.loads(picks_path.read_text(encoding="utf-8"))
     items = data.get("results", [])
-    date  = data.get("date", "?")
+    ts    = data.get("timestamp") or data.get("date", "")
+    date  = ts[:10] if ts else "?"
     lines = [f"**今日推荐** ({date})\n"]
     for i, s in enumerate(items[:10], 1):
         name  = s.get("name") or s.get("code", "?")
@@ -163,43 +171,342 @@ def _h_logs(n: int = 20) -> str:
     return f"**日志 -{n}**\n```\n{body}\n```"
 
 
+def _find_monitor_pid() -> str | None:
+    try:
+        wmic = r"C:\Windows\System32\wbem\wmic.exe"
+        r = subprocess.run([wmic, "process", "where", "name='python.exe'",
+                            "get", "processid,commandline", "/format:csv"],
+                           capture_output=True, text=True)
+        for line in r.stdout.splitlines():
+            if "monitor" in line.lower() and "--loop" in line.lower():
+                parts = line.strip().split(",")
+                return parts[-1].strip() if parts else None
+    except Exception:
+        pass
+    return None
+
+
 def _h_restart() -> str:
-    r = subprocess.run(
-        ["tasklist", "/FI", "IMAGENAME eq python.exe", "/FO", "CSV", "/V"],
-        capture_output=True, text=True
-    )
-    for line in r.stdout.strip().splitlines()[1:]:
-        parts = line.strip('"').split('","')
-        if len(parts) >= 9 and "monitor" in parts[8].lower():
-            try:
-                import signal
-                os.kill(int(parts[1]), signal.SIGTERM)
-            except Exception:
-                pass
-    import time; time.sleep(2)
+    import time, signal as _signal
+    pid = _find_monitor_pid()
+    killed = False
+    if pid:
+        try:
+            os.kill(int(pid), _signal.SIGTERM)
+            killed = True
+        except Exception:
+            pass
+        time.sleep(2)
+
     log_path = SCRIPTS / "monitor_loop.log"
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(f"\n--- Restarted by Discord bot at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+    log_fh = open(log_path, "a", encoding="utf-8")
     subprocess.Popen(
         [sys.executable, "-X", "utf8", str(SCRIPTS / "monitor.py"),
          "--loop", "--interval", "5"],
         cwd=str(ROOT),
-        stdout=open(log_path, "a"),
+        stdout=log_fh,
         stderr=subprocess.STDOUT,
     )
-    return "monitor.py 已重启 ✅"
+    note = f"（已终止旧进程 PID {pid}）" if killed else "（未找到旧进程，直接启动）"
+    return f"monitor.py 已重启 ✅ {note}"
+
+
+# Stores last suggestion's executable commands for `do`
+_last_suggestion: dict = {}
+
+
+def _h_suggest() -> str:
+    import time
+    actions: list[tuple[str | None, str]] = []  # (cmd_or_None, description)
+
+    # Rule 1: monitor running?
+    monitor_running = False
+    try:
+        wmic = r"C:\Windows\System32\wbem\wmic.exe"
+        r = subprocess.run([wmic, "process", "where", "name='python.exe'",
+                            "get", "commandline", "/format:csv"],
+                           capture_output=True, text=True)
+        for line in r.stdout.splitlines():
+            if "monitor" in line.lower() and "--loop" in line.lower():
+                monitor_running = True
+    except Exception:
+        pass
+
+    if not monitor_running:
+        actions.append(("sm", "monitor.py 未运行，需要启动"))
+
+    # Rule 2: backtest running or done?
+    logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if logs:
+        log = logs[0]
+        log_age = time.time() - log.stat().st_mtime
+        out_json = ROOT / "data" / (log.stem + ".json")
+        content = log.read_bytes().decode("utf-8", errors="replace")
+        periods = [l for l in content.splitlines() if "Period" in l and "/" in l]
+        if not out_json.exists() and log_age < 3600:
+            prog = periods[-1].strip() if periods else "进度未知"
+            actions.append((None, f"回测进行中（{prog}），等待完成后更新权重"))
+        elif out_json.exists():
+            # Check if weights were updated after this backtest
+            research_py = SCRIPTS / "research.py"
+            if research_py.exists() and research_py.stat().st_mtime < out_json.stat().st_mtime:
+                actions.append((None, "回测已完成但 research.py 权重未更新，建议手动运行权重更新"))
+
+    # Rule 3: holdings need check?
+    h_path = ROOT / "holdings.json"
+    if h_path.exists():
+        h = json.loads(h_path.read_text(encoding="utf-8"))
+        if h:
+            actions.append(("c", f"有 {len(h)} 只持仓，建议检查盈亏"))
+
+    # Rule 4: last scan too old?
+    sig_path = ROOT / "data" / "signals_log.json"
+    if sig_path.exists():
+        sig_age = time.time() - sig_path.stat().st_mtime
+        if sig_age > 14400:  # >4 hours
+            actions.append(("s", f"信号日志 {int(sig_age/3600):.0f}h 未更新，建议扫盘"))
+
+    if not actions:
+        actions.append((None, "系统运行正常，无需操作"))
+
+    # Store executable commands for `do`
+    _last_suggestion["cmds"] = [a[0] for a in actions if a[0]]
+    _last_suggestion["time"] = time.time()
+
+    lines = ["**建议（优先级排序）:**"]
+    for i, (cmd, desc) in enumerate(actions, 1):
+        suffix = f"  →  `{cmd}`" if cmd else ""
+        lines.append(f"{i}. {desc}{suffix}")
+    if _last_suggestion["cmds"]:
+        lines.append(f"\n发 `do` 自动执行以上 {len(_last_suggestion['cmds'])} 条命令")
+    return "\n".join(lines)
+
+
+def _h_do() -> str:
+    import time
+    if not _last_suggestion.get("cmds"):
+        return "没有待执行的建议，先发 `sug`"
+    age = time.time() - _last_suggestion.get("time", 0)
+    if age > 300:
+        return "建议已超过5分钟，请重新发 `sug`"
+    results = []
+    for cmd in _last_suggestion["cmds"]:
+        r = _dispatch_sync(cmd)
+        if isinstance(r, str):
+            results.append(f"`{cmd}` → {r[:120]}")
+    _last_suggestion.clear()
+    return "\n".join(results) if results else "没有可执行的命令"
+
+
+def _h_overview() -> str:
+    import time
+    lines = [f"**全局概览** @ {datetime.now():%Y-%m-%d %H:%M:%S}\n"]
+
+    # --- Processes (log-mtime based, no wmic needed) ---
+    procs = []
+    monitor_log = SCRIPTS / "monitor_loop.log"
+    if monitor_log.exists() and time.time() - monitor_log.stat().st_mtime < 900:
+        age = int((time.time() - monitor_log.stat().st_mtime) / 60)
+        procs.append(f"  ✅ monitor.py 运行中（日志 {age}分钟前更新）")
+    else:
+        procs.append("  ❌ monitor.py 未运行（或超过15分钟无日志）")
+
+    bt_pid = _find_backtest_pid()
+    bt_logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if bt_pid or (bt_logs and time.time() - bt_logs[0].stat().st_mtime < 1800
+                  and not (ROOT / "data" / (bt_logs[0].stem + ".json")).exists()):
+        procs.append("  ⏳ backtest.py 运行中")
+
+    lines.append("**进程:**")
+    lines.extend(procs)
+
+    # --- Backtest progress ---
+    if bt_logs:
+        log = bt_logs[0]
+        age_min = int((time.time() - log.stat().st_mtime) / 60)
+        content = log.read_bytes().decode("utf-8", errors="replace")
+        periods = [l for l in content.splitlines() if "Period" in l and "/" in l]
+        out_json = ROOT / "data" / (log.stem + ".json")
+        if out_json.exists():
+            lines.append(f"\n**回测:** `{log.stem}` 已完成 ✅")
+        elif age_min < 60:
+            prog = periods[-1].strip() if periods else "进度未知"
+            lines.append(f"\n**回测:** `{log.stem}` 进行中 — {prog}")
+
+    # --- Today's picks ---
+    picks_path = ROOT / "data" / "latest_picks.json"
+    if picks_path.exists():
+        data = json.loads(picks_path.read_text(encoding="utf-8"))
+        ts = data.get("timestamp") or data.get("date", "")
+        date_str = ts[:10] if ts else "未知"
+        n = len(data.get("results", []))
+        lines.append(f"\n**最近推荐:** {date_str}，共 {n} 只")
+
+    # --- Holdings ---
+    h_path = ROOT / "holdings.json"
+    if h_path.exists():
+        h = json.loads(h_path.read_text(encoding="utf-8"))
+        lines.append(f"\n**持仓:** {len(h)} 只")
+
+    return "\n".join(lines)
+
+
+def _h_holdings_list() -> str:
+    h_path = ROOT / "holdings.json"
+    if not h_path.exists():
+        return "holdings.json 不存在"
+    data = json.loads(h_path.read_text(encoding="utf-8"))
+    if not data:
+        return "当前无持仓"
+    lines = [f"**持仓列表** ({len(data)} 只)\n"]
+    for s in data:
+        lines.append(f"`{s['code']}` {s['name']}  成本 {s.get('cost_price', '?')}")
+    return "\n".join(lines)
+
+
+def _h_ic() -> str:
+    ic_path = ROOT / "factor_ic.json"
+    if not ic_path.exists():
+        return "factor_ic.json 不存在"
+    data = json.loads(ic_path.read_text(encoding="utf-8"))
+    ic_table = data.get("ic_table", {})
+    if not ic_table:
+        return "ic_table 为空"
+    factors = sorted(ic_table.items(), key=lambda x: abs(x[1].get("mean_ic") or 0), reverse=True)
+    lines = [f"**因子 IC 摘要** ({len(factors)} 个因子)\n**Top 5:**"]
+    for name, v in factors[:5]:
+        ic = v.get("mean_ic", 0)
+        lines.append(f"  `{name}`  {ic:+.3f}")
+    lines.append("**Bottom 5:**")
+    for name, v in factors[-5:]:
+        ic = v.get("mean_ic", 0)
+        lines.append(f"  `{name}`  {ic:+.3f}")
+    return "\n".join(lines)
+
+
+def _h_kill_backtest() -> str:
+    import time
+    pid = _find_backtest_pid()
+    if not pid:
+        logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+        if logs:
+            log = logs[0]
+            out_json = ROOT / "data" / (log.stem + ".json")
+            if out_json.exists():
+                return f"当前无回测进程（{log.stem} 已完成）"
+            age_min = int((time.time() - log.stat().st_mtime) / 60)
+            if age_min < 30:
+                return (f"wmic 未找到进程，但 {log.name} 在 {age_min} 分钟前更新，"
+                        f"可能仍在运行。请用任务管理器手动终止 backtest.py")
+        return "当前无回测进程在运行"
+    try:
+        import signal
+        os.kill(int(pid), signal.SIGTERM)
+        return f"✅ 已终止回测进程 PID {pid}"
+    except Exception as e:
+        return f"❌ 终止失败: {e}"
+
+
+def _h_start_monitor() -> str:
+    import time
+    # Check via wmic first
+    pid = _find_monitor_pid()
+    if pid:
+        return f"monitor.py 已在运行（PID {pid}）"
+    # Fallback: recent log activity means it's likely running
+    monitor_log = SCRIPTS / "monitor_loop.log"
+    if monitor_log.exists() and time.time() - monitor_log.stat().st_mtime < 300:
+        age = int((time.time() - monitor_log.stat().st_mtime) / 60)
+        return f"monitor.py 看起来已在运行（日志 {age} 分钟前更新）"
+    # Start it
+    log_path = monitor_log
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(f"\n--- Started by Discord bot at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+    log_fh = open(log_path, "a", encoding="utf-8")
+    subprocess.Popen(
+        [sys.executable, "-X", "utf8", str(SCRIPTS / "monitor.py"),
+         "--loop", "--interval", "5"],
+        cwd=str(ROOT),
+        stdout=log_fh,
+        stderr=subprocess.STDOUT,
+    )
+    return "monitor.py 已启动 ✅"
+
+
+def _find_backtest_pid() -> str | None:
+    """Return PID string of running backtest.py process, or None."""
+    try:
+        wmic = r"C:\Windows\System32\wbem\wmic.exe"
+        r = subprocess.run(
+            [wmic, "process", "where", "name='python.exe'",
+             "get", "processid,commandline", "/format:csv"],
+            capture_output=True, text=True
+        )
+        for line in r.stdout.splitlines():
+            if "backtest" in line.lower():
+                parts = line.strip().split(",")
+                if parts:
+                    return parts[-1].strip()
+    except Exception:
+        pass
+    return None
+
+
+def _h_backtest_status() -> str:
+    import time
+    pid = _find_backtest_pid()
+
+    # Find most recently modified backtest log
+    logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+
+    if not pid:
+        # Fallback: if log modified <30min ago and output JSON missing, likely still running
+        if logs:
+            log = logs[0]
+            log_age = time.time() - log.stat().st_mtime
+            out_name = log.stem + ".json"  # e.g. backtest_main_16p.json
+            out_file = ROOT / "data" / out_name
+            if log_age < 1800 and not out_file.exists():
+                pid = "unknown"  # treat as running
+
+    if not pid:
+        results = sorted(
+            (ROOT / "data").glob("backtest_*.json"),
+            key=lambda f: f.stat().st_mtime, reverse=True
+        )
+        if results:
+            latest = results[0]
+            age_min = int((time.time() - latest.stat().st_mtime) / 60)
+            return f"无回测进程。最近结果: `{latest.name}`（{age_min} 分钟前完成）"
+        return "无回测进程，data/ 下也没有结果文件。"
+
+    lines = [f"**回测进行中** PID {pid}"]
+    if logs:
+        log = logs[0]
+        lines.append(f"日志: `{log.name}`")
+        content = log.read_bytes().decode("utf-8", errors="replace")
+        periods_seen = [l for l in content.splitlines() if "Period" in l and "/" in l]
+        if periods_seen:
+            lines.append(f"进度: {periods_seen[-1].strip()}")
+    return "\n".join(lines)
 
 
 def _h_backtest(periods: int = 16, universe: str = "main", workers: int = 8) -> str:
-    # Check for already-running backtest
-    r = subprocess.run(
-        ["tasklist", "/FI", "IMAGENAME eq python.exe", "/FO", "CSV", "/V"],
-        capture_output=True, text=True
-    )
-    for line in r.stdout.strip().splitlines()[1:]:
-        parts = line.strip('"').split('","')
-        if len(parts) >= 9 and "backtest" in parts[8].lower():
-            return f"⚠️ 已有回测进程在运行（PID {parts[1]}），请等待完成或先停止。"
+    import time
+    pid = _find_backtest_pid()
+    if pid:
+        return f"⚠️ 已有回测进程在运行（PID {pid}），请等待完成或先停止。"
+    # Fallback: if log was updated recently and output JSON missing, treat as running
+    if not pid:
+        logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+        if logs:
+            log = logs[0]
+            out_json = ROOT / "data" / (log.stem + ".json")
+            if time.time() - log.stat().st_mtime < 1800 and not out_json.exists():
+                return (f"⚠️ {log.name} 在 30 分钟内更新且无结果文件，"
+                        f"回测可能仍在运行。如确认已停止请发 `bt` 重试。")
 
     universe_map = {
         "main":     SCRIPTS / "main_universe.json",
@@ -257,33 +564,77 @@ def _h_read_file(path: str) -> str:
 def _dispatch_sync(text: str) -> str | None:
     """Return a reply string for known commands, or None to hand off to Claude."""
     t = text.strip().lstrip("/")
+    try:
+        return _dispatch_inner(t)
+    except Exception as e:
+        return f"❌ 命令执行出错: {e}"
 
-    if t in ("帮助", "help", "？", "?"):
+
+def _dispatch_inner(t: str) -> str | None:
+
+    if t in ("帮助", "help", "h", "？", "?"):
         return _HELP
-    elif t in ("状态", "status"):
+    elif t in ("状态", "status", "z"):
         return _h_status()
-    elif t in ("持仓",):
+    elif t in ("q", "全局概览", "当前状态", "overview"):
+        return _h_overview()
+    elif t in ("sug", "建议", "suggest", "你觉得呢"):
+        return _h_suggest()
+    elif t in ("do", "执行", "执行建议", "按照你说的做"):
+        return _h_do()
+    elif t in ("持仓", "c"):
         return _h_holdings()
-    elif t in ("信号", "扫盘", "scan"):
+    elif t in ("hh", "持仓列表"):
+        return _h_holdings_list()
+    elif t in ("ic", "因子ic", "因子IC"):
+        try:
+            return _h_ic()
+        except Exception as e:
+            return f"❌ ic 出错: {e}"
+    elif t in ("信号", "扫盘", "scan", "s"):
         return _h_scan()
-    elif t in ("今日推荐", "推荐", "picks"):
+    elif t in ("今日推荐", "推荐", "picks", "p"):
         return _h_picks()
-    elif t.startswith("日志"):
-        parts = t.split()
-        n = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 20
+    elif t.startswith("日志") or t.startswith("l"):
+        raw = t[1:] if t.startswith("l") else t[2:]
+        raw = raw.strip().replace("期", "")
+        n = int(raw) if raw.isdigit() else 20
         return _h_logs(n)
-    elif t in ("重启 monitor", "重启monitor", "restart monitor", "重启"):
+    elif t in ("重启 monitor", "重启monitor", "restart monitor", "重启", "r"):
         return _h_restart()
-    elif t.startswith("回测") or t.startswith("backtest"):
-        # Parse: 回测 [N期] [main|smallcap]
-        parts = t.split()
+    elif t in ("sm", "启动monitor", "start monitor"):
+        return _h_start_monitor()
+    elif t in ("kb", "终止回测", "kill backtest"):
+        return _h_kill_backtest()
+    elif t in ("回测状态", "bs", "backtest status"):
+        try:
+            return _h_backtest_status()
+        except Exception as e:
+            return f"❌ bs 出错: {e}"
+    elif t.startswith("回测") or t.startswith("bt") or t.startswith("backtest"):
+        # bt / bt16 / bt16s / 回测 16期 smallcap
+        raw = t
+        for prefix in ("backtest", "回测", "bt"):
+            if raw.startswith(prefix):
+                raw = raw[len(prefix):].strip()
+                break
+        parts    = raw.split()
         periods  = 16
         universe = "main"
-        for p in parts[1:]:
-            if p.replace("期", "").isdigit():
-                periods = int(p.replace("期", ""))
-            elif p in ("main", "smallcap", "小盘", "主"):
-                universe = "smallcap" if p in ("smallcap", "小盘") else "main"
+        for p in parts:
+            p2 = p.replace("期", "")
+            if p2.isdigit():
+                periods = int(p2)
+            elif p in ("s", "small", "smallcap", "小盘"):
+                universe = "smallcap"
+            elif p in ("m", "main", "主"):
+                universe = "main"
+        # also handle compact form like "bt16s" or "bt8m"
+        import re
+        m = re.match(r'^(\d+)([sm]?)$', raw.replace("期",""))
+        if m:
+            periods  = int(m.group(1))
+            universe = "smallcap" if m.group(2) == "s" else "main"
         return _h_backtest(periods=periods, universe=universe)
 
     return None  # hand off to Claude
@@ -360,9 +711,9 @@ _CLAUDE_SYSTEM = f"""你是 StockSage Alpha 的智能助手，运行在用户的
 主要脚本: scripts/  数据目录: data/  配置: stock-bot/config.json
 
 规则：
-- 用中文回复，回复尽量简短（2-4句话），不要废话
-- 需要文件内容时先用 read_file 读取再回答
-- 回测任务耗时数小时，启动后告知日志文件名
+- 内部充分分析，但最终回复极度精简：只给结论，1-3句话，不解释过程
+- 需要文件内容时先用 read_file 读取再回答，不要凭记忆猜
+- 回测任务耗时数小时，启动后只报告 PID 和日志文件名即可
 """
 
 # Per-channel conversation history: channel_id -> list of messages
@@ -409,7 +760,7 @@ def _claude_dispatch(channel_id: int, text: str) -> str:
 
     api_key = _claude_api_key()
     if not api_key:
-        return "❌ 未配置 claude.api_key，请在 wechat-bot/config.json 填入 Anthropic API Key"
+        return "❌ 未配置 claude.api_key，请在 stock-bot/config.json 填入 Anthropic API Key"
 
     client = anthropic.Anthropic(api_key=api_key)
 
