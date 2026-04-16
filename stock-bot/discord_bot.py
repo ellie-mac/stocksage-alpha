@@ -90,7 +90,7 @@ def _claude_api_key() -> str:
 _HELP = """**StockSage 命令**
 `z` 系统状态  |  `q` 全局概览
 `p` 今日推荐  |  `ic` 因子IC摘要
-`icf 因子名` 因子说明  |  `fx 600519` 单股分析
+`ich` 因子列表  |  `icf 因子名` 因子说明  |  `fx 600519` 单股分析
 `bs` 回测进度  |  `kb` 终止回测
 `bt` / `bt16` / `bt16s` 启动个股回测（s=小盘）
 `bte` / `bte12` 启动ETF回测
@@ -933,6 +933,11 @@ def _dispatch_inner(t: str) -> str | None:
         return _h_shortcut(num)
     elif t in ("sch", "快捷列表"):
         return _SC_LIST
+    elif t in ("ich", "因子列表"):
+        names = sorted(_FACTOR_GLOSSARY.keys())
+        pairs = [f"`{n}` {_FACTOR_ZH.get(n, '')}" for n in names]
+        body = "  ".join(pairs)
+        return f"**因子列表（共{len(names)}个）** — 用 `icf 因子名` 查详情\n{body}"
     elif t in ("icf", "因子介绍") or t.startswith("icf ") or t.startswith("因子介绍 "):
         name = t.split(None, 1)[1].strip() if " " in t else ""
         if not name:
