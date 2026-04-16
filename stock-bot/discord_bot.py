@@ -89,11 +89,10 @@ def _claude_api_key() -> str:
 # ── Command handlers ──────────────────────────────────────────────────────────
 _HELP = """**StockSage 命令**
 `z` 系统状态  |  `q` 全局概览
-`c` 持仓推送 📱微信  |  `hh` 持仓列表
 `s` 扫盘推送 📱微信  |  `tn` 全市场扫描 📱微信
 `p` 今日推荐  |  `ic` 因子IC摘要
 `icf 因子名` 因子说明  |  `fx 600519` 单股分析
-`l` / `l30` 日志  |  `r` 重启monitor  |  `sm` 启动monitor
+`r` 重启monitor  |  `sm` 启动monitor
 `bs` 回测进度  |  `kb` 终止回测
 `bt` / `bt16` / `bt16s` 启动个股回测（s=小盘）
 `bte` / `bte12` 启动ETF回测
@@ -912,10 +911,10 @@ def _dispatch_inner(t: str) -> str | None:
         return _h_suggest()
     elif t in ("do", "执行", "执行建议", "按照你说的做"):
         return _h_do()
-    elif t in ("持仓", "c"):
-        return _h_holdings()
-    elif t in ("hh", "持仓列表"):
-        return _h_holdings_list()
+    # elif t in ("持仓", "c"):
+    #     return _h_holdings()
+    # elif t in ("hh", "持仓列表"):
+    #     return _h_holdings_list()
     elif t in ("ic", "因子ic", "因子IC"):
         try:
             return _h_ic()
@@ -940,11 +939,11 @@ def _dispatch_inner(t: str) -> str | None:
         if not name:
             return "用法: `icf momentum` 查看因子说明"
         return _h_factor_info(name)
-    elif t.startswith("日志") or t.startswith("l"):
-        raw = t[1:] if t.startswith("l") else t[2:]
-        raw = raw.strip().replace("期", "")
-        n = int(raw) if raw.isdigit() else 20
-        return _h_logs(n)
+    # elif t.startswith("日志") or t.startswith("l"):
+    #     raw = t[1:] if t.startswith("l") else t[2:]
+    #     raw = raw.strip().replace("期", "")
+    #     n = int(raw) if raw.isdigit() else 20
+    #     return _h_logs(n)
     elif t in ("重启 monitor", "重启monitor", "restart monitor", "重启", "r"):
         return _h_restart()
     elif t in ("sm", "启动monitor", "start monitor"):
