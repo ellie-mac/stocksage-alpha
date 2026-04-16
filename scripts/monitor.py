@@ -61,6 +61,38 @@ SCAN_CACHE_PATH   = os.path.join(_ROOT, "data", "watchlist_scan_latest.json")
 STATE_PATH    = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".monitor_state.json")
 
 
+# ── Watchlist helpers ──────────────────────────────────────────────────────────
+
+def _wl_codes(cfg: dict) -> list[str]:
+    """Extract bare 6-digit codes from watchlist (supports both old str-list and new obj-list)."""
+    raw = cfg.get("watchlist", [])
+    if not raw:
+        return []
+    if isinstance(raw[0], dict):
+        return [e["code"] for e in raw]
+    # legacy: list of "SZ002361" or bare "002361" strings
+    return [c[-6:] if len(c) > 6 else c for c in raw]
+
+def _wl_name(entry) -> str:
+    """Get display name from a watchlist entry (dict with 'name'/'code', or plain str)."""
+    if isinstance(entry, dict):
+        return entry.get("name") or entry.get("code", "")
+    return str(entry)
+
+def _wl_lines(cfg: dict) -> str:
+    """Format watchlist for push messages: '  - 神剑股份 (002361)' per line."""
+    raw = cfg.get("watchlist", [])
+    if not raw:
+        return "  （空）"
+    if isinstance(raw[0], dict):
+        lines = [f"  - {e.get('name', e['code'])} ({e['code']})" for e in raw]
+    else:
+        # legacy: try watchlist_names dict
+        names = cfg.get("watchlist_names", {})
+        lines = [f"  - {names.get(c, c)} ({c[-6:] if len(c) > 6 else c})" for c in raw]
+    return "\n".join(lines)
+
+
 # ── State persistence ──────────────────────────────────────────────────────────
 
 def _load_state() -> dict:
@@ -1138,7 +1170,7 @@ def run(
     except Exception:
         pass
 
-    # ── 5. Build + send WeChat ────────────────────────────────────────────────
+    # ── 5. Build + send WeChat (two separate pushes) ─────────────────────────
     has_signal = bool(sell_alerts or buy_alerts or smallcap_alerts)
     if not has_signal and not always_send:
         print("  No signals triggered. No email sent.")
@@ -1146,7 +1178,7 @@ def run(
 
     _sell_trigger = thresholds.get("sell_score_trigger", 60)
     _stall_score  = thresholds.get("stall_sell_score", 40)
-    _STRONG_BUY   = 80   # aligns with _buy_position_hint upper tiers (75+)
+    _STRONG_BUY   = 80
 
     strong_sells = [s for s in sell_alerts if s["sell_score"] >= _sell_trigger]
     stall_sells  = [s for s in sell_alerts if _stall_score <= s["sell_score"] < _sell_trigger]
@@ -1154,82 +1186,124 @@ def run(
     add_buys     = [b for b in buy_alerts  if b["buy_score"] < _STRONG_BUY]
 
     def _names(stocks: list, max_n: int = 3) -> str:
-        """Return comma-joined names for up to max_n stocks."""
         ns = [s.get("name") or s.get("code", "") for s in stocks[:max_n]]
         suffix = "…" if len(stocks) > max_n else ""
         return "、".join(ns) + suffix
 
-    subject_parts = []
-    if strong_sells: subject_parts.append(f"🔴 {len(strong_sells)} 强卖（{_names(strong_sells)}）")
-    if stall_sells:  subject_parts.append(f"⚠️ {len(stall_sells)} 减仓（{_names(stall_sells)}）")
-    if strong_buys:  subject_parts.append(f"✅ {len(strong_buys)} 强买（{_names(strong_buys)}）")
-    if add_buys:     subject_parts.append(f"💡 {len(add_buys)} 加仓（{_names(add_buys)}）")
-    if not subject_parts:
-        subject_parts.append("持仓日报")
-    title = f"[StockSage] {' | '.join(subject_parts)}"
+    # ── Push 1: 持仓信号（卖出 + 当前持仓表）─────────────────────────────────
+    # Send whenever there are sell alerts, OR always_send is True (heartbeat/daily report)
+    if sell_alerts or always_send:
+        hold_parts = []
+        if strong_sells: hold_parts.append(f"🔴 {len(strong_sells)} 强卖（{_names(strong_sells)}）")
+        if stall_sells:  hold_parts.append(f"⚠️ {len(stall_sells)} 减仓（{_names(stall_sells)}）")
+        if not hold_parts: hold_parts.append("持仓日报")
+        hold_title = f"[StockSage 持仓] {' | '.join(hold_parts)}"
 
-    desp = build_wechat_desp(sell_alerts, buy_alerts, scored_holdings, run_time,
-                             stop_loss_pct=thresholds.get("stop_loss_pct", -8.0),
-                             sell_trigger=thresholds.get("sell_score_trigger", 60),
-                             stall_score=thresholds.get("stall_sell_score", 40))
+        hold_desp_parts = [f"*{run_time}*\n"]
+        hold_desp_parts.append("## 卖出信号\n")
+        hold_desp_parts.append(_fmt_sell_section_md(
+            sell_alerts,
+            stop_loss_pct=thresholds.get("stop_loss_pct", -8.0),
+            sell_trigger=_sell_trigger, stall_score=_stall_score))
+        if scored_holdings:
+            hold_desp_parts.append("## 当前持仓\n")
+            hold_desp_parts.append(_fmt_holdings_table_md(
+                scored_holdings, sell_trigger=_sell_trigger, buy_trigger=65))
+        hold_desp_parts.append("\n\n> 仅供参考，不构成投资建议")
+        hold_desp = "\n".join(hold_desp_parts)
 
-    # Always append top candidates from scored_universe (watchlist or full universe)
-    if scored_universe:
-        top_candidates = [s for s in scored_universe[:15] if not s.get("error") and s.get("buy_score", 0) > 0][:10]
-        if top_candidates:
-            label = "自选池排名" if universe_override is not None else "今日关注（低波动）"
-            lines = [f"## {label}\n"]
-            for s in top_candidates:
-                signal = " ✅" if s in buy_alerts else ""
-                lines.append(f"- **{s['name']}**（{s['code']}）买入分:{s['buy_score']:.0f}{signal}")
-            desp += "\n\n" + "\n".join(lines)
+        try:
+            send_wechat(hold_title, hold_desp, sendkey, dry_run=dry_run)
+        except Exception as e:
+            print(f"[ERROR] 持仓推送失败: {e}")
 
-    # Always append small-cap top candidates (threshold-crossers marked ✅)
-    if smallcap_candidates:
-        sc_lines = ["## 今日关注（小市值）\n"]
-        for s in smallcap_candidates:
-            cap_b = s.get("market_cap_b") or ""
-            cap_str = f" {cap_b:.0f}亿" if cap_b else ""
-            signal_mark = " ✅" if s.get("_sc_signal") else ""
-            sc_lines.append(
-                f"- **{s['name']}**（{s['code']}）"
-                f"买入分:{s['buy_score']:.0f}{cap_str}{signal_mark}"
-            )
-        desp += "\n\n" + "\n".join(sc_lines)
-
-    # Merge ETF top scores into push when provided by run_loop
+    # ── Push 2: 选股信号（主策略 + 小市值 + ETF）────────────────────────────
+    # Determine ETF alerts (those crossing buy threshold)
+    etf_alerts = []
     if etf_scores:
-        _sorted_etf = sorted(etf_scores, key=lambda x: x.get("buy_score", 0), reverse=True)
-        etf_lines = ["## ETF 评分\n"]
-        for _se in _sorted_etf[:5]:
-            _p    = _se.get("price") or 0
-            _pnl  = _se.get("pnl_pct", 0)
-            _pnl_str = f" | 浮盈 {_pnl:+.1f}%" if _se.get("shares", 0) > 0 else ""
-            etf_lines.append(
-                f"- **{_se['name']}** ({_se['code']}): "
-                f"买 {_se.get('buy_score', 0):.0f} / 卖 {_se.get('sell_score', 0):.0f}"
-                f" | 价 {_p}{_pnl_str}"
-            )
-        desp += "\n\n" + "\n".join(etf_lines)
+        _etf_buy_thr = thresholds.get("buy_score_trigger", 65)
+        etf_alerts = [e for e in etf_scores if e.get("buy_score", 0) >= _etf_buy_thr]
 
-    # Append strategy performance comparison (forward returns from past pools)
-    try:
-        spot_df = fetcher._get_spot_df()
-        if spot_df is not None and not spot_df.empty and "代码" in spot_df.columns and "最新价" in spot_df.columns:
-            price_map = dict(zip(
-                spot_df["代码"].astype(str),
-                pd.to_numeric(spot_df["最新价"], errors="coerce"),
-            ))
-            perf_section = strategy_tracker.format_perf_section(price_map)
-            if perf_section:
-                desp += "\n\n" + perf_section
-    except Exception:
-        pass
+    has_buy_signal = bool(buy_alerts or smallcap_alerts or etf_alerts)
+    # Also send when always_send with top candidates or small-cap list available
+    has_buy_content = bool(buy_alerts or smallcap_candidates or (etf_scores and always_send))
 
-    try:
-        send_wechat(title, desp, sendkey, dry_run=dry_run)
-    except Exception as e:
-        print(f"[ERROR] 微信推送失败: {e}")
+    if has_buy_signal or (always_send and has_buy_content):
+        buy_parts = []
+        if strong_buys:    buy_parts.append(f"✅ {len(strong_buys)} 强买（{_names(strong_buys)}）")
+        if add_buys:       buy_parts.append(f"💡 {len(add_buys)} 加仓（{_names(add_buys)}）")
+        if smallcap_alerts: buy_parts.append(f"📊 {len(smallcap_alerts)} 小盘（{_names(smallcap_alerts)}）")
+        if etf_alerts:     buy_parts.append(f"🏦 {len(etf_alerts)} ETF（{_names(etf_alerts)}）")
+        if not buy_parts:  buy_parts.append("今日关注")
+        buy_title = f"[StockSage] {' | '.join(buy_parts)}"
+
+        buy_desp_parts = [f"*{run_time}*\n"]
+
+        # Main strategy section
+        if scored_universe:
+            top_candidates = [s for s in scored_universe[:15]
+                              if not s.get("error") and s.get("buy_score", 0) > 0][:10]
+            if top_candidates:
+                label = "自选池排名" if universe_override is not None else "今日关注（低波动主策略）"
+                lines = [f"## {label}\n"]
+                for s in top_candidates:
+                    signal = " ✅" if s in buy_alerts else ""
+                    lines.append(f"- **{s['name']}**（{s['code']}）买入分:{s['buy_score']:.0f}{signal}")
+                buy_desp_parts.append("\n".join(lines))
+        elif buy_alerts:
+            buy_desp_parts.append("## 主策略买入\n")
+            buy_desp_parts.append(_fmt_buy_section_md(buy_alerts))
+
+        # Small-cap section
+        if smallcap_candidates:
+            sc_lines = ["## 今日关注（小市值策略）\n"]
+            for s in smallcap_candidates:
+                cap_b = s.get("market_cap_b") or ""
+                cap_str = f" {cap_b:.0f}亿" if cap_b else ""
+                signal_mark = " ✅" if s.get("_sc_signal") else ""
+                sc_lines.append(
+                    f"- **{s['name']}**（{s['code']}）"
+                    f"买入分:{s['buy_score']:.0f}{cap_str}{signal_mark}"
+                )
+            buy_desp_parts.append("\n\n" + "\n".join(sc_lines))
+
+        # ETF section
+        if etf_scores:
+            _sorted_etf = sorted(etf_scores, key=lambda x: x.get("buy_score", 0), reverse=True)
+            etf_lines = ["## ETF 策略评分\n"]
+            for _se in _sorted_etf[:5]:
+                _p    = _se.get("price") or 0
+                _pnl  = _se.get("pnl_pct", 0)
+                _pnl_str = f" | 浮盈 {_pnl:+.1f}%" if _se.get("shares", 0) > 0 else ""
+                _alert_mark = " ✅" if _se in etf_alerts else ""
+                etf_lines.append(
+                    f"- **{_se['name']}** ({_se['code']}): "
+                    f"买 {_se.get('buy_score', 0):.0f} / 卖 {_se.get('sell_score', 0):.0f}"
+                    f" | 价 {_p}{_pnl_str}{_alert_mark}"
+                )
+            buy_desp_parts.append("\n\n" + "\n".join(etf_lines))
+
+        # Strategy performance
+        try:
+            spot_df = fetcher._get_spot_df()
+            if spot_df is not None and not spot_df.empty and "代码" in spot_df.columns and "最新价" in spot_df.columns:
+                price_map = dict(zip(
+                    spot_df["代码"].astype(str),
+                    pd.to_numeric(spot_df["最新价"], errors="coerce"),
+                ))
+                perf_section = strategy_tracker.format_perf_section(price_map)
+                if perf_section:
+                    buy_desp_parts.append("\n\n" + perf_section)
+        except Exception:
+            pass
+
+        buy_desp_parts.append("\n\n> 仅供参考，不构成投资建议")
+        buy_desp = "\n".join(buy_desp_parts)
+
+        try:
+            send_wechat(buy_title, buy_desp, sendkey, dry_run=dry_run)
+        except Exception as e:
+            print(f"[ERROR] 选股推送失败: {e}")
 
     return buy_alerts
 
@@ -1429,16 +1503,11 @@ def run_loop(
                             print(f"  [Universe] Refreshed: {n} stocks")
                             _universe_refresh_done.set()
                             try:
-                                wl = cfg.get('watchlist', [])
-                                wl_names = cfg.get('watchlist_names', {})
-                                wl_lines = "\n".join(
-                                    f"  - {wl_names.get(c, c)} ({c})" for c in wl
-                                ) if wl else "  （空）"
                                 send_wechat(
                                     "[StockSage] 股票池已更新 🔄",
                                     f"今日 screener_universe 刷新完成\n\n"
                                     f"- 候选股票: **{n}** 只（全量扫描）\n"
-                                    f"- 自选池（每30分钟扫描）:\n{wl_lines}\n\n"
+                                    f"- 自选池（每30分钟扫描）:\n{_wl_lines(cfg)}\n\n"
                                     f"> {datetime.now().strftime('%Y-%m-%d')} 每日自动刷新",
                                     _sendkey, dry_run=_dry_run,
                                 )
@@ -1522,18 +1591,14 @@ def run_loop(
                     print(f"  [Cache] Purged {deleted} expired file(s)")
             except Exception as e:
                 print(f"  [WARN] Cache purge failed: {e}")
-            _wl       = config.get('watchlist', [])
-            _wl_names = config.get('watchlist_names', {})
             _holding_lines = "、".join(
                 f"{h.get('name', h['code'])}({h['code']})" for h in holdings
             ) or "（空）"
-            _wl_lines = "\n".join(
-                f"  - {_wl_names.get(c, c)} ({c})" for c in _wl
-            ) or "  （空）"
+            _wl_raw = config.get('watchlist', [])
             desp = (
                 f"监控进程正常运行中\n\n"
                 f"- 持仓 {len(holdings)} 只: {_holding_lines}\n\n"
-                f"- 自选池 {len(_wl)} 只:\n{_wl_lines}\n\n"
+                f"- 自选池 {len(_wl_raw)} 只:\n{_wl_lines(config)}\n\n"
                 f"- ETF 监控: {len(config.get('etf_watchlist', []))} 只\n\n"
                 f"> {now.strftime('%Y-%m-%d')} 开盘前自检"
             )
@@ -1860,8 +1925,8 @@ def run_loop(
                     print(f"  [ERROR] ETF 状态推送失败: {_e}")
 
         # ── Watchlist scan (every 5 min, trading hours only) ─────────────────
-        # Normalise codes: strip SH/SZ/BJ prefix so fetcher can look them up
-        watchlist = [c[-6:] if len(c) > 6 else c for c in config.get("watchlist", [])]
+        # Extract bare 6-digit codes from watchlist (supports both old and new format)
+        watchlist = _wl_codes(config)
         need_watchlist = (
             _market_open and
             watchlist and (
@@ -1911,7 +1976,7 @@ def run_loop(
                     _check_opening_auction(
                         holdings   = holdings,
                         pre_picks  = _auction_picks,
-                        watchlist  = config.get("watchlist", []),
+                        watchlist  = _wl_codes(config),
                         sendkey    = sendkey,
                         dry_run    = dry_run,
                         weights    = _fw,
@@ -1926,7 +1991,7 @@ def run_loop(
                 _trigger_xhs_post("preauction", dry_run)
 
             try:
-                _watchlist_set = set(config.get("watchlist", []))
+                _watchlist_set = set(_wl_codes(config))
                 _screener_universe = config.get("screener_universe", [])
 
                 # Morning open: first confirm today's 1AM pre-market picks, then

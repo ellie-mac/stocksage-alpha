@@ -522,11 +522,11 @@ def build_watchlist(
     top_n_hot: int = 200,
     max_per_sector: int = 10,
     max_total: int = 500,
-) -> tuple[list[str], dict[str, str]]:
+) -> list[dict]:
     """
     Build intraday watchlist from EastMoney hot rank.
 
-    Returns (watchlist_codes, code_to_name).
+    Returns list of {code, name} dicts (same format as etf_watchlist).
     """
     print("Fetching hot-rank lists (EastMoney + THS)...")
     # rank_score: code -> float (lower = hotter); names: code -> str
@@ -583,7 +583,7 @@ def build_watchlist(
 
     # Deduplication: max max_per_sector per sector
     sector_count: dict[str, int] = {}
-    watchlist: list[str] = []
+    watchlist: list[dict] = []
     for code in hot_codes:
         if len(watchlist) >= max_total:
             break
@@ -591,11 +591,11 @@ def build_watchlist(
         if sector_count.get(sector, 0) >= max_per_sector:
             continue
         sector_count[sector] = sector_count.get(sector, 0) + 1
-        watchlist.append(code)
+        watchlist.append({"code": code, "name": code_to_name.get(code, code)})
 
     print(f"  Watchlist: {len(watchlist)} stocks "
           f"(from {len(hot_codes)} hot, max {max_per_sector}/sector)")
-    return watchlist, code_to_name
+    return watchlist
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -620,7 +620,7 @@ def main() -> None:
         return
 
     # Build stock watchlist from hot rank (max 10 per sector, max 500 total)
-    watchlist, watchlist_names = build_watchlist(sector_map, max_per_sector=10)
+    watchlist = build_watchlist(sector_map, max_per_sector=10)
 
     # Build ETF watchlist (all exchange ETFs, max 3 per theme, same-index dedup)
     etf_watchlist = build_etf_watchlist(max_per_theme=3)
@@ -629,8 +629,8 @@ def main() -> None:
     with open(CONFIG_PATH, encoding="utf-8") as f:
         config = json.load(f)
     config["screener_universe"] = universe
-    config["watchlist"]         = watchlist
-    config["watchlist_names"]   = watchlist_names   # {code: name}
+    config["watchlist"]         = watchlist          # [{code, name}, ...]
+    config.pop("watchlist_names", None)              # removed — names now in watchlist objects
     config["etf_watchlist"]     = etf_watchlist
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)

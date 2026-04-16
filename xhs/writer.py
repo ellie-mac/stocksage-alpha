@@ -1516,7 +1516,33 @@ def _load_json_safe(path: Path) -> dict:
 
 
 def _load_alert_config() -> dict:
-    return _load_json_safe(REPO_ROOT / "scripts" / "alert_config.json")
+    return _load_json_safe(REPO_ROOT / "alert_config.json")
+
+
+def _load_holdings() -> list:
+    """Load holdings.json (root level). Returns list of holding dicts with shares > 0."""
+    raw = _load_json_safe(REPO_ROOT / "holdings.json")
+    if isinstance(raw, list):
+        return [h for h in raw if h.get("shares", 0) > 0]
+    return []
+
+
+def _parse_watchlist(cfg: dict) -> tuple[list[str], dict[str, str]]:
+    """
+    Extract (codes, name_map) from watchlist in either format:
+      new: [{"code": "002361", "name": "神剑股份"}, ...]
+      old: ["SZ002361", ...] + watchlist_names dict
+    """
+    raw = cfg.get("watchlist", [])
+    if not raw:
+        return [], {}
+    if isinstance(raw[0], dict):
+        codes    = [e["code"] for e in raw]
+        name_map = {e["code"]: e.get("name", e["code"]) for e in raw}
+    else:
+        codes    = [c[-6:] if len(c) > 6 else c for c in raw]
+        name_map = cfg.get("watchlist_names", {})
+    return codes, name_map
 
 
 def cmd_preauction(args):
@@ -1761,41 +1787,37 @@ def cmd_midday(args):
         return
 
     day = record.get("day") or get_day_number()
-    cfg = _load_alert_config()
-    holdings    = cfg.get("holdings", [])
-    watchlist   = cfg.get("watchlist", [])
-    wl_names    = cfg.get("watchlist_names", {})
 
-    all_codes = list(dict.fromkeys(
-        [h["code"] for h in holdings] + watchlist
-    ))
+    # Load today's picks from latest_picks.json (the 5 daily buy recommendations)
+    picks_data = _load_latest_picks(top_n=10)
+    picks = picks_data.get("results", []) if picks_data else []
+
+    # Fetch realtime prices for picks only
+    pick_codes = [p["code"] for p in picks]
     print("[+] 获取早盘行情（11:30）...")
-    prices = fetch_current_prices(all_codes) if all_codes else {}
+    prices = fetch_current_prices(pick_codes) if pick_codes else {}
 
     def _pct(code: str) -> Optional[float]:
         return prices.get(code, {}).get("change_pct")
 
     def _fmt(code: str, name: str) -> str:
         chg = _pct(code)
+        label = name if name and name != code else code  # show code only if name missing
         if chg is None:
-            return f"- {name}({code}): 暂无数据"
+            return f"- {label}: 暂无数据"
         icon = "📈" if chg > 0 else ("📉" if chg < 0 else "➡️")
-        return f"- {icon} {name}({code}): {chg:+.1f}%"
+        return f"- {icon} {label}: {chg:+.1f}%"
 
-    lines = [f"☀️ 早盘快照 | {datetime.now().strftime('%H:%M')}", ""]
+    lines = [f"☀️ 早盘快照 | 第{day}天 | {datetime.now().strftime('%H:%M')}", ""]
 
-    if holdings:
-        lines.append("**持仓**")
-        h_rows = [(_pct(h["code"]) or 0, h["code"], h.get("name", h["code"])) for h in holdings]
-        h_rows.sort(key=lambda x: x[0], reverse=True)
-        lines.extend(_fmt(c, n) for _, c, n in h_rows)
+    if picks:
+        lines.append(f"**第{day}天推荐**")
+        pick_rows = [(_pct(p["code"]) or 0, p["code"], p.get("name", p["code"])) for p in picks]
+        pick_rows.sort(key=lambda x: x[0], reverse=True)
+        lines.extend(_fmt(c, n) for _, c, n in pick_rows)
         lines.append("")
-
-    if watchlist:
-        wl_with_chg = [(_pct(c) or 0, c, wl_names.get(c, c)) for c in watchlist]
-        wl_with_chg.sort(key=lambda x: x[0], reverse=True)
-        lines.append("**自选池**")
-        lines.extend(_fmt(c, n) for _, c, n in wl_with_chg[:10])
+    else:
+        lines.append("（今日暂无推荐标的）")
         lines.append("")
 
     lines += ["#A股 #早盘 #选股", ""]
@@ -1823,10 +1845,9 @@ def cmd_evening(args):
 
     day = record.get("day") or get_day_number()
     cfg = _load_alert_config()
-    watchlist = cfg.get("watchlist", [])
-    wl_names  = cfg.get("watchlist_names", {})
+    watchlist_codes, wl_names = _parse_watchlist(cfg)
 
-    all_codes = list(dict.fromkeys(watchlist))
+    all_codes = list(dict.fromkeys(watchlist_codes))
     print("[+] 获取收盘行情...")
     prices    = fetch_current_prices(all_codes) if all_codes else {}
     benchmark = fetch_benchmark_change()
@@ -1834,7 +1855,7 @@ def cmd_evening(args):
     def _pct(code: str) -> Optional[float]:
         return prices.get(code, {}).get("change_pct")
 
-    wl_rows = [(_pct(c) or 0, c, wl_names.get(c, c)) for c in watchlist]
+    wl_rows = [(_pct(c) or 0, c, wl_names.get(c, c)) for c in watchlist_codes]
     wl_rows.sort(key=lambda x: x[0], reverse=True)
 
     gains  = [(c, n, chg) for chg, c, n in wl_rows if chg > 0]
