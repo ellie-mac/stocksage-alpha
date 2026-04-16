@@ -159,7 +159,7 @@ _SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 `sc 1` 启动 monitor 循环
 `sc 2` 重启 monitor（先停后启）
 `sc 3` 终止回测进程
-`sc 4` 启动 ETF monitor
+`sc 4` 启动 ETF 回测（12期）
 `sc 5` 批量预热财务缓存（batch_financials）
 `sc 6` 重建股票池（build_universe）
 `sc 7` 扫盘推送 📱微信
@@ -196,16 +196,7 @@ def _h_shortcut(num: str) -> str:
             return f"❌ 终止失败: {e}"
 
     elif num == "4":
-        log_path = SCRIPTS / "etf_monitor_loop.log"
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(f"\n--- Started by Discord bot at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
-        subprocess.Popen(
-            [sys.executable, "-X", "utf8", str(SCRIPTS / "etf_monitor.py"), "--loop"],
-            cwd=str(ROOT),
-            stdout=open(log_path, "a", encoding="utf-8"),
-            stderr=subprocess.STDOUT,
-        )
-        return "ETF monitor 已启动 ✅"
+        return _h_backtest_etf(periods=12)
 
     elif num == "5":
         log_path = SCRIPTS / "batch_financials.log"
