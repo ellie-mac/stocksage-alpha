@@ -400,6 +400,62 @@ def _h_holdings_list() -> str:
     return "\n".join(lines)
 
 
+_FACTOR_ZH = {
+    "accruals":                "应计因子（盈利质量）",
+    "amihud_illiquidity":      "Amihud非流动性",
+    "ar_quality":              "应收账款质量",
+    "asset_growth":            "资产增速",
+    "atr_normalized":          "ATR波动率",
+    "bb_squeeze":              "布林压缩",
+    "bollinger_position":      "布林位置",
+    "cash_flow_quality":       "现金流质量",
+    "chip_distribution":       "筹码分布",
+    "div_yield":               "股息率",
+    "divergence":              "背离信号",
+    "gap_frequency":           "跳空频率",
+    "gross_margin_trend":      "毛利率趋势",
+    "growth":                  "成长",
+    "hammer_bottom":           "锤形底",
+    "idiosyncratic_vol":       "特质波动率",
+    "intraday_vs_overnight":   "日内/隔夜收益比",
+    "limit_hits":              "涨停次数",
+    "limit_open_rate":         "开板率",
+    "low_volatility":          "低波动",
+    "ma60_deviation":          "MA60偏离",
+    "ma_alignment":            "均线排列",
+    "macd_signal":             "MACD信号",
+    "main_inflow":             "主力净流入",
+    "market_beta":             "市场Beta",
+    "market_relative_strength":"市场相对强度",
+    "max_return":              "最大单日涨幅",
+    "medium_term_momentum":    "中期动量",
+    "momentum":                "动量",
+    "momentum_concavity":      "动量凸性",
+    "nearness_to_high":        "接近历史高点",
+    "northbound":              "北向资金",
+    "obv_trend":               "OBV趋势",
+    "piotroski":               "Piotroski F分",
+    "position_52w":            "52周价格位置",
+    "price_efficiency":        "价格效率",
+    "price_inertia":           "价格惯性",
+    "price_volume_corr":       "量价相关性",
+    "quality":                 "质量",
+    "return_skewness":         "收益偏度",
+    "reversal":                "反转",
+    "roe_trend":               "ROE趋势",
+    "rsi_signal":              "RSI信号",
+    "short_interest":          "融券做空",
+    "size_factor":             "规模因子",
+    "trend_linearity":         "趋势线性度",
+    "turnover_acceleration":   "换手加速",
+    "turnover_percentile":     "换手率分位",
+    "upday_ratio":             "上涨天占比",
+    "value":                   "价值",
+    "volume":                  "成交量",
+    "volume_expansion":        "放量信号",
+    "volume_ratio":            "量比",
+}
+
 def _h_ic() -> str:
     ic_path = ROOT / "factor_ic.json"
     if not ic_path.exists():
@@ -408,22 +464,29 @@ def _h_ic() -> str:
     ic_table = data.get("ic_table", {})
     if not ic_table:
         return "ic_table 为空"
-    # Safe key: handle mean_ic=None (key exists but value is null)
+
     def _safe_ic(item):
         v = item[1]
         if not isinstance(v, dict):
             return 0.0
         return abs(v.get("mean_ic") or 0.0)
-    factors = sorted(ic_table.items(), key=_safe_ic, reverse=True)
-    valid = [(n, v) for n, v in factors if isinstance(v, dict) and v.get("mean_ic") is not None]
-    lines = [f"**因子 IC 摘要** (有效 {len(valid)}/{len(factors)} 个)\n**Top 5:**"]
-    for name, v in valid[:5]:
+
+    # Only show buy-side factors (exclude sell_score_ entries)
+    buy_factors = [(n, v) for n, v in ic_table.items() if not n.startswith("sell_score_")]
+    buy_factors = sorted(buy_factors, key=_safe_ic, reverse=True)
+    valid = [(n, v) for n, v in buy_factors if isinstance(v, dict) and v.get("mean_ic") is not None]
+
+    def _fmt(name, v):
         ic = v.get("mean_ic") or 0.0
-        lines.append(f"  `{name}`  {ic:+.3f}")
-    lines.append("**Bottom 5 (有效):**")
-    for name, v in valid[-5:]:
-        ic = v.get("mean_ic") or 0.0
-        lines.append(f"  `{name}`  {ic:+.3f}")
+        zh = _FACTOR_ZH.get(name, name)
+        return f"  {ic:+.3f}  {zh}"
+
+    lines = [f"**因子 IC（买入侧）** 有效 {len(valid)}/{len(buy_factors)} 个\n**Top 10 ↑**"]
+    for name, v in valid[:10]:
+        lines.append(_fmt(name, v))
+    lines.append("\n**Bottom 10 ↓**")
+    for name, v in valid[-10:]:
+        lines.append(_fmt(name, v))
     return "\n".join(lines)
 
 
