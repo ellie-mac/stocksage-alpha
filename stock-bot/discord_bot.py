@@ -94,7 +94,7 @@ _HELP = """**StockSage 命令**
 `bs` 回测进度  |  `br` 回测结果摘要
 `bt` / `bt16s` 个股回测  |  `bte` / `bte12` ETF回测
 `sug` 给我建议  |  `do` 执行上条建议
-`sch` 快捷命令列表  |  `sc 1-8` 执行快捷命令
+`sch` 快捷命令列表  |  `sc 1-9` 执行快捷命令
 `h` 帮助  💬 其他走AI对话（消耗token）"""
 
 def _h_status() -> str:
@@ -162,8 +162,8 @@ _SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 `sc 5` 批量预热财务缓存（batch_financials）
 `sc 6` 重建股票池（build_universe）
 `sc 7` 扫盘推送 📱微信
-`sc 8` 全市场扫描 (--test-now) 📱微信
-`sc 9` monitor 日志最近20行"""
+`sc 8` monitor 日志最近20行
+`sc 9` 查看最新回测结果摘要"""
 
 
 def _h_shortcut(num: str) -> str:
@@ -236,10 +236,10 @@ def _h_shortcut(num: str) -> str:
         return _h_scan()
 
     elif num == "8":
-        return _h_test_now()
+        return _h_logs(20)
 
     elif num == "9":
-        return _h_logs(20)
+        return _h_backtest_result()
 
     else:
         return f"未知快捷命令 `sc {num}`\n\n{_SC_LIST}"
