@@ -92,7 +92,6 @@ _HELP = """**StockSage 命令**
 `s` 扫盘推送 📱微信  |  `tn` 全市场扫描 📱微信
 `p` 今日推荐  |  `ic` 因子IC摘要
 `icf 因子名` 因子说明  |  `fx 600519` 单股分析
-`r` 重启monitor  |  `sm` 启动monitor
 `bs` 回测进度  |  `kb` 终止回测
 `bt` / `bt16` / `bt16s` 启动个股回测（s=小盘）
 `bte` / `bte12` 启动ETF回测
@@ -944,10 +943,10 @@ def _dispatch_inner(t: str) -> str | None:
     #     raw = raw.strip().replace("期", "")
     #     n = int(raw) if raw.isdigit() else 20
     #     return _h_logs(n)
-    elif t in ("重启 monitor", "重启monitor", "restart monitor", "重启", "r"):
-        return _h_restart()
-    elif t in ("sm", "启动monitor", "start monitor"):
-        return _h_start_monitor()
+    # elif t in ("重启 monitor", "重启monitor", "restart monitor", "重启", "r"):
+    #     return _h_restart()
+    # elif t in ("sm", "启动monitor", "start monitor"):
+    #     return _h_start_monitor()
     elif t in ("kb", "终止回测", "kill backtest"):
         return _h_kill_backtest()
     elif t in ("回测状态", "bs", "backtest status"):
