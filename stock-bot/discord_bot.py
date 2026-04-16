@@ -32,6 +32,7 @@ StockSage Discord Bot  (with Claude AI)
     bte / bte12          启动 ETF 回测
     sug                  给出操作建议
     do                   执行上条建议
+    sc / sc 1-6          快捷命令（启停进程、预热缓存等）
 
 对话模式 (消耗 claude.api_key 额度):
     其他内容走 Claude AI 自然语言对话。
@@ -97,6 +98,7 @@ _HELP = """**StockSage 命令**
 `bt` / `bt16` / `bt16s` 启动个股回测（s=小盘）
 `bte` / `bte12` 启动ETF回测
 `sug` 给我建议  |  `do` 执行上条建议
+`sc` 快捷命令列表  |  `sc 1-6` 执行快捷命令
 `h` 帮助  💬 其他走AI对话（消耗token）"""
 
 def _h_status() -> str:
@@ -154,6 +156,84 @@ def _h_test_now() -> str:
         cwd=str(ROOT), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
     return "已触发全市场扫描 (--test-now)，结果稍后发送到微信 📱"
+
+
+_SC_LIST = """**快捷命令 (sc N)**
+`sc 1` 启动 monitor 循环
+`sc 2` 重启 monitor（先停后启）
+`sc 3` 终止回测进程
+`sc 4` 启动 ETF monitor
+`sc 5` 批量预热财务缓存（batch_financials）
+`sc 6` 重建股票池（build_universe）"""
+
+
+def _h_shortcut(num: str) -> str:
+    import time
+
+    if not num:
+        return _SC_LIST
+
+    if num == "1":
+        return _h_start_monitor()
+
+    elif num == "2":
+        return _h_restart()
+
+    elif num == "3":
+        # Kill backtest via ctypes (safe, targeted)
+        pid = _find_backtest_pid()
+        if not pid:
+            return "当前无回测进程在运行"
+        try:
+            import ctypes
+            PROCESS_TERMINATE = 1
+            h = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, int(pid))
+            if h:
+                ok = ctypes.windll.kernel32.TerminateProcess(h, 1)
+                ctypes.windll.kernel32.CloseHandle(h)
+                return f"✅ 已终止回测进程 PID {pid}" if ok else f"❌ TerminateProcess 失败（PID {pid}）"
+            return f"❌ 无法打开进程 PID {pid}"
+        except Exception as e:
+            return f"❌ 终止失败: {e}"
+
+    elif num == "4":
+        log_path = SCRIPTS / "etf_monitor_loop.log"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"\n--- Started by Discord bot at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+        subprocess.Popen(
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "etf_monitor.py"), "--loop"],
+            cwd=str(ROOT),
+            stdout=open(log_path, "a", encoding="utf-8"),
+            stderr=subprocess.STDOUT,
+        )
+        return "ETF monitor 已启动 ✅"
+
+    elif num == "5":
+        log_path = SCRIPTS / "batch_financials.log"
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(f"--- batch_financials started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+        subprocess.Popen(
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "batch_financials.py")],
+            cwd=str(ROOT),
+            stdout=open(log_path, "a", encoding="utf-8"),
+            stderr=subprocess.STDOUT,
+        )
+        return "batch_financials.py 已启动（后台运行，约1小时）✅"
+
+    elif num == "6":
+        log_path = SCRIPTS / "build_universe.log"
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(f"--- build_universe started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+        subprocess.Popen(
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "build_universe.py")],
+            cwd=str(ROOT),
+            stdout=open(log_path, "a", encoding="utf-8"),
+            stderr=subprocess.STDOUT,
+        )
+        return "build_universe.py 已启动（后台运行，约5-10分钟）✅"
+
+    else:
+        return f"未知快捷命令 `sc {num}`\n\n{_SC_LIST}"
 
 
 def _h_research(code: str) -> str:
@@ -852,6 +932,9 @@ def _dispatch_inner(t: str) -> str | None:
         return _h_research(code)
     elif t in ("fx", "研究", "分析"):
         return "用法: `fx 600519` 或 `研究 贵州茅台`"
+    elif t.startswith("sc") and (t == "sc" or t[2:3] in (" ", "") and (t[2:].strip().isdigit() or not t[2:].strip())):
+        num = t[2:].strip()
+        return _h_shortcut(num)
     elif t in ("icf", "因子介绍") or t.startswith("icf ") or t.startswith("因子介绍 "):
         name = t.split(None, 1)[1].strip() if " " in t else ""
         if not name:
