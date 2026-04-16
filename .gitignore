@@ -14,4 +14,5 @@ xhs/run_*.bat
 docs/PROJECT_STRUCTURE.md
 logs/
 scripts/live_scores.json
-wechat-bot/config.json
+stock-bot/config.json
+stock-bot/*.log

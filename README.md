@@ -55,6 +55,23 @@ python scripts/factor_analysis.py
 python scripts/screener.py
 ```
 
+## Remote Control (Discord Bot)
+
+`stock-bot/discord_bot.py` provides remote control over Discord — works from any network without VPN or public IP.
+
+**Features:**
+- Natural language conversation powered by Claude AI (`claude.api_key` in `stock-bot/config.json`)
+- Fixed commands: `状态` / `今日推荐` / `扫盘` / `持仓` / `日志 N` / `重启 monitor` / `回测 [N期] [main|smallcap]`
+- Per-channel conversation history (last 10 messages)
+
+**Setup:**
+```bash
+pip install -r stock-bot/requirements.txt
+cp stock-bot/config.json.example stock-bot/config.json
+# Fill in discord.bot_token, discord.allowed_ids, and optionally claude.api_key
+python -X utf8 stock-bot/discord_bot.py
+```
+
 ## Requirements
 
 **Python 3.10+** required (uses `match` syntax and `list[type]` annotations).

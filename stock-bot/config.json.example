@@ -1,0 +1,22 @@
+{
+  "port": 5050,
+  "api_token": "换成你自己的随机字符串（REST API 鉴权用）",
+  "claude": {
+    "api_key": "sk-ant-api03-xxxx（Anthropic API Key，留空则仅固定命令模式）"
+  },
+  "telegram": {
+    "bot_token": "从 @BotFather 获取的 token，格式如 123456:ABC-xxx",
+    "allowed_ids": [123456789]
+  },
+  "discord": {
+    "bot_token": "Discord Developer Portal → Bot → Token",
+    "allowed_ids": [123456789]
+  },
+  "wechat": {
+    "token":            "企业微信应用的Token（接收消息设置里）",
+    "encoding_aes_key": "EncodingAESKey（留空则使用明文模式）",
+    "corp_id":          "企业ID（ww开头）",
+    "app_id":           123456,
+    "app_secret":       "应用的Secret"
+  }
+}
