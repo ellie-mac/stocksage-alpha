@@ -51,6 +51,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import fetcher
 from factor_analysis import compute_stock_scores, TEST_UNIVERSE
+from industry import build_industry_map
 from factor_config import (FACTOR_WEIGHTS,
                            REGIME_MA_SHORT, REGIME_MA_LONG,
                            REGIME_EXPOSURE, REGIME_WEIGHTS,
@@ -207,6 +208,7 @@ def run_backtest(
     group: str = "A",
     max_workers: int = 8,
     use_regime: bool = True,    # apply market-regime exposure filter
+    sector_neutral: bool = True, # demean scores within each sector before ranking
 ) -> dict:
     """
     Run a long-only quantile portfolio backtest.
@@ -219,9 +221,22 @@ def run_backtest(
 
     print(f"Portfolio backtest: {n_stocks} stocks, {n_periods} periods × {step}d step")
     print(f"Forward window: {forward_days}d | Top {top_pct*100:.0f}% ({top_n} stocks) | "
-          f"Txn cost: {txn_cost_pct:.2f}% | Group: {group}\n")
+          f"Txn cost: {txn_cost_pct:.2f}% | Group: {group} | "
+          f"Sector-neutral: {'ON' if sector_neutral else 'OFF'}\n")
 
     benchmark_rets = _get_benchmark_returns(forward_days, n_periods, step)
+
+    # Load industry map once (cached 7 days) for sector neutralization
+    ind_map: dict[str, str] = {}
+    if sector_neutral:
+        print("Loading industry sector map (cached 7 days)...")
+        ind_map = build_industry_map()
+        if ind_map:
+            n_covered = sum(1 for c in codes if c in ind_map)
+            print(f"  Loaded {len(ind_map)} stock→sector mappings "
+                  f"({n_covered}/{n_stocks} universe stocks covered)\n")
+        else:
+            print("  Warning: sector map unavailable, falling back to global ranking\n")
 
     # Load CSI 300 close series for regime filter
     regime_close: Optional[pd.Series] = None
@@ -279,9 +294,34 @@ def run_backtest(
             df_period = (
                 pd.DataFrame(period_rows)
                 .dropna(subset=["composite", "forward_ret"])
-                .sort_values("composite", ascending=False)
-                .reset_index(drop=True)
             )
+
+            # ── Sector neutralization ──────────────────────────────────────
+            # Replace raw composite score with within-sector z-score so that
+            # rankings reflect stock quality relative to sector peers, not
+            # cross-sector factor biases (e.g. value being high for all banks).
+            if sector_neutral and ind_map:
+                df_period["sector"] = df_period["code"].map(ind_map).fillna("未分类")
+
+                def _sector_zscore(grp: pd.DataFrame) -> pd.DataFrame:
+                    grp = grp.copy()
+                    mu = grp["composite"].mean()
+                    sd = grp["composite"].std(ddof=0)
+                    if len(grp) < 2 or sd < 1e-8:
+                        grp["score_adj"] = grp["composite"] - mu
+                    else:
+                        grp["score_adj"] = (grp["composite"] - mu) / sd
+                    return grp
+
+                df_period = (
+                    df_period
+                    .groupby("sector", group_keys=False)
+                    .apply(_sector_zscore)
+                    .sort_values("score_adj", ascending=False)
+                    .reset_index(drop=True)
+                )
+            else:
+                df_period = df_period.sort_values("composite", ascending=False).reset_index(drop=True)
 
             long_basket  = df_period.head(top_n)
             short_basket = df_period.tail(top_n)  # bottom quantile for reference
@@ -344,15 +384,16 @@ def run_backtest(
 
     return {
         "meta": {
-            "n_stocks":     n_stocks,
-            "n_periods":    len(period_results),
-            "forward_days": forward_days,
-            "step_days":    step,
-            "top_pct":      top_pct,
-            "top_n":        top_n,
-            "txn_cost_pct": txn_cost_pct,
-            "group":        group,
-            "use_regime":   use_regime,
+            "n_stocks":      n_stocks,
+            "n_periods":     len(period_results),
+            "forward_days":  forward_days,
+            "step_days":     step,
+            "top_pct":       top_pct,
+            "top_n":         top_n,
+            "txn_cost_pct":  txn_cost_pct,
+            "group":         group,
+            "use_regime":    use_regime,
+            "sector_neutral": sector_neutral,
         },
         "period_results":      period_results,
         "cumulative_portfolio": cum_port,
@@ -503,29 +544,41 @@ def _print_results(result: dict) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Long-only quantile backtest for A-share multi-factor model")
-    parser.add_argument("--periods", type=int,   default=12,   help="Number of backtest periods (default 12)")
-    parser.add_argument("--fwd",     type=int,   default=20,   help="Forward return window in days (default 20)")
-    parser.add_argument("--step",    type=int,   default=20,   help="Days between periods (default 20)")
-    parser.add_argument("--top",     type=float, default=20.0, help="Long basket size as %% of universe (default 20)")
-    parser.add_argument("--n",       type=int,   default=50,   help="Universe size from TEST_UNIVERSE (default 50)")
-    parser.add_argument("--group",   type=str,   default="A",  help="Factor group: A (fast) or AB (all)")
-    parser.add_argument("--cost",    type=float, default=0.10, help="Round-trip transaction cost %% (default 0.10)")
-    parser.add_argument("--out",     type=str,   default="",   help="Save full output to JSON file")
-    parser.add_argument("--workers",   type=int,   default=4,    help="Thread pool size (default 4; use 1 to avoid V8 crashes)")
-    parser.add_argument("--no-regime", action="store_true",      help="Disable market-regime exposure filter")
+    parser.add_argument("--periods",           type=int,   default=12,   help="Number of backtest periods (default 12)")
+    parser.add_argument("--fwd",               type=int,   default=20,   help="Forward return window in days (default 20)")
+    parser.add_argument("--step",              type=int,   default=20,   help="Days between periods (default 20)")
+    parser.add_argument("--top",               type=float, default=20.0, help="Long basket size as %% of universe (default 20)")
+    parser.add_argument("--n",                 type=int,   default=50,   help="Universe size from TEST_UNIVERSE (default 50, ignored if --universe set)")
+    parser.add_argument("--universe",          type=str,   default="",   help="Load stock universe from JSON file (overrides --n / TEST_UNIVERSE)")
+    parser.add_argument("--group",             type=str,   default="A",  help="Factor group: A (fast) or AB (all)")
+    parser.add_argument("--cost",              type=float, default=0.10, help="Round-trip transaction cost %% (default 0.10)")
+    parser.add_argument("--out",               type=str,   default="",   help="Save full output to JSON file")
+    parser.add_argument("--workers",           type=int,   default=4,    help="Thread pool size (default 4)")
+    parser.add_argument("--no-regime",         action="store_true",      help="Disable market-regime exposure filter")
+    parser.add_argument("--no-sector-neutral", action="store_true",      help="Disable sector neutralization (use raw composite scores)")
     args = parser.parse_args()
 
-    codes  = TEST_UNIVERSE[:args.n]
+    if args.universe:
+        uni_path = args.universe
+        if not os.path.isabs(uni_path):
+            uni_path = os.path.join(os.path.dirname(__file__), uni_path)
+        with open(uni_path, encoding="utf-8") as f:
+            codes = [str(c).zfill(6) for c in json.load(f)]
+        print(f"Universe loaded from {uni_path}: {len(codes)} stocks")
+    else:
+        codes = TEST_UNIVERSE[:args.n]
+
     result = run_backtest(
-        codes       = codes,
-        forward_days= args.fwd,
-        n_periods   = args.periods,
-        step        = args.step,
-        top_pct     = args.top / 100,
-        txn_cost_pct= args.cost,
-        group       = args.group,
-        max_workers = args.workers,
-        use_regime  = not args.no_regime,
+        codes          = codes,
+        forward_days   = args.fwd,
+        n_periods      = args.periods,
+        step           = args.step,
+        top_pct        = args.top / 100,
+        txn_cost_pct   = args.cost,
+        group          = args.group,
+        max_workers    = args.workers,
+        use_regime     = not args.no_regime,
+        sector_neutral = not args.no_sector_neutral,
     )
 
     _print_results(result)
