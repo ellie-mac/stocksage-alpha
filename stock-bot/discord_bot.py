@@ -157,7 +157,7 @@ _SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 `sc 1` 启动 monitor 循环
 `sc 2` 重启 monitor（先停后启）
 `sc 3` 终止回测进程
-`sc 4` 启动 ETF 回测（12期）
+`sc 4` 因子IC回测（factor_analysis）
 `sc 5` 批量预热财务缓存（batch_financials）
 `sc 6` 重建股票池（build_universe）
 `sc 7` 扫盘推送 📱微信
@@ -194,7 +194,17 @@ def _h_shortcut(num: str) -> str:
             return f"❌ 终止失败: {e}"
 
     elif num == "4":
-        return _h_backtest_etf(periods=12)
+        log_path = SCRIPTS / "factor_ic_main.log"
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(f"--- factor_analysis started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+        subprocess.Popen(
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "factor_analysis.py"),
+             "--rolling", "6", "--step", "20", "--out", str(ROOT / "factor_ic.json")],
+            cwd=str(ROOT),
+            stdout=open(log_path, "a", encoding="utf-8"),
+            stderr=subprocess.STDOUT,
+        )
+        return "因子IC回测已启动（后台运行，约1-2小时）✅\n日志: factor_ic_main.log"
 
     elif num == "5":
         log_path = SCRIPTS / "batch_financials.log"
