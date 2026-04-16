@@ -23,11 +23,13 @@ StockSage Discord Bot  (with Claude AI)
     fx 600519            单股分析报告（~1min）
     l / l30              monitor 最近日志
     ic                   因子 IC 摘要（有效因子排序）
+    icf momentum         因子含义说明（中文）
     r                    重启 monitor
     sm                   启动 monitor
     bs                   回测进度
     kb                   终止回测
-    bt / bt16 / bt16s    启动回测（s=小盘）
+    bt / bt16 / bt16s    启动个股回测（s=小盘）
+    bte / bte12          启动 ETF 回测
     sug                  给出操作建议
     do                   执行上条建议
 
@@ -89,14 +91,13 @@ _HELP = """**StockSage 命令**
 `c` 持仓推送 📱微信  |  `hh` 持仓列表
 `s` 扫盘推送 📱微信  |  `tn` 全市场扫描 📱微信
 `p` 今日推荐  |  `ic` 因子IC摘要
-`fx 600519` 单股分析  |  `l` / `l30` 日志
-`r` 重启monitor  |  `sm` 启动monitor
+`icf 因子名` 因子说明  |  `fx 600519` 单股分析
+`l` / `l30` 日志  |  `r` 重启monitor  |  `sm` 启动monitor
 `bs` 回测进度  |  `kb` 终止回测
-`bt` / `bt16` / `bt16s` 启动回测（s=小盘）
+`bt` / `bt16` / `bt16s` 启动个股回测（s=小盘）
+`bte` / `bte12` 启动ETF回测
 `sug` 给我建议  |  `do` 执行上条建议
-`h` 帮助
-
-💬 其他内容走AI对话（消耗token）"""
+`h` 帮助  💬 其他走AI对话（消耗token）"""
 
 def _h_status() -> str:
     lines = [f"**系统状态** @ {datetime.now():%Y-%m-%d %H:%M:%S}\n"]
@@ -162,19 +163,95 @@ def _h_research(code: str) -> str:
     try:
         r = subprocess.run(
             [sys.executable, "-X", "utf8", str(SCRIPTS / "research.py"), code],
-            cwd=str(ROOT), capture_output=True, text=True, timeout=120, encoding="utf-8"
+            cwd=str(ROOT), capture_output=True, text=True, timeout=180,
+            encoding="utf-8", errors="replace"
         )
-        out = (r.stdout or "") + (r.stderr or "")
-        out = out.strip()
-        if not out:
-            return f"research.py 对 {code} 无输出（检查代码是否正确）"
+        stdout = (r.stdout or "").strip()
+        stderr = (r.stderr or "").strip()
+        # Filter tqdm progress bars from stderr (contain \r or %)
+        stderr_clean = "\n".join(
+            l for l in stderr.splitlines()
+            if l.strip() and "\r" not in l and "%" not in l
+        )
+        if not stdout:
+            if stderr_clean:
+                return f"❌ {code} 无报告输出\n```\n{stderr_clean[-500:]}\n```"
+            return f"❌ {code} 无输出（股票代码可能不正确，或数据获取失败）"
+        out = stdout
         if len(out) > 1800:
             out = out[:1800] + "\n...(已截断)"
         return f"**{code} 分析报告**\n```\n{out}\n```"
     except subprocess.TimeoutExpired:
-        return f"❌ 分析 {code} 超时（>120s）"
+        return f"❌ 分析 {code} 超时（>3min）。数据拉取慢，建议直接在服务器运行: `python scripts/research.py {code}`"
     except Exception as e:
         return f"❌ 分析失败: {e}"
+
+
+def _h_factor_info(name: str) -> str:
+    """Look up factor description from glossary."""
+    name = name.strip().lower().replace("-", "_")
+    # Exact match
+    if name in _FACTOR_GLOSSARY:
+        zh = _FACTOR_ZH.get(name, name)
+        return f"**{name}** （{zh}）\n{_FACTOR_GLOSSARY[name]}"
+    # Fuzzy: check Chinese name partial match or English partial match
+    matches = [(k, v) for k, v in _FACTOR_GLOSSARY.items()
+               if name in k or name in _FACTOR_ZH.get(k, "")]
+    if not matches:
+        # List all available
+        all_names = sorted(_FACTOR_GLOSSARY.keys())
+        return (f"未找到因子 `{name}`\n可用因子: " +
+                ", ".join(f"`{n}`" for n in all_names[:20]) +
+                (f" ...共{len(all_names)}个" if len(all_names) > 20 else ""))
+    if len(matches) == 1:
+        k, v = matches[0]
+        zh = _FACTOR_ZH.get(k, k)
+        return f"**{k}** （{zh}）\n{v}"
+    lines = [f"找到 {len(matches)} 个匹配:"]
+    for k, v in matches[:8]:
+        zh = _FACTOR_ZH.get(k, k)
+        lines.append(f"  `{k}` {zh}: {v[:60]}...")
+    return "\n".join(lines)
+
+
+def _h_backtest_etf(periods: int = 12, fwd: int = 10, workers: int = 4) -> str:
+    pid = _find_backtest_pid()
+    if pid:
+        return f"⚠️ 已有回测进程在运行（PID {pid}），请等待完成或先停止。"
+    # Log-mtime fallback
+    import time
+    logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if logs:
+        log = logs[0]
+        out_json = ROOT / "data" / (log.stem + ".json")
+        if time.time() - log.stat().st_mtime < 1800 and not out_json.exists():
+            return (f"⚠️ {log.name} 在 30 分钟内更新且无结果文件，"
+                    f"可能有回测正在运行。如确认已停止请重试。")
+
+    out_file = ROOT / "data" / f"backtest_etf_{periods}p.json"
+    log_path = SCRIPTS / f"backtest_etf_{periods}p.log"
+
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write(f"--- ETF backtest started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+        f.write(f"    periods={periods}, fwd={fwd}d, workers={workers}\n\n")
+
+    proc = subprocess.Popen(
+        [sys.executable, "-X", "utf8", str(SCRIPTS / "etf_backtest.py"),
+         "--periods", str(periods),
+         "--fwd", str(fwd),
+         "--workers", str(workers),
+         "--out", str(out_file)],
+        cwd=str(ROOT),
+        stdout=open(log_path, "a", encoding="utf-8"),
+        stderr=subprocess.STDOUT,
+    )
+    return (
+        f"✅ ETF 回测已启动 (PID {proc.pid})\n"
+        f"• 期数: {periods}  前向: {fwd}d  Workers: {workers}\n"
+        f"• 输出: {out_file.name}\n"
+        f"• 日志: {log_path.name}\n"
+        f"用 `bs` 跟踪进度（每期约 5-10 min）"
+    )
 
 
 def _h_picks() -> str:
@@ -454,6 +531,74 @@ _FACTOR_ZH = {
     "volume":                  "成交量",
     "volume_expansion":        "放量信号",
     "volume_ratio":            "量比",
+    "overhead_resistance":     "套牢盘压力",
+    "upper_shadow_reversal":   "上影线反转",
+    "sector_sympathy":         "板块共振",
+    "reversal":                "短期反转",
+    "piotroski":               "Piotroski F分",
+    "accruals":                "应计因子",
+    "asset_growth":            "资产增速",
+}
+
+# Factor one-line glossary (for `icf` command)
+_FACTOR_GLOSSARY: dict[str, str] = {
+    "value":                "估值因子：PE/PB 越低得分越高，便宜股票",
+    "growth":               "成长因子：营收/利润增速越快得分越高",
+    "momentum":             "短期动量：近20日涨幅，涨得多的继续涨",
+    "quality":              "质量因子：ROE/ROA 越高越好，盈利能力",
+    "northbound":           "北向资金：外资净买入，聪明钱流向",
+    "volume":               "放量突破：成交量放大配合价格突破",
+    "position_52w":         "52周位置：价格在一年高低点中的位置，越高越强",
+    "div_yield":            "股息率：股息/股价，越高越稳健",
+    "volume_ratio":         "量比：当日量 vs 过去均量，衡量当日活跃度",
+    "ma_alignment":         "均线排列：短中长期均线由上到下排列，趋势向上",
+    "low_volatility":       "低波动：日涨跌幅越稳定得分越高，低风险",
+    "reversal":             "短期反转：近期大跌后反弹，均值回归信号",
+    "accruals":             "应计因子：现金利润 vs 会计利润，差距大则盈利质量差",
+    "asset_growth":         "资产增速：总资产增长越快反而得分低（扩张稀释）",
+    "piotroski":            "Piotroski F分：9项财务健康指标综合，0-9分",
+    "short_interest":       "融券：融券余额占比高=空头多=负面信号",
+    "rsi_signal":           "RSI：相对强弱指数，超买/超卖信号",
+    "macd_signal":          "MACD：均线差离值，金叉死叉信号",
+    "turnover_percentile":  "换手率分位：当前换手 vs 历史分位，越高越活跃",
+    "chip_distribution":    "筹码分布：持筹成本集中度，套牢程度",
+    "limit_hits":           "涨停次数：近期涨停频率，A股强势股信号",
+    "price_inertia":        "价格惯性：连续同向运动，趋势延续性",
+    "divergence":           "背离：价格和指标方向不一致，反转信号",
+    "bollinger_position":   "布林位置：价格在布林带中的位置",
+    "roe_trend":            "ROE趋势：净资产收益率是否持续改善",
+    "cash_flow_quality":    "现金流质量：经营现金流 vs 净利润，越高越真实",
+    "main_inflow":          "主力净流入：大单资金净流入，主力行为",
+    "turnover_acceleration":"换手加速：换手率增速，活跃度突变信号",
+    "momentum_concavity":   "动量凸性：动量是否在加速，二阶导",
+    "bb_squeeze":           "布林压缩：波动率收窄，即将爆发",
+    "idiosyncratic_vol":    "特质波动率：剥离市场后的个股波动，越低越稳",
+    "gross_margin_trend":   "毛利率趋势：毛利润率变化方向",
+    "ar_quality":           "应收账款质量：应收款增速 vs 营收增速",
+    "size_factor":          "规模因子：市值大小，小市值溢价",
+    "amihud_illiquidity":   "Amihud非流动性：价格冲击/成交额，流动性溢价",
+    "medium_term_momentum": "中期动量：60-250日趋势，机构持仓信号",
+    "obv_trend":            "OBV趋势：能量潮，成交量累积方向",
+    "market_beta":          "市场Beta：与大盘同涨同跌的程度",
+    "atr_normalized":       "ATR：平均真实波幅，日内价格波动范围",
+    "ma60_deviation":       "MA60偏离：价格偏离60日均线程度",
+    "max_return":           "最大单日涨幅：近期最大单日涨幅，均值回归信号",
+    "return_skewness":      "收益偏度：涨多跌少为正偏，稳定上涨",
+    "upday_ratio":          "上涨天占比：近期上涨天数比例，趋势质量",
+    "volume_expansion":     "放量：成交量是否持续放大",
+    "nearness_to_high":     "接近高点：价格接近历史高点，突破动力",
+    "price_volume_corr":    "量价相关：价涨量增为正，健康上涨",
+    "trend_linearity":      "趋势线性：价格上涨的平滑程度，R²越高越稳",
+    "gap_frequency":        "跳空频率：跳空缺口出现频率",
+    "market_relative_strength": "市场相对强度：价格 vs 大盘的相对表现",
+    "price_efficiency":     "价格效率：Kaufman效率比，趋势 vs 噪声",
+    "intraday_vs_overnight":"日内/隔夜：日内收益 vs 隔夜收益，散户/机构行为",
+    "hammer_bottom":        "锤形底：K线锤形，下影线长=支撑强",
+    "limit_open_rate":      "开板率：涨停后次日开板比例，套牢盘压力",
+    "upper_shadow_reversal":"上影线反转：长上影线=卖压大=反转信号",
+    "sector_sympathy":      "板块共振：所在板块整体涨势",
+    "overhead_resistance":  "套牢盘压力：历史成交密集区的上方卖压",
+    "chip_distribution":    "筹码分布：持筹成本集中度，套牢程度",
 }
 
 def _h_ic() -> str:
@@ -707,6 +852,11 @@ def _dispatch_inner(t: str) -> str | None:
         return _h_research(code)
     elif t in ("fx", "研究", "分析"):
         return "用法: `fx 600519` 或 `研究 贵州茅台`"
+    elif t in ("icf", "因子介绍") or t.startswith("icf ") or t.startswith("因子介绍 "):
+        name = t.split(None, 1)[1].strip() if " " in t else ""
+        if not name:
+            return "用法: `icf momentum` 查看因子说明"
+        return _h_factor_info(name)
     elif t.startswith("日志") or t.startswith("l"):
         raw = t[1:] if t.startswith("l") else t[2:]
         raw = raw.strip().replace("期", "")
@@ -723,6 +873,12 @@ def _dispatch_inner(t: str) -> str | None:
             return _h_backtest_status()
         except Exception as e:
             return f"❌ bs 出错: {e}"
+    elif t.startswith("bte") or t in ("etf回测",):
+        import re
+        raw = t[3:].strip() if t.startswith("bte") else ""
+        m = re.match(r'^(\d+)', raw)
+        periods = int(m.group(1)) if m else 12
+        return _h_backtest_etf(periods=periods)
     elif t.startswith("回测") or t.startswith("bt") or t.startswith("backtest"):
         # bt / bt16 / bt16s / 回测 16期 smallcap
         raw = t
