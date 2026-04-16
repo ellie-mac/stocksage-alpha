@@ -874,7 +874,10 @@ def _claude_dispatch(channel_id: int, text: str) -> str:
     if not api_key:
         return "❌ 未配置 claude.api_key，请在 stock-bot/config.json 填入 Anthropic API Key"
 
-    client = anthropic.Anthropic(api_key=api_key)
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+    except Exception as e:
+        return f"❌ Claude 客户端初始化失败: {e}"
 
     history = _history.setdefault(channel_id, [])
     history.append({"role": "user", "content": text})
@@ -883,13 +886,19 @@ def _claude_dispatch(channel_id: int, text: str) -> str:
 
     # Agentic loop (tool use)
     for _ in range(5):  # max 5 rounds
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=600,
-            system=_CLAUDE_SYSTEM,
-            tools=_CLAUDE_TOOLS,
-            messages=messages,
-        )
+        try:
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=600,
+                system=_CLAUDE_SYSTEM,
+                tools=_CLAUDE_TOOLS,
+                messages=messages,
+            )
+        except Exception as e:
+            err = str(e)
+            if "credit balance" in err or "400" in err:
+                return "❌ Claude API 余额不足，请充值后再用对话功能。固定命令（h/z/q/ic等）不受影响。"
+            return f"❌ Claude API 错误: {err[:200]}"
 
         if response.stop_reason == "tool_use":
             tool_results = []
