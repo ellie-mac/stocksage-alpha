@@ -1153,11 +1153,17 @@ def run(
     strong_buys  = [b for b in buy_alerts  if b["buy_score"] >= _STRONG_BUY]
     add_buys     = [b for b in buy_alerts  if b["buy_score"] < _STRONG_BUY]
 
+    def _names(stocks: list, max_n: int = 3) -> str:
+        """Return comma-joined names for up to max_n stocks."""
+        ns = [s.get("name") or s.get("code", "") for s in stocks[:max_n]]
+        suffix = "…" if len(stocks) > max_n else ""
+        return "、".join(ns) + suffix
+
     subject_parts = []
-    if strong_sells: subject_parts.append(f"🔴 {len(strong_sells)} 强卖")
-    if stall_sells:  subject_parts.append(f"⚠️ {len(stall_sells)} 减仓参考")
-    if strong_buys:  subject_parts.append(f"✅ {len(strong_buys)} 强买")
-    if add_buys:     subject_parts.append(f"💡 {len(add_buys)} 加仓参考")
+    if strong_sells: subject_parts.append(f"🔴 {len(strong_sells)} 强卖（{_names(strong_sells)}）")
+    if stall_sells:  subject_parts.append(f"⚠️ {len(stall_sells)} 减仓（{_names(stall_sells)}）")
+    if strong_buys:  subject_parts.append(f"✅ {len(strong_buys)} 强买（{_names(strong_buys)}）")
+    if add_buys:     subject_parts.append(f"💡 {len(add_buys)} 加仓（{_names(add_buys)}）")
     if not subject_parts:
         subject_parts.append("持仓日报")
     title = f"[StockSage] {' | '.join(subject_parts)}"
@@ -1786,10 +1792,13 @@ def run_loop(
                 stall_s  = [a for a in etf_sell_alerts if _stall_s <= a["sell_score"] < _sell_trig]
                 strong_b = [a for a in etf_buy_alerts if a["buy_score"] >= 80]
                 add_b    = [a for a in etf_buy_alerts if a["buy_score"] < 80]
-                if strong_s: _parts.append(f"🔴 {len(strong_s)} 强卖")
-                if stall_s:  _parts.append(f"⚠️ {len(stall_s)} 减仓参考")
-                if strong_b: _parts.append(f"✅ {len(strong_b)} 强买")
-                if add_b:    _parts.append(f"💡 {len(add_b)} 加仓参考")
+                def _en(lst, n=3):
+                    ns = [a.get("name") or a.get("code","") for a in lst[:n]]
+                    return "、".join(ns) + ("…" if len(lst) > n else "")
+                if strong_s: _parts.append(f"🔴 {len(strong_s)} 强卖（{_en(strong_s)}）")
+                if stall_s:  _parts.append(f"⚠️ {len(stall_s)} 减仓（{_en(stall_s)}）")
+                if strong_b: _parts.append(f"✅ {len(strong_b)} 强买（{_en(strong_b)}）")
+                if add_b:    _parts.append(f"💡 {len(add_b)} 加仓（{_en(add_b)}）")
                 _stop = thresholds.get("stop_loss_pct", -8.0)
                 _etf_lines = []
                 for _a in etf_sell_alerts:
