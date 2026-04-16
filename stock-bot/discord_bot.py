@@ -17,10 +17,12 @@ StockSage Discord Bot  (with Claude AI)
     q                    全局概览（进程/回测/持仓/推荐）
     c                    持仓盈亏推送 📱微信
     hh                   持仓列表
-    s                    扫盘信号 📱微信
+    s                    扫盘推送 📱微信
+    tn                   全市场扫描 (--test-now) 📱微信
     p                    今日推荐
+    fx 600519            单股分析报告（~1min）
     l / l30              monitor 最近日志
-    ic                   因子 IC 摘要
+    ic                   因子 IC 摘要（有效因子排序）
     r                    重启 monitor
     sm                   启动 monitor
     bs                   回测进度
@@ -85,8 +87,9 @@ def _claude_api_key() -> str:
 _HELP = """**StockSage 命令**
 `z` 系统状态  |  `q` 全局概览
 `c` 持仓推送 📱微信  |  `hh` 持仓列表
-`s` 扫盘信号 📱微信  |  `p` 今日推荐
-`l` / `l30` 日志  |  `ic` 因子IC摘要
+`s` 扫盘推送 📱微信  |  `tn` 全市场扫描 📱微信
+`p` 今日推荐  |  `ic` 因子IC摘要
+`fx 600519` 单股分析  |  `l` / `l30` 日志
 `r` 重启monitor  |  `sm` 启动monitor
 `bs` 回测进度  |  `kb` 终止回测
 `bt` / `bt16` / `bt16s` 启动回测（s=小盘）
@@ -141,6 +144,37 @@ def _h_scan() -> str:
         cwd=str(ROOT), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
     return "已触发扫盘，结果稍后发送到微信 📱"
+
+
+def _h_test_now() -> str:
+    subprocess.Popen(
+        [sys.executable, "-X", "utf8", str(SCRIPTS / "monitor.py"),
+         "--test-now"],
+        cwd=str(ROOT), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    return "已触发全市场扫描 (--test-now)，结果稍后发送到微信 📱"
+
+
+def _h_research(code: str) -> str:
+    """Run research.py for a single stock and return trimmed output."""
+    if not code:
+        return "用法: `fx 600519` 或 `研究 600519`"
+    try:
+        r = subprocess.run(
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "research.py"), code],
+            cwd=str(ROOT), capture_output=True, text=True, timeout=120, encoding="utf-8"
+        )
+        out = (r.stdout or "") + (r.stderr or "")
+        out = out.strip()
+        if not out:
+            return f"research.py 对 {code} 无输出（检查代码是否正确）"
+        if len(out) > 1800:
+            out = out[:1800] + "\n...(已截断)"
+        return f"**{code} 分析报告**\n```\n{out}\n```"
+    except subprocess.TimeoutExpired:
+        return f"❌ 分析 {code} 超时（>120s）"
+    except Exception as e:
+        return f"❌ 分析失败: {e}"
 
 
 def _h_picks() -> str:
@@ -374,14 +408,21 @@ def _h_ic() -> str:
     ic_table = data.get("ic_table", {})
     if not ic_table:
         return "ic_table 为空"
-    factors = sorted(ic_table.items(), key=lambda x: abs(x[1].get("mean_ic") or 0), reverse=True)
-    lines = [f"**因子 IC 摘要** ({len(factors)} 个因子)\n**Top 5:**"]
-    for name, v in factors[:5]:
-        ic = v.get("mean_ic", 0)
+    # Safe key: handle mean_ic=None (key exists but value is null)
+    def _safe_ic(item):
+        v = item[1]
+        if not isinstance(v, dict):
+            return 0.0
+        return abs(v.get("mean_ic") or 0.0)
+    factors = sorted(ic_table.items(), key=_safe_ic, reverse=True)
+    valid = [(n, v) for n, v in factors if isinstance(v, dict) and v.get("mean_ic") is not None]
+    lines = [f"**因子 IC 摘要** (有效 {len(valid)}/{len(factors)} 个)\n**Top 5:**"]
+    for name, v in valid[:5]:
+        ic = v.get("mean_ic") or 0.0
         lines.append(f"  `{name}`  {ic:+.3f}")
-    lines.append("**Bottom 5:**")
-    for name, v in factors[-5:]:
-        ic = v.get("mean_ic", 0)
+    lines.append("**Bottom 5 (有效):**")
+    for name, v in valid[-5:]:
+        ic = v.get("mean_ic") or 0.0
         lines.append(f"  `{name}`  {ic:+.3f}")
     return "\n".join(lines)
 
@@ -482,7 +523,8 @@ def _h_backtest_status() -> str:
             return f"无回测进程。最近结果: `{latest.name}`（{age_min} 分钟前完成）"
         return "无回测进程，data/ 下也没有结果文件。"
 
-    lines = [f"**回测进行中** PID {pid}"]
+    pid_str = pid if (pid and pid != "unknown") else "（wmic未能获取）"
+    lines = [f"**回测进行中** PID {pid_str}"]
     if logs:
         log = logs[0]
         lines.append(f"日志: `{log.name}`")
@@ -593,8 +635,15 @@ def _dispatch_inner(t: str) -> str | None:
             return f"❌ ic 出错: {e}"
     elif t in ("信号", "扫盘", "scan", "s"):
         return _h_scan()
+    elif t in ("tn", "test-now", "testnow", "全量扫描"):
+        return _h_test_now()
     elif t in ("今日推荐", "推荐", "picks", "p"):
         return _h_picks()
+    elif t.startswith("fx ") or t.startswith("研究 ") or t.startswith("分析 "):
+        code = t.split(None, 1)[1].strip()
+        return _h_research(code)
+    elif t in ("fx", "研究", "分析"):
+        return "用法: `fx 600519` 或 `研究 贵州茅台`"
     elif t.startswith("日志") or t.startswith("l"):
         raw = t[1:] if t.startswith("l") else t[2:]
         raw = raw.strip().replace("期", "")
