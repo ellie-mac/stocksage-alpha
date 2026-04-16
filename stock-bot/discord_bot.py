@@ -89,14 +89,13 @@ def _claude_api_key() -> str:
 # ── Command handlers ──────────────────────────────────────────────────────────
 _HELP = """**StockSage 命令**
 `z` 系统状态  |  `q` 全局概览
-`s` 扫盘推送 📱微信  |  `tn` 全市场扫描 📱微信
 `p` 今日推荐  |  `ic` 因子IC摘要
 `icf 因子名` 因子说明  |  `fx 600519` 单股分析
 `bs` 回测进度  |  `kb` 终止回测
 `bt` / `bt16` / `bt16s` 启动个股回测（s=小盘）
 `bte` / `bte12` 启动ETF回测
 `sug` 给我建议  |  `do` 执行上条建议
-`sc` 快捷命令列表  |  `sc 1-6` 执行快捷命令
+`sch` 快捷命令列表  |  `sc 1-8` 执行快捷命令
 `h` 帮助  💬 其他走AI对话（消耗token）"""
 
 def _h_status() -> str:
@@ -156,13 +155,15 @@ def _h_test_now() -> str:
     return "已触发全市场扫描 (--test-now)，结果稍后发送到微信 📱"
 
 
-_SC_LIST = """**快捷命令 (sc N)**
+_SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 `sc 1` 启动 monitor 循环
 `sc 2` 重启 monitor（先停后启）
 `sc 3` 终止回测进程
 `sc 4` 启动 ETF monitor
 `sc 5` 批量预热财务缓存（batch_financials）
-`sc 6` 重建股票池（build_universe）"""
+`sc 6` 重建股票池（build_universe）
+`sc 7` 扫盘推送 📱微信
+`sc 8` 全市场扫描 (--test-now) 📱微信"""
 
 
 def _h_shortcut(num: str) -> str:
@@ -229,6 +230,12 @@ def _h_shortcut(num: str) -> str:
             stderr=subprocess.STDOUT,
         )
         return "build_universe.py 已启动（后台运行，约5-10分钟）✅"
+
+    elif num == "7":
+        return _h_scan()
+
+    elif num == "8":
+        return _h_test_now()
 
     else:
         return f"未知快捷命令 `sc {num}`\n\n{_SC_LIST}"
@@ -919,10 +926,10 @@ def _dispatch_inner(t: str) -> str | None:
             return _h_ic()
         except Exception as e:
             return f"❌ ic 出错: {e}"
-    elif t in ("信号", "扫盘", "scan", "s"):
-        return _h_scan()
-    elif t in ("tn", "test-now", "testnow", "全量扫描"):
-        return _h_test_now()
+    # elif t in ("信号", "扫盘", "scan", "s"):
+    #     return _h_scan()
+    # elif t in ("tn", "test-now", "testnow", "全量扫描"):
+    #     return _h_test_now()
     elif t in ("今日推荐", "推荐", "picks", "p"):
         return _h_picks()
     elif t.startswith("fx ") or t.startswith("研究 ") or t.startswith("分析 "):
@@ -933,6 +940,8 @@ def _dispatch_inner(t: str) -> str | None:
     elif t.startswith("sc") and (t == "sc" or t[2:3] in (" ", "") and (t[2:].strip().isdigit() or not t[2:].strip())):
         num = t[2:].strip()
         return _h_shortcut(num)
+    elif t in ("sch", "快捷列表"):
+        return _SC_LIST
     elif t in ("icf", "因子介绍") or t.startswith("icf ") or t.startswith("因子介绍 "):
         name = t.split(None, 1)[1].strip() if " " in t else ""
         if not name:
