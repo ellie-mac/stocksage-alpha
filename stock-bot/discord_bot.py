@@ -91,9 +91,9 @@ _HELP = """**StockSage 命令**
 `z` 系统状态  |  `q` 全局概览
 `p` 今日推荐  |  `ic` 因子IC摘要
 `ich` 因子列表  |  `icf 因子名` 因子说明  |  `fx 600519` 单股分析
-`bs` 回测进度
+`bs` 回测进度  |  `bt` / `bt16s` 个股回测  |  `bte` / `bte12` ETF回测
 `sug` 给我建议  |  `do` 执行上条建议
-`sch` 快捷命令列表  |  `sc 1-10` 执行快捷命令
+`sch` 快捷命令列表  |  `sc 1-8` 执行快捷命令
 `h` 帮助  💬 其他走AI对话（消耗token）"""
 
 def _h_status() -> str:
@@ -161,9 +161,7 @@ _SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 `sc 5` 批量预热财务缓存（batch_financials）
 `sc 6` 重建股票池（build_universe）
 `sc 7` 扫盘推送 📱微信
-`sc 8` 全市场扫描 (--test-now) 📱微信
-`sc 9` 启动主策略回测（main 16期）
-`sc 10` 启动小盘回测（smallcap 16期）"""
+`sc 8` 全市场扫描 (--test-now) 📱微信"""
 
 
 def _h_shortcut(num: str) -> str:
@@ -227,12 +225,6 @@ def _h_shortcut(num: str) -> str:
 
     elif num == "8":
         return _h_test_now()
-
-    elif num == "9":
-        return _h_backtest(periods=16, universe="main")
-
-    elif num == "10":
-        return _h_backtest(periods=16, universe="smallcap")
 
     else:
         return f"未知快捷命令 `sc {num}`\n\n{_SC_LIST}"
@@ -958,15 +950,43 @@ def _dispatch_inner(t: str) -> str | None:
     #     return _h_restart()
     # elif t in ("sm", "启动monitor", "start monitor"):
     #     return _h_start_monitor()
-    # elif t in ("kb", "终止回测", "kill backtest"):
+    # elif t in ("kb", "终止回测", "kill backtest"):  # → sc 3
     #     return _h_kill_backtest()
     elif t in ("回测状态", "bs", "backtest status"):
         try:
             return _h_backtest_status()
         except Exception as e:
             return f"❌ bs 出错: {e}"
-    # elif t.startswith("bte") or t in ("etf回测",):  # → sc 4
-    # elif t.startswith("回测") or t.startswith("bt") or t.startswith("backtest"):  # → sc 9/10
+    elif t.startswith("bte") or t in ("etf回测",):
+        import re
+        raw = t[3:].strip() if t.startswith("bte") else ""
+        m = re.match(r'^(\d+)', raw)
+        periods = int(m.group(1)) if m else 12
+        return _h_backtest_etf(periods=periods)
+    elif t.startswith("回测") or t.startswith("bt") or t.startswith("backtest"):
+        # bt / bt16 / bt16s / 回测 16期 smallcap
+        raw = t
+        for prefix in ("backtest", "回测", "bt"):
+            if raw.startswith(prefix):
+                raw = raw[len(prefix):].strip()
+                break
+        parts    = raw.split()
+        periods  = 16
+        universe = "main"
+        for p in parts:
+            p2 = p.replace("期", "")
+            if p2.isdigit():
+                periods = int(p2)
+            elif p in ("s", "small", "smallcap", "小盘"):
+                universe = "smallcap"
+            elif p in ("m", "main", "主"):
+                universe = "main"
+        import re
+        m = re.match(r'^(\d+)([sm]?)$', raw.replace("期", ""))
+        if m:
+            periods  = int(m.group(1))
+            universe = "smallcap" if m.group(2) == "s" else "main"
+        return _h_backtest(periods=periods, universe=universe)
 
     return None  # hand off to Claude
 
