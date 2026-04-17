@@ -94,22 +94,85 @@ _HELP = """**StockSage 命令**
 `bs` 回测进度  |  `br` 回测结果摘要
 `bt` / `bt16s` 个股回测  |  `bte` / `bte12` ETF回测
 `sug` 给我建议  |  `do` 执行上条建议
-`sch` 快捷命令列表  |  `sc 1-8` 执行快捷命令
+`sch` 快捷命令列表  |  `sc 1-9` 执行快捷命令
 `h` 帮助  💬 其他走AI对话（消耗token）"""
+
+def _describe_cmdline(cmd: str) -> str:
+    """Convert a Python process command line to a human-readable one-liner."""
+    cmd = cmd.strip()
+    # Map script names + key args to friendly descriptions
+    rules = [
+        ("monitor.py",        "--loop",           "📡 Monitor 循环"),
+        ("monitor.py",        "--sell-only",       "📊 Monitor 持仓检查"),
+        ("monitor.py",        "--test-now",        "🔍 Monitor 全市场扫描"),
+        ("monitor.py",        "",                  "📡 Monitor（单次）"),
+        ("discord_bot.py",    "",                  "🤖 Discord Bot"),
+        ("factor_analysis.py","--universe.*smallcap","🔬 IC回测 小盘"),
+        ("factor_analysis.py","--universe.*etf",   "🔬 IC回测 ETF"),
+        ("factor_analysis.py","",                  "🔬 IC回测 主策略"),
+        ("backtest.py",       "--smallcap",        "📈 回测 小盘"),
+        ("backtest.py",       "",                  "📈 回测 主策略"),
+        ("etf_backtest.py",   "",                  "📈 回测 ETF"),
+        ("run_all_backtests.py","",                "⚙️ 回测编排脚本"),
+        ("batch_financials.py","",                 "💾 财务数据预热"),
+        ("build_universe.py", "",                  "🔧 重建股票池"),
+        ("chip_strategy.py",  "",                  "🪙 筹码策略扫描"),
+        ("research.py",       "",                  "🔍 单股分析"),
+    ]
+    import re
+    for script, arg_pattern, label in rules:
+        if script in cmd:
+            if not arg_pattern or re.search(arg_pattern, cmd):
+                return label
+    # Fallback: show last two path components + first meaningful arg
+    parts = cmd.split()
+    script_part = parts[1] if len(parts) > 1 else parts[0]
+    script_name = script_part.replace("\\", "/").split("/")[-1]
+    first_arg   = next((p for p in parts[2:] if not p.startswith("-X")), "")
+    return f"🐍 {script_name} {first_arg}".strip()
+
+
+def _get_python_procs() -> list[tuple[str, str]]:
+    """Return [(pid, cmdline), ...] for all running python.exe processes."""
+    # wmic.exe is deprecated/removed in Windows 11 — use PowerShell WMI instead.
+    ps_cmd = (
+        "$procs = Get-WmiObject Win32_Process -Filter 'name=\"python.exe\"';"
+        " foreach ($p in $procs) { Write-Output ($p.ProcessId.ToString() + '|||' + $p.CommandLine) }"
+    )
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+            capture_output=True, timeout=15,
+            encoding="utf-8", errors="replace",
+        )
+        result = []
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if "|||" not in line:
+                continue
+            pid, _, cmd = line.partition("|||")
+            pid = pid.strip()
+            cmd = cmd.strip()
+            if pid.isdigit():
+                result.append((pid, cmd))
+        return result
+    except subprocess.TimeoutExpired:
+        return []
+    except Exception:
+        return []
+
 
 def _h_status() -> str:
     lines = [f"**系统状态** @ {datetime.now():%Y-%m-%d %H:%M:%S}\n"]
-    r = subprocess.run(
-        ["tasklist", "/FI", "IMAGENAME eq python.exe", "/FO", "CSV", "/V"],
-        capture_output=True, text=True
-    )
+
+    proc_list = _get_python_procs()
     procs = []
-    for line in r.stdout.strip().splitlines()[1:]:
-        parts = line.strip('"').split('","')
-        if len(parts) >= 8:
-            procs.append(f"  PID {parts[1]} | CPU {parts[7]} | {parts[4]}")
+    for pid, cmd in proc_list:
+        desc = _describe_cmdline(cmd)
+        procs.append(f"  `PID {pid}` {desc}")
+
     if procs:
-        lines.append("**Python 进程:**")
+        lines.append(f"**Python 进程 ({len(procs)}):**")
         lines.extend(procs)
     else:
         lines.append("无运行中的 Python 进程")
@@ -162,14 +225,73 @@ _SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 `sc 5` 批量预热财务缓存（batch_financials）
 `sc 6` 重建股票池（build_universe）
 `sc 7` 扫盘推送 📱微信
-`sc 8` monitor 日志最近20行"""
+`sc 8` monitor 日志最近20行
+`sc 9`   筹码T1 ≥95%（最严格）📱微信
+`sc 9 2` 筹码T2 90-95%（不含T1）📱微信
+`sc 9 3` 筹码T3 85-90%（不含T1/T2）📱微信
+`sc 9 4` 筹码T4 75-85%（不含T1-T3）📱微信
+`sc 9 5` 筹码T5 65-75%（不含T1-T4）📱微信
+修饰符（可组合，附在数字后或加空格）：
+  `e` 剔除股价>50（如 `sc 9e`、`sc 9 2e`）
+  `k` 剔除科创板688（如 `sc 9k`、`sc 9 3k`、`sc 9ek`）"""
+
+# Chip tier config: (min_win, max_win_or_None)
+_CHIP_TIERS = {
+    "1": (95, None),
+    "2": (90, 95),
+    "3": (85, 90),
+    "4": (75, 85),
+    "5": (65, 75),
+}
+
+
+def _launch_chip(tier: str, mods: str = "") -> str:
+    min_win, max_win = _CHIP_TIERS.get(tier, _CHIP_TIERS["1"])
+    label = f"T{tier} {min_win}-{max_win}%" if max_win else f"T{tier} ≥{min_win}%"
+
+    exclude_expensive = "e" in mods
+    exclude_kcb = "k" in mods
+
+    mod_label = ""
+    if exclude_expensive:
+        mod_label += " 价≤50"
+    if exclude_kcb:
+        mod_label += " 排科创"
+
+    log_suffix = f"t{tier}" + (f"_{mods}" if mods else "")
+    log_path = SCRIPTS / f"chip_strategy_{log_suffix}.log"
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write(f"--- chip_strategy {label}{mod_label} started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+    cmd = [sys.executable, "-X", "utf8", str(SCRIPTS / "chip_strategy.py"),
+           "--min-win", str(min_win),
+           "--max-today-pct", "5",
+           "--max-6m-ratio", "0.9"]
+    if max_win:
+        cmd += ["--max-win", str(max_win)]
+    if exclude_expensive:
+        cmd += ["--max-price", "50"]
+    if exclude_kcb:
+        cmd += ["--no-kcb"]
+    subprocess.Popen(cmd, cwd=str(ROOT),
+                     stdout=open(log_path, "a", encoding="utf-8"),
+                     stderr=subprocess.STDOUT)
+    return (f"筹码策略 {label}{mod_label} 已启动（约1-2分钟）✅\n"
+            f"结果推送到微信 📱\n日志: {log_path.name}")
 
 
 def _h_shortcut(num: str) -> str:
     import time
 
-    if not num:
+    # Support "9 2" → main shortcut "9", sub-arg "2"
+    parts = num.split(None, 1)
+    main_num = parts[0] if parts else ""
+    sub_arg  = parts[1].strip() if len(parts) > 1 else ""
+
+    if not main_num:
         return _SC_LIST
+
+    # Reassign num to main_num for the rest of the switch
+    num = main_num
 
     if num == "1":
         return _h_start_monitor()
@@ -236,6 +358,20 @@ def _h_shortcut(num: str) -> str:
 
     elif num == "8":
         return _h_logs(20)
+
+    elif num.startswith("9"):
+        # Parse: num may be "9", "9e", "9k", "9ek"
+        # sub_arg may be "", "2", "2e", "2k", "2ek", "e", "k"
+        inline_mods = num[1:].lower()
+        if sub_arg and sub_arg[0].isdigit():
+            tier_str = sub_arg[0]
+            sub_mods = sub_arg[1:].lower()
+        else:
+            tier_str = ""
+            sub_mods = sub_arg.lower()
+        tier = tier_str if tier_str in _CHIP_TIERS else "1"
+        mods = inline_mods + sub_mods
+        return _launch_chip(tier, mods)
 
     else:
         return f"未知快捷命令 `sc {num}`\n\n{_SC_LIST}"
@@ -418,17 +554,9 @@ def _h_logs(n: int = 20) -> str:
 
 
 def _find_monitor_pid() -> str | None:
-    try:
-        wmic = r"C:\Windows\System32\wbem\wmic.exe"
-        r = subprocess.run([wmic, "process", "where", "name='python.exe'",
-                            "get", "processid,commandline", "/format:csv"],
-                           capture_output=True, text=True)
-        for line in r.stdout.splitlines():
-            if "monitor" in line.lower() and "--loop" in line.lower():
-                parts = line.strip().split(",")
-                return parts[-1].strip() if parts else None
-    except Exception:
-        pass
+    for pid, cmd in _get_python_procs():
+        if "monitor" in cmd.lower() and "--loop" in cmd.lower():
+            return pid
     return None
 
 
@@ -468,17 +596,7 @@ def _h_suggest() -> str:
     actions: list[tuple[str | None, str]] = []  # (cmd_or_None, description)
 
     # Rule 1: monitor running?
-    monitor_running = False
-    try:
-        wmic = r"C:\Windows\System32\wbem\wmic.exe"
-        r = subprocess.run([wmic, "process", "where", "name='python.exe'",
-                            "get", "commandline", "/format:csv"],
-                           capture_output=True, text=True)
-        for line in r.stdout.splitlines():
-            if "monitor" in line.lower() and "--loop" in line.lower():
-                monitor_running = True
-    except Exception:
-        pass
+    monitor_running = _find_monitor_pid() is not None
 
     if not monitor_running:
         actions.append(("sc 1", "monitor.py 未运行，需要启动"))
@@ -821,20 +939,9 @@ def _h_start_monitor() -> str:
 
 def _find_backtest_pid() -> str | None:
     """Return PID string of running backtest.py process, or None."""
-    try:
-        wmic = r"C:\Windows\System32\wbem\wmic.exe"
-        r = subprocess.run(
-            [wmic, "process", "where", "name='python.exe'",
-             "get", "processid,commandline", "/format:csv"],
-            capture_output=True, text=True
-        )
-        for line in r.stdout.splitlines():
-            if "backtest" in line.lower():
-                parts = line.strip().split(",")
-                if parts:
-                    return parts[-1].strip()
-    except Exception:
-        pass
+    for pid, cmd in _get_python_procs():
+        if "backtest" in cmd.lower():
+            return pid
     return None
 
 
@@ -987,7 +1094,7 @@ def _dispatch_inner(t: str) -> str | None:
         return _h_research(code)
     elif t in ("fx", "研究", "分析"):
         return "用法: `fx 600519` 或 `研究 贵州茅台`"
-    elif t.startswith("sc") and (t == "sc" or t[2:3] in (" ", "") and (t[2:].strip().isdigit() or not t[2:].strip())):
+    elif t == "sc" or (t.startswith("sc ") and t[3:4] != ""):
         num = t[2:].strip()
         return _h_shortcut(num)
     elif t in ("sch", "快捷列表"):
