@@ -76,25 +76,27 @@ for tier_name, (min_w, max_w) in TIERS.items():
 # Rate-limit-aware chip fetch
 # ---------------------------------------------------------------------------
 
-def _fetch_chip_retry(date: str, pro) -> "pd.DataFrame":
-    """Wrap fetch_chip_data with automatic retry on Tushare rate-limit errors.
-    Waits until the next clock-hour boundary + 5 min so failed calls don't
-    keep burning quota slots in the same window.
-    """
+def _fetch_chip_retry(date: str, pro, max_retries: int = 0) -> "pd.DataFrame":
+    """Wrap fetch_chip_data; skip on rate-limit (max_retries=0 means skip immediately)."""
+    attempts = 0
     while True:
         try:
             return fetch_chip_data(date, pro)
         except Exception as e:
             msg = str(e)
             if "每小时" in msg or "每分钟" in msg or "最多访问" in msg:
+                if attempts >= max_retries:
+                    print(f"  [rate-limit] {date} 限流，跳过", flush=True)
+                    import pandas as pd
+                    return pd.DataFrame()
+                attempts += 1
                 now = datetime.now()
-                # Sleep until top of next hour + 5 min buffer
                 next_hour = now.replace(minute=0, second=0, microsecond=0)
-                next_hour = next_hour.replace(hour=next_hour.hour + 1) if next_hour.hour < 23 \
-                    else next_hour.replace(day=next_hour.day + 1, hour=0)
-                wait = int((next_hour - now).total_seconds()) + 300  # +5 min buffer
+                next_hour = next_hour.replace(hour=next_hour.hour + 1) if now.hour < 23 \
+                    else now.replace(day=now.day + 1, hour=0, minute=0, second=0)
+                wait = int((next_hour - now).total_seconds()) + 300
                 resume_at = datetime.fromtimestamp(now.timestamp() + wait)
-                print(f"  [rate-limit] cyq_perf 触发限流，等待至 {resume_at:%H:%M:%S} 再重试...",
+                print(f"  [rate-limit] cyq_perf 触发限流（第{attempts}次），等待至 {resume_at:%H:%M:%S} 再重试...",
                       flush=True)
                 time.sleep(wait)
                 print(f"  [rate-limit] 恢复，继续 {date}", flush=True)
@@ -277,7 +279,7 @@ def main() -> None:
             _cache.set(cache_key, stale)  # refresh timestamp so fetch_chip_data sees a hit
         cache_hit = _cache.get(cache_key, 23 * 3600) is not None
         df = _fetch_chip_retry(date, pro)
-        if not cache_hit:
+        if not cache_hit and not df.empty:
             # cyq_perf: 10 calls/hour hard limit → throttle to ~7/hour to be safe
             time.sleep(520)
         if df.empty:

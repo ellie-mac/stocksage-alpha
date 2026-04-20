@@ -224,8 +224,13 @@ def _load_chip_cache(trade_date: str) -> pd.DataFrame | None:
     try:
         if isinstance(raw, dict) and raw.get("__type") == "dataframe":
             import io
-            return pd.read_json(io.StringIO(raw["records"]), orient="records")
-        return pd.DataFrame(raw)
+            df = pd.read_json(io.StringIO(raw["records"]), orient="records")
+        else:
+            df = pd.DataFrame(raw)
+        # Re-derive code from ts_code to restore leading zeros lost during JSON round-trip
+        if "ts_code" in df.columns:
+            df["code"] = df["ts_code"].str.split(".").str[0]
+        return df
     except Exception:
         return None
 

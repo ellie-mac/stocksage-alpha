@@ -231,6 +231,7 @@ _SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 `sc 9 3` 筹码T3 85-90%（不含T1/T2）📱微信
 `sc 9 4` 筹码T4 75-85%（不含T1-T3）📱微信
 `sc 9 5` 筹码T5 65-75%（不含T1-T4）📱微信
+`sc 10`  筹码全档T1-T5合并扫描，一条微信汇总 📱
 修饰符（可组合，附在数字后或加空格）：
   `e` 剔除股价>50（如 `sc 9e`、`sc 9 2e`）
   `k` 剔除科创板688（如 `sc 9k`、`sc 9 3k`、`sc 9ek`）"""
@@ -358,6 +359,18 @@ def _h_shortcut(num: str) -> str:
 
     elif num == "8":
         return _h_logs(20)
+
+    elif num == "10":
+        log_path = SCRIPTS / "daily_chip_scan.log"
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(f"--- daily_chip_scan started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+        subprocess.Popen(
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "daily_chip_scan.py")],
+            cwd=str(ROOT),
+            stdout=open(log_path, "a", encoding="utf-8"),
+            stderr=subprocess.STDOUT,
+        )
+        return "筹码全档扫描（T1-T5）已启动，约1-2分钟后推微信 📱"
 
     elif num.startswith("9"):
         # Parse: num may be "9", "9e", "9k", "9ek"
