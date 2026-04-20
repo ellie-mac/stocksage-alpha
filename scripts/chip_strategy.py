@@ -481,16 +481,16 @@ def screen(
         if n_exp:
             print(f"[screen] 绿柱扩张 剔除 {n_exp} 只")
 
-    # Filter 6: MACD柱离零轴不太远（|hist| / close ≤ 1%）
+    # Filter 6: 绿柱离零轴不太远（|hist| / close ≤ 1%）；红柱（hist>=0）无条件保留
     if macd_near_zero and "macd_hist" in result.columns:
         h     = result["macd_hist"]
         close = result["close"]
         valid = h.notna() & close.notna() & (close > 0)
-        far_from_zero = valid & (h.abs() / close > 0.01)
+        far_from_zero = valid & (h < 0) & (h.abs() / close > 0.01)
         n_far = far_from_zero.sum()
         result = result[~far_from_zero]
         if n_far:
-            print(f"[screen] |MACD柱|/close>1% 剔除 {n_far} 只（离零轴过远）")
+            print(f"[screen] 绿柱|MACD|/close>1% 剔除 {n_far} 只（绿柱离零轴过远）")
 
     after = len(result)
     print(f"[screen] 过滤后: {before} → {after} 只")
