@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-每日筹码全档扫描：T1-T5 全部档位，结果合并推微信。
+每日筹码全档扫描：T1-T5 全部档位，默认带 BOLL中轨±8% + 绿柱离零轴>1% 过滤。
 用法：python -X utf8 scripts/daily_chip_scan.py [--date YYYYMMDD] [--dry-run]
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ ROOT    = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
-from chip_strategy import fetch_chip_data, screen, load_names, _get_pro, _latest_trade_date
+from chip_strategy import fetch_chip_data, screen, add_indicators, load_names, _get_pro, _latest_trade_date
 from common import send_wechat, configure_pushplus
 
 TIERS = [
@@ -62,15 +62,25 @@ def main() -> None:
     else:
         df["name"] = df["industry"] = ""
 
+    # 预筛：取所有档位候选（winner_rate >= 65），一次性拉指标
+    min_tier_win = min(t["min_win"] for t in TIERS)
+    candidates = screen(df, min_win=min_tier_win, max_today_pct=5.0,
+                        max_price=None, exclude_kcb=False)
+    print(f"[scan] 候选 {len(candidates)} 只，开始拉 BOLL/MACD 指标…", flush=True)
+    if not candidates.empty:
+        candidates = add_indicators(candidates)
+
     sections: list[str] = []
     for tier in TIERS:
         result = screen(
-            df,
+            candidates,
             min_win       = tier["min_win"],
             max_win       = tier["max_win"],
             max_today_pct = 5.0,
             max_price     = None,
             exclude_kcb   = False,
+            boll_near_mid = True,
+            macd_near_zero= True,
         )
         picks = len(result)
         header = f"【{tier['label']}】{picks}只"
@@ -80,14 +90,14 @@ def main() -> None:
 
         rows = []
         for _, r in result.iterrows():
-            code  = r["ts_code"].split(".")[0]          # always from ts_code, preserves leading zeros
+            code  = r["ts_code"].split(".")[0]
             name  = r.get("name", code)
             ind   = r.get("industry", "")
             close = r.get("close", 0)
             rows.append(f"{code} {name} {ind} ¥{close:.2f}  ")
         sections.append(header + "  \n" + "\n".join(rows))
 
-    title = f"筹码全档 {trade_date}"
+    title = f"筹码全档 {trade_date}（BOLL中轨+MACD近零）"
     body  = "\n\n".join(sections)
     print(f"\n{title}\n{body}")
 
