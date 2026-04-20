@@ -95,7 +95,7 @@ _HELP = """**StockSage 命令**
 `bt` / `bt16s` 个股回测  |  `bte` / `bte12` ETF回测
 `sug` 给我建议  |  `do` 执行上条建议
 `sch` 快捷命令列表  |  `sc 1-9` 执行快捷命令
-`c all` / `c all h` 筹码全档扫描  |  `ch` 筹码命令详情
+`ca` 筹码全档扫描  |  `cah` 全档+排半年高位  |  `ch` 筹码命令详情
 `h` 帮助  💬 其他走AI对话（消耗token）"""
 
 def _describe_cmdline(cmd: str) -> str:
@@ -233,14 +233,14 @@ _SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 修饰符：`e` 剔除股价>50  `k` 剔除科创板  （如 `sc 9ek`、`sc 9 2k`）
 筹码精选命令见 `c help`"""
 
-_CHIP_LIST = """**筹码命令 (c)**
-`c 1`~`c 5`  各档筹码扫描（T1≥95% / T2:90-95% / T3:85-90% / T4:75-85% / T5:65-75%）📱微信
-`c all`      全档T1-T5合并汇总（默认带BOLL+MACD近零）📱
-`c all h`    同上 + 排除半年高位（close/6m最高 ≥90%）📱
+_CHIP_LIST = """**筹码命令**
+`ca`         全档T1-T5合并汇总（默认带BOLL+MACD近零）📱
+`cah`        全档 + 排除半年高位 📱
+`c 1`~`c 5`  各档筹码扫描（T1≥95% / T2:90-95% / T3:85-90% / T4:75-85% / T5:65-75%）📱
 修饰符（c 1-5 可叠加）：
   `e` 剔除股价>50      `k` 剔除科创板      `h` 排除半年高位
   `b` BOLL中轨±8%过滤  `m` MACD绿柱收敛  `z` MACD柱离零轴≤1%
-示例：`c 1bmz`  `c 2 mz`  `c 4kh`  `c all h`"""
+示例：`c 1bmz`  `c 2mz`  `c 4kh`"""
 
 # Chip tier config: (min_win, max_win_or_None)
 _CHIP_TIERS = {
@@ -1168,6 +1168,10 @@ def _dispatch_inner(t: str) -> str | None:
         return _SC_LIST
     elif t == "ch":
         return _CHIP_LIST
+    elif t == "ca":
+        return _h_chip("all")
+    elif t == "cah":
+        return _h_chip("all h")
     elif t == "c" or t.startswith("c "):
         return _h_chip(t[2:].strip() if t.startswith("c ") else "")
     elif t in ("ich", "因子列表"):
