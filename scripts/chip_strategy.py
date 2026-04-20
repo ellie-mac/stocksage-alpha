@@ -367,10 +367,12 @@ def screen(
     exclude_kcb: bool = False,
     boll_near_mid: bool = False,
     macd_converging: bool = False,
+    macd_near_zero: bool = False,
 ) -> pd.DataFrame:
     """
     boll_near_mid    : True → 收盘价在 BOLL中轨 ±8% 范围内（不过于偏离中轨）
     macd_converging  : True → MACD柱绝对值在缩小（当前柱 < 上一根，往零靠近）
+    macd_near_zero   : True → |hist| / close ≤ 1%（柱子离零轴不太远）
     df 需要预先调用 add_indicators(df) 才能使用这两个参数。
     """
     """
@@ -479,6 +481,17 @@ def screen(
         if n_exp:
             print(f"[screen] 绿柱扩张 剔除 {n_exp} 只")
 
+    # Filter 6: MACD柱离零轴不太远（|hist| / close ≤ 1%）
+    if macd_near_zero and "macd_hist" in result.columns:
+        h     = result["macd_hist"]
+        close = result["close"]
+        valid = h.notna() & close.notna() & (close > 0)
+        far_from_zero = valid & (h.abs() / close > 0.01)
+        n_far = far_from_zero.sum()
+        result = result[~far_from_zero]
+        if n_far:
+            print(f"[screen] |MACD柱|/close>1% 剔除 {n_far} 只（离零轴过远）")
+
     after = len(result)
     print(f"[screen] 过滤后: {before} → {after} 只")
 
@@ -574,6 +587,8 @@ def main() -> None:
                         help="只保留收盘价在BOLL中轨±8%%范围内的股票")
     parser.add_argument("--macd-conv",     action="store_true",
                         help="只保留MACD柱正在收敛（绝对值缩小，往零靠近）的股票")
+    parser.add_argument("--macd-zero",     action="store_true",
+                        help="|hist|/close<=1%，柱子离零轴不太远")
     parser.add_argument("--dry-run",       action="store_true")
     parser.add_argument("--refresh-names", action="store_true", help="强制刷新名称缓存")
     args = parser.parse_args()
@@ -585,6 +600,7 @@ def main() -> None:
     exclude_kcb     = args.no_kcb
     boll_near_mid   = args.boll_near
     macd_converging = args.macd_conv
+    macd_near_zero  = args.macd_zero
 
     trade_date = args.date or _latest_trade_date()
     win_range = f"{args.min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{args.min_win:.0f}%"
@@ -628,12 +644,13 @@ def main() -> None:
                         max_price=max_price, exclude_kcb=exclude_kcb)
 
     # Step 3: BOLL / MACD filter (fetches 60d history for survivors only)
-    if (boll_near_mid or macd_converging) and not result.empty:
+    if (boll_near_mid or macd_converging or macd_near_zero) and not result.empty:
         result = add_indicators(result)
         result = screen(result, args.min_win, max_win=max_win, max_today_pct=None,
                         max_6m_ratio=None, six_month_high=None,
                         max_price=None, exclude_kcb=False,
-                        boll_near_mid=boll_near_mid, macd_converging=macd_converging)
+                        boll_near_mid=boll_near_mid, macd_converging=macd_converging,
+                        macd_near_zero=macd_near_zero)
 
     print(f"[chip] 最终结果: {len(result)} 只")
 

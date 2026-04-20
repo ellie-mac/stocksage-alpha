@@ -237,8 +237,8 @@ _CHIP_LIST = """**筹码命令 (c)**
 `c all`      全档T1-T5合并汇总 📱
 修饰符（可叠加）：
   `e` 剔除股价>50      `k` 剔除科创板
-  `b` BOLL中轨±8%过滤  `m` MACD绿柱收敛过滤
-示例：`c 1bm`  `c 2 bm`  `c 4k`  `c all bm`"""
+  `b` BOLL中轨±8%过滤  `m` MACD绿柱收敛  `z` MACD柱离零轴≤1%
+示例：`c 1bmz`  `c 2 mz`  `c 4k`  `c all bm`"""
 
 # Chip tier config: (min_win, max_win_or_None)
 _CHIP_TIERS = {
@@ -258,12 +258,14 @@ def _launch_chip(tier: str, mods: str = "") -> str:
     exclude_kcb       = "k" in mods
     boll_near         = "b" in mods
     macd_conv         = "m" in mods
+    macd_zero         = "z" in mods
 
     mod_parts = []
     if exclude_expensive: mod_parts.append("价≤50")
     if exclude_kcb:       mod_parts.append("排科创")
     if boll_near:         mod_parts.append("BOLL中轨")
     if macd_conv:         mod_parts.append("MACD收敛")
+    if macd_zero:         mod_parts.append("MACD近零轴")
     mod_label = (" " + " ".join(mod_parts)) if mod_parts else ""
 
     log_suffix = f"t{tier}" + (f"_{mods}" if mods else "")
@@ -279,10 +281,11 @@ def _launch_chip(tier: str, mods: str = "") -> str:
     if exclude_kcb:       cmd += ["--no-kcb"]
     if boll_near:         cmd += ["--boll-near"]
     if macd_conv:         cmd += ["--macd-conv"]
+    if macd_zero:         cmd += ["--macd-zero"]
     subprocess.Popen(cmd, cwd=str(ROOT),
                      stdout=open(log_path, "a", encoding="utf-8"),
                      stderr=subprocess.STDOUT)
-    eta = "约2-4分钟" if (boll_near or macd_conv) else "约1-2分钟"
+    eta = "约2-4分钟" if (boll_near or macd_conv or macd_zero) else "约1-2分钟"
     return (f"筹码策略 {label}{mod_label} 已启动（{eta}）✅\n"
             f"结果推送到微信 📱\n日志: {log_path.name}")
 
