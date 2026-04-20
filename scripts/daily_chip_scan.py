@@ -15,7 +15,7 @@ ROOT    = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
-from chip_strategy import fetch_chip_data, screen, add_indicators, load_names, _get_pro, _latest_trade_date
+from chip_strategy import fetch_chip_data, fetch_6m_high, screen, add_indicators, load_names, _get_pro, _latest_trade_date
 from common import send_wechat, configure_pushplus
 
 TIERS = [
@@ -40,8 +40,10 @@ def _push(title: str, body: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--date",    type=str, default=None)
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--date",        type=str, default=None)
+    parser.add_argument("--dry-run",     action="store_true")
+    parser.add_argument("--high-filter", action="store_true",
+                        help="剔除处于半年高位的股票（close/6m_high >= 90%）")
     args = parser.parse_args()
 
     trade_date = args.date or _latest_trade_date()
@@ -66,21 +68,32 @@ def main() -> None:
     min_tier_win = min(t["min_win"] for t in TIERS)
     candidates = screen(df, min_win=min_tier_win, max_today_pct=5.0,
                         max_price=None, exclude_kcb=False)
+
+    # 半年高位过滤（可选，--high-filter）
+    six_month_high: dict[str, float] = {}
+    if args.high_filter and not candidates.empty:
+        print(f"[scan] 拉取半年高位数据…", flush=True)
+        six_month_high = fetch_6m_high(candidates["ts_code"].tolist(), trade_date, pro)
+
     print(f"[scan] 候选 {len(candidates)} 只，开始拉 BOLL/MACD 指标…", flush=True)
     if not candidates.empty:
         candidates = add_indicators(candidates)
+
+    filter_label = "BOLL中轨+MACD近零" + ("＋排半年高位" if args.high_filter else "")
 
     sections: list[str] = []
     for tier in TIERS:
         result = screen(
             candidates,
-            min_win       = tier["min_win"],
-            max_win       = tier["max_win"],
-            max_today_pct = 5.0,
-            max_price     = None,
-            exclude_kcb   = False,
-            boll_near_mid = True,
-            macd_near_zero= True,
+            min_win        = tier["min_win"],
+            max_win        = tier["max_win"],
+            max_today_pct  = 5.0,
+            max_price      = None,
+            exclude_kcb    = False,
+            boll_near_mid  = True,
+            macd_near_zero = True,
+            max_6m_ratio   = 0.9 if args.high_filter else None,
+            six_month_high = six_month_high if args.high_filter else None,
         )
         picks = len(result)
         header = f"【{tier['label']}】{picks}只"
@@ -97,7 +110,7 @@ def main() -> None:
             rows.append(f"{code} {name} {ind} ¥{close:.2f}  ")
         sections.append(header + "  \n" + "\n".join(rows))
 
-    title = f"筹码全档 {trade_date}（BOLL中轨+MACD近零）"
+    title = f"筹码全档 {trade_date}（{filter_label}）"
     body  = "\n\n".join(sections)
     print(f"\n{title}\n{body}")
 

@@ -234,11 +234,12 @@ _SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 
 _CHIP_LIST = """**筹码命令 (c)**
 `c 1`~`c 5`  各档筹码扫描（T1≥95% / T2:90-95% / T3:85-90% / T4:75-85% / T5:65-75%）📱微信
-`c all`      全档T1-T5合并汇总 📱
-修饰符（可叠加）：
-  `e` 剔除股价>50      `k` 剔除科创板
+`c all`      全档T1-T5合并汇总（默认带BOLL+MACD近零）📱
+`c all h`    同上 + 排除半年高位（close/6m最高 ≥90%）📱
+修饰符（c 1-5 可叠加）：
+  `e` 剔除股价>50      `k` 剔除科创板      `h` 排除半年高位
   `b` BOLL中轨±8%过滤  `m` MACD绿柱收敛  `z` MACD柱离零轴≤1%
-示例：`c 1bmz`  `c 2 mz`  `c 4k`  `c all bm`"""
+示例：`c 1bmz`  `c 2 mz`  `c 4kh`  `c all h`"""
 
 # Chip tier config: (min_win, max_win_or_None)
 _CHIP_TIERS = {
@@ -256,6 +257,7 @@ def _launch_chip(tier: str, mods: str = "") -> str:
 
     exclude_expensive = "e" in mods
     exclude_kcb       = "k" in mods
+    high_filter       = "h" in mods
     boll_near         = "b" in mods
     macd_conv         = "m" in mods
     macd_zero         = "z" in mods
@@ -263,6 +265,7 @@ def _launch_chip(tier: str, mods: str = "") -> str:
     mod_parts = []
     if exclude_expensive: mod_parts.append("价≤50")
     if exclude_kcb:       mod_parts.append("排科创")
+    if high_filter:       mod_parts.append("排半年高位")
     if boll_near:         mod_parts.append("BOLL中轨")
     if macd_conv:         mod_parts.append("MACD收敛")
     if macd_zero:         mod_parts.append("MACD近零轴")
@@ -274,11 +277,11 @@ def _launch_chip(tier: str, mods: str = "") -> str:
         f.write(f"--- chip_strategy {label}{mod_label} started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
     cmd = [sys.executable, "-X", "utf8", str(SCRIPTS / "chip_strategy.py"),
            "--min-win", str(min_win),
-           "--max-today-pct", "5",
-           "--max-6m-ratio", "0.9"]
+           "--max-today-pct", "5"]
     if max_win:           cmd += ["--max-win", str(max_win)]
     if exclude_expensive: cmd += ["--max-price", "50"]
     if exclude_kcb:       cmd += ["--no-kcb"]
+    if high_filter:       cmd += ["--max-6m-ratio", "0.9"]
     if boll_near:         cmd += ["--boll-near"]
     if macd_conv:         cmd += ["--macd-conv"]
     if macd_zero:         cmd += ["--macd-zero"]
@@ -296,17 +299,21 @@ def _h_chip(arg: str) -> str:
     if not arg or arg == "help":
         return _CHIP_LIST
 
-    if arg == "all":
+    if arg == "all" or arg.startswith("all"):
+        # parse: "all", "all h", "allh"
+        rest = arg[3:].strip().replace(" ", "")
+        high_filter = "h" in rest
         log_path = SCRIPTS / "daily_chip_scan.log"
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- daily_chip_scan started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
-        subprocess.Popen(
-            [sys.executable, "-X", "utf8", str(SCRIPTS / "daily_chip_scan.py")],
-            cwd=str(ROOT),
-            stdout=open(log_path, "a", encoding="utf-8"),
-            stderr=subprocess.STDOUT,
-        )
-        return "筹码全档扫描（T1-T5）已启动，约1-2分钟后推微信 📱"
+        cmd = [sys.executable, "-X", "utf8", str(SCRIPTS / "daily_chip_scan.py")]
+        if high_filter:
+            cmd += ["--high-filter"]
+        subprocess.Popen(cmd, cwd=str(ROOT),
+                         stdout=open(log_path, "a", encoding="utf-8"),
+                         stderr=subprocess.STDOUT)
+        suffix = "＋排半年高位" if high_filter else ""
+        return f"筹码全档扫描（T1-T5{suffix}）已启动，约2-3分钟后推微信 📱"
 
     # Parse: "1bm", "2 bm", "4k", etc.
     parts = arg.split(None, 1)
