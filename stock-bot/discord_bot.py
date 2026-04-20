@@ -95,7 +95,7 @@ _HELP = """**StockSage 命令**
 `bt` / `bt16s` 个股回测  |  `bte` / `bte12` ETF回测
 `sug` 给我建议  |  `do` 执行上条建议
 `sch` 快捷命令列表  |  `sc 1-9` 执行快捷命令
-`c all` / `c all h` 筹码全档扫描  |  `c help` 筹码命令详情
+`c all` / `c all h` 筹码全档扫描  |  `ch` 筹码命令详情
 `h` 帮助  💬 其他走AI对话（消耗token）"""
 
 def _describe_cmdline(cmd: str) -> str:
@@ -1166,6 +1166,8 @@ def _dispatch_inner(t: str) -> str | None:
         return _h_shortcut(num)
     elif t in ("sch", "快捷列表"):
         return _SC_LIST
+    elif t == "ch":
+        return _CHIP_LIST
     elif t == "c" or t.startswith("c "):
         return _h_chip(t[2:].strip() if t.startswith("c ") else "")
     elif t in ("ich", "因子列表"):
