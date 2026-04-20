@@ -227,14 +227,18 @@ _SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 `sc 7` 扫盘推送 📱微信
 `sc 8` monitor 日志最近20行
 `sc 9`   筹码T1 ≥95%（最严格）📱微信
-`sc 9 2` 筹码T2 90-95%（不含T1）📱微信
-`sc 9 3` 筹码T3 85-90%（不含T1/T2）📱微信
-`sc 9 4` 筹码T4 75-85%（不含T1-T3）📱微信
-`sc 9 5` 筹码T5 65-75%（不含T1-T4）📱微信
+`sc 9 2` 筹码T2 90-95% 📱  `sc 9 3` T3  `sc 9 4` T4  `sc 9 5` T5
 `sc 10`  筹码全档T1-T5合并扫描，一条微信汇总 📱
-修饰符（可组合，附在数字后或加空格）：
-  `e` 剔除股价>50（如 `sc 9e`、`sc 9 2e`）
-  `k` 剔除科创板688（如 `sc 9k`、`sc 9 3k`、`sc 9ek`）"""
+修饰符：`e` 剔除股价>50  `k` 剔除科创板  （如 `sc 9ek`、`sc 9 2k`）
+筹码精选命令见 `c help`"""
+
+_CHIP_LIST = """**筹码命令 (c)**
+`c 1`~`c 5`  各档筹码扫描（T1≥95% / T2:90-95% / T3:85-90% / T4:75-85% / T5:65-75%）📱微信
+`c all`      全档T1-T5合并汇总 📱
+修饰符（可叠加）：
+  `e` 剔除股价>50      `k` 剔除科创板
+  `b` BOLL中轨±8%过滤  `m` MACD绿柱收敛过滤
+示例：`c 1bm`  `c 2 bm`  `c 4k`  `c all bm`"""
 
 # Chip tier config: (min_win, max_win_or_None)
 _CHIP_TIERS = {
@@ -251,13 +255,16 @@ def _launch_chip(tier: str, mods: str = "") -> str:
     label = f"T{tier} {min_win}-{max_win}%" if max_win else f"T{tier} ≥{min_win}%"
 
     exclude_expensive = "e" in mods
-    exclude_kcb = "k" in mods
+    exclude_kcb       = "k" in mods
+    boll_near         = "b" in mods
+    macd_conv         = "m" in mods
 
-    mod_label = ""
-    if exclude_expensive:
-        mod_label += " 价≤50"
-    if exclude_kcb:
-        mod_label += " 排科创"
+    mod_parts = []
+    if exclude_expensive: mod_parts.append("价≤50")
+    if exclude_kcb:       mod_parts.append("排科创")
+    if boll_near:         mod_parts.append("BOLL中轨")
+    if macd_conv:         mod_parts.append("MACD收敛")
+    mod_label = (" " + " ".join(mod_parts)) if mod_parts else ""
 
     log_suffix = f"t{tier}" + (f"_{mods}" if mods else "")
     log_path = SCRIPTS / f"chip_strategy_{log_suffix}.log"
@@ -267,17 +274,53 @@ def _launch_chip(tier: str, mods: str = "") -> str:
            "--min-win", str(min_win),
            "--max-today-pct", "5",
            "--max-6m-ratio", "0.9"]
-    if max_win:
-        cmd += ["--max-win", str(max_win)]
-    if exclude_expensive:
-        cmd += ["--max-price", "50"]
-    if exclude_kcb:
-        cmd += ["--no-kcb"]
+    if max_win:           cmd += ["--max-win", str(max_win)]
+    if exclude_expensive: cmd += ["--max-price", "50"]
+    if exclude_kcb:       cmd += ["--no-kcb"]
+    if boll_near:         cmd += ["--boll-near"]
+    if macd_conv:         cmd += ["--macd-conv"]
     subprocess.Popen(cmd, cwd=str(ROOT),
                      stdout=open(log_path, "a", encoding="utf-8"),
                      stderr=subprocess.STDOUT)
-    return (f"筹码策略 {label}{mod_label} 已启动（约1-2分钟）✅\n"
+    eta = "约2-4分钟" if (boll_near or macd_conv) else "约1-2分钟"
+    return (f"筹码策略 {label}{mod_label} 已启动（{eta}）✅\n"
             f"结果推送到微信 📱\n日志: {log_path.name}")
+
+
+def _h_chip(arg: str) -> str:
+    """Handler for `c` command group."""
+    arg = arg.strip()
+    if not arg or arg == "help":
+        return _CHIP_LIST
+
+    if arg == "all":
+        log_path = SCRIPTS / "daily_chip_scan.log"
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(f"--- daily_chip_scan started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+        subprocess.Popen(
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "daily_chip_scan.py")],
+            cwd=str(ROOT),
+            stdout=open(log_path, "a", encoding="utf-8"),
+            stderr=subprocess.STDOUT,
+        )
+        return "筹码全档扫描（T1-T5）已启动，约1-2分钟后推微信 📱"
+
+    # Parse: "1bm", "2 bm", "4k", etc.
+    parts = arg.split(None, 1)
+    head  = parts[0]
+    tail  = parts[1].lower().replace(" ", "") if len(parts) > 1 else ""
+
+    # Split leading digit from inline mods
+    if head and head[0].isdigit():
+        tier_str = head[0]
+        mods     = head[1:].lower() + tail
+    else:
+        return f"用法错误：`c {arg}`\n\n{_CHIP_LIST}"
+
+    if tier_str not in _CHIP_TIERS:
+        return f"档位 {tier_str} 不存在，有效范围 1-5\n\n{_CHIP_LIST}"
+
+    return _launch_chip(tier_str, mods)
 
 
 def _h_shortcut(num: str) -> str:
@@ -1112,6 +1155,8 @@ def _dispatch_inner(t: str) -> str | None:
         return _h_shortcut(num)
     elif t in ("sch", "快捷列表"):
         return _SC_LIST
+    elif t == "c" or t.startswith("c "):
+        return _h_chip(t[2:].strip() if t.startswith("c ") else "")
     elif t in ("ich", "因子列表"):
         names = sorted(_FACTOR_GLOSSARY.keys())
         pairs = [f"`{n}` {_FACTOR_ZH.get(n, '')}" for n in names]

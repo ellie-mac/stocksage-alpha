@@ -258,8 +258,10 @@ def main() -> None:
     names = load_names()
 
     # ── Per-combo accumulators ────────────────────────────────────────────
-    # {combo_key: {"picks": [(ts_code, close, fwd5_close, fwd10_close), ...]}}
+    # stock-level: {combo_key: [(ts_code, c0, c5, c10), ...]}
     records: dict[str, list[tuple]] = {c["key"]: [] for c in COMBOS}
+    # period-level: {combo_key: {date: [(ts_code, c0, c5, c10), ...]}}
+    period_records: dict[str, dict[str, list]] = {c["key"]: {} for c in COMBOS}
 
     # ── Loop over dates ───────────────────────────────────────────────────
     for i, date in enumerate(all_dates):
@@ -315,13 +317,18 @@ def main() -> None:
                 max_price=combo["max_price"],
                 exclude_kcb=combo["exclude_kcb"],
             )
+            day_picks = []
             for _, row in result.iterrows():
                 ts = row["ts_code"]
                 c0 = row.get("close")
                 c5  = close5.get(ts)
                 c10 = close10.get(ts)
                 if pd.notna(c0) and c0 > 0 and c5 and c10:
-                    records[combo["key"]].append((ts, float(c0), float(c5), float(c10)))
+                    tup = (ts, float(c0), float(c5), float(c10))
+                    records[combo["key"]].append(tup)
+                    day_picks.append(tup)
+            if day_picks:
+                period_records[combo["key"]][date] = day_picks
 
         time.sleep(0.3)
 
@@ -350,14 +357,31 @@ def main() -> None:
         avg5d  = sum(ret5d)  / n
         avg10d = sum(ret10d) / n
 
-        print(f"{key:<12}{n:>7}{win5d_pct:>7.1f}%{avg5d:>+8.2f}%{win10d_pct:>8.1f}%{avg10d:>+9.2f}%")
+        # Per-period equal-weight portfolio returns
+        port5d, port10d = [], []
+        for day_picks in period_records[key].values():
+            r5  = [(c5  / c0 - 1) * 100 for _, c0, c5, _   in day_picks]
+            r10 = [(c10 / c0 - 1) * 100 for _, c0, _, c10  in day_picks]
+            port5d.append(sum(r5)   / len(r5))
+            port10d.append(sum(r10) / len(r10))
+        n_periods   = len(port10d)
+        port_win5d  = sum(r > 0 for r in port5d)  / n_periods * 100 if n_periods else 0
+        port_win10d = sum(r > 0 for r in port10d) / n_periods * 100 if n_periods else 0
+        port_avg5d  = sum(port5d)  / n_periods if n_periods else 0
+        port_avg10d = sum(port10d) / n_periods if n_periods else 0
+
+        print(f"{key:<12}{n:>7}{win5d_pct:>7.1f}%{avg5d:>+8.2f}%{win10d_pct:>8.1f}%{avg10d:>+9.2f}%"
+              f"  |期组合: {port_win10d:.0f}%胜 {port_avg10d:+.2f}%")
         output.append(dict(
             combo=key, tier=combo["tier"], mod=combo["mod"],
             n_picks=n,
-            win5d=round(win5d_pct, 2),   avg_ret5d=round(avg5d, 3),
-            win10d=round(win10d_pct, 2), avg_ret10d=round(avg10d, 3),
+            win5d=round(win5d_pct, 2),       avg_ret5d=round(avg5d, 3),
+            win10d=round(win10d_pct, 2),     avg_ret10d=round(avg10d, 3),
             med_ret5d=round(sorted(ret5d)[n // 2], 3),
             med_ret10d=round(sorted(ret10d)[n // 2], 3),
+            n_periods=n_periods,
+            port_win5d=round(port_win5d, 1),   port_avg5d=round(port_avg5d, 3),
+            port_win10d=round(port_win10d, 1), port_avg10d=round(port_avg10d, 3),
         ))
 
     footer = (f"注：6m_high 过滤已跳过（回测提速）；max_today_pct=5%\n"

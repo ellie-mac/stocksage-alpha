@@ -287,6 +287,72 @@ def fetch_chip_data(trade_date: str, pro) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Technical indicators (BOLL / MACD) via historical price data
+# ---------------------------------------------------------------------------
+
+def _ema(series: list[float], period: int) -> list[float]:
+    k = 2 / (period + 1)
+    result = [series[0]]
+    for v in series[1:]:
+        result.append(result[-1] * (1 - k) + v * k)
+    return result
+
+
+def _compute_indicators(ts_code: str) -> dict | None:
+    """
+    Compute BOLL middle band and MACD histogram (current + previous bar).
+    Uses fetcher.get_price_history (BaoStock/AKShare, cached, no Tushare quota).
+    Returns {'boll_mid', 'macd_hist', 'macd_hist_prev'} or None on failure.
+    """
+    try:
+        import fetcher as _fetcher
+        hist = _fetcher.get_price_history(ts_code.split(".")[0], days=60)
+        if hist is None or len(hist) < 28:
+            return None
+        closes = hist["close"].dropna().tolist()
+        if len(closes) < 28:
+            return None
+
+        # BOLL middle = 20-day SMA
+        boll_mid = sum(closes[-20:]) / 20
+
+        # MACD(12, 26, 9) — need last two histogram values to detect convergence
+        ema12 = _ema(closes, 12)
+        ema26 = _ema(closes, 26)
+        macd_line = [a - b for a, b in zip(ema12[25:], ema26[25:])]
+        signal    = _ema(macd_line, 9)
+        hist_cur  = macd_line[-1] - signal[-1]
+        hist_prev = macd_line[-2] - signal[-2]
+
+        return {"boll_mid": boll_mid, "macd_hist": hist_cur, "macd_hist_prev": hist_prev}
+    except Exception:
+        return None
+
+
+def add_indicators(df: pd.DataFrame, max_workers: int = 8) -> pd.DataFrame:
+    """
+    Fetch BOLL/MACD for every stock in df (after chip filter, typically <300 stocks).
+    Adds columns: boll_mid, macd_hist.  Runs in parallel for speed.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    codes = df["ts_code"].tolist()
+    results: dict[str, dict] = {}
+    print(f"[indicators] 计算 {len(codes)} 只股票的 BOLL/MACD ...", flush=True)
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        fut = {ex.submit(_compute_indicators, c): c for c in codes}
+        for f in as_completed(fut):
+            code = fut[f]
+            val  = f.result()
+            if val:
+                results[code] = val
+    df = df.copy()
+    df["boll_mid"]  = df["ts_code"].map(lambda c: results.get(c, {}).get("boll_mid"))
+    df["macd_hist"] = df["ts_code"].map(lambda c: results.get(c, {}).get("macd_hist"))
+    print(f"[indicators] 完成，命中 {len(results)}/{len(codes)} 只")
+    return df
+
+
+# ---------------------------------------------------------------------------
 # Screening
 # ---------------------------------------------------------------------------
 
@@ -299,7 +365,14 @@ def screen(
     six_month_high: dict[str, float] | None = None,
     max_price: float | None = None,
     exclude_kcb: bool = False,
+    boll_near_mid: bool = False,
+    macd_converging: bool = False,
 ) -> pd.DataFrame:
+    """
+    boll_near_mid    : True → 收盘价在 BOLL中轨 ±8% 范围内（不过于偏离中轨）
+    macd_converging  : True → MACD柱绝对值在缩小（当前柱 < 上一根，往零靠近）
+    df 需要预先调用 add_indicators(df) 才能使用这两个参数。
+    """
     """
     Filter stocks from chip data.
 
@@ -383,6 +456,28 @@ def screen(
         result = result[~expensive]
         if n_exp:
             print(f"[screen] close>{max_price:.0f} 剔除 {n_exp} 只（股价偏高）")
+
+    # Filter 4: BOLL中轨附近（需 add_indicators 预先调用）
+    if boll_near_mid and "boll_mid" in result.columns:
+        valid = result["boll_mid"].notna() & result["close"].notna()
+        ratio = (result["close"] - result["boll_mid"]).abs() / result["boll_mid"]
+        far = valid & (ratio > 0.08)   # 偏离中轨超过 8% 则剔除
+        n_far = far.sum()
+        result = result[~far]
+        if n_far:
+            print(f"[screen] 偏离BOLL中轨>8% 剔除 {n_far} 只")
+
+    # Filter 5: MACD绿柱收敛（需 add_indicators 预先调用）
+    # 红柱（hist>=0）无条件保留；绿柱（hist<0）只保留在缩小（往零靠近）的
+    if macd_converging and "macd_hist" in result.columns and "macd_hist_prev" in result.columns:
+        h     = result["macd_hist"]
+        h_pre = result["macd_hist_prev"]
+        valid = h.notna() & h_pre.notna()
+        green_expanding = valid & (h < 0) & (h.abs() >= h_pre.abs())
+        n_exp = green_expanding.sum()
+        result = result[~green_expanding]
+        if n_exp:
+            print(f"[screen] 绿柱扩张 剔除 {n_exp} 只")
 
     after = len(result)
     print(f"[screen] 过滤后: {before} → {after} 只")
@@ -475,6 +570,10 @@ def main() -> None:
                         help="股价上限，默认0=不限；50=剔除50元以上高价股")
     parser.add_argument("--no-kcb",        action="store_true",
                         help="剔除科创板（688开头）")
+    parser.add_argument("--boll-near",     action="store_true",
+                        help="只保留收盘价在BOLL中轨±8%%范围内的股票")
+    parser.add_argument("--macd-conv",     action="store_true",
+                        help="只保留MACD柱正在收敛（绝对值缩小，往零靠近）的股票")
     parser.add_argument("--dry-run",       action="store_true")
     parser.add_argument("--refresh-names", action="store_true", help="强制刷新名称缓存")
     args = parser.parse_args()
@@ -483,7 +582,9 @@ def main() -> None:
     max_6m_ratio  = args.max_6m_ratio  if args.max_6m_ratio  > 0 else None
     max_win       = args.max_win       if args.max_win       > 0 else None
     max_price     = args.max_price     if args.max_price     > 0 else None
-    exclude_kcb   = args.no_kcb
+    exclude_kcb     = args.no_kcb
+    boll_near_mid   = args.boll_near
+    macd_converging = args.macd_conv
 
     trade_date = args.date or _latest_trade_date()
     win_range = f"{args.min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{args.min_win:.0f}%"
@@ -525,6 +626,14 @@ def main() -> None:
         result = screen(df, args.min_win, max_win=max_win, max_today_pct=max_today_pct,
                         max_6m_ratio=max_6m_ratio, six_month_high=six_month_high,
                         max_price=max_price, exclude_kcb=exclude_kcb)
+
+    # Step 3: BOLL / MACD filter (fetches 60d history for survivors only)
+    if (boll_near_mid or macd_converging) and not result.empty:
+        result = add_indicators(result)
+        result = screen(result, args.min_win, max_win=max_win, max_today_pct=None,
+                        max_6m_ratio=None, six_month_high=None,
+                        max_price=None, exclude_kcb=False,
+                        boll_near_mid=boll_near_mid, macd_converging=macd_converging)
 
     print(f"[chip] 最终结果: {len(result)} 只")
 
