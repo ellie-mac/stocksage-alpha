@@ -18,19 +18,28 @@ XHS_DIR   = Path(__file__).parent
 PYTHON    = sys.executable
 WRITER    = REPO_ROOT / "xhs" / "writer.py"
 
+# 旧任务（仅用于删除）
+OLD_TASKS = [
+    "StockSage_Morning",
+    "StockSage_Midday",
+    "StockSage_Evening",
+    "StockSage_Night",
+]
+
+# 新筹码三段式任务
+CHIP_WRITER = REPO_ROOT / "xhs" / "chip_writer.py"
 TASKS = [
-    ("StockSage_Morning", "09:25", "morning"),
-    ("StockSage_Midday",  "11:50", "midday"),
-    ("StockSage_Evening", "15:35", "evening"),
-    ("StockSage_Night",   "22:00", "night"),
+    ("StockSage_ChipMorning", "09:25", "morning"),
+    ("StockSage_ChipMidday",  "11:35", "midday"),
+    ("StockSage_ChipEvening", "15:10", "evening"),
 ]
 
 
 def create_bat(slot: str) -> Path:
     """Create a .bat launcher for the given slot (gitignored)."""
-    bat = XHS_DIR / f"run_{slot}.bat"
+    bat = XHS_DIR / f"run_chip_{slot}.bat"
     bat.write_text(
-        f'@echo off\ncd /d "{REPO_ROOT}"\n"{PYTHON}" "{WRITER}" {slot} --style auto\n',
+        f'@echo off\ncd /d "{REPO_ROOT}"\n"{PYTHON}" -X utf8 "{CHIP_WRITER}" {slot}\n',
         encoding="utf-8",
     )
     return bat
@@ -38,23 +47,29 @@ def create_bat(slot: str) -> Path:
 
 def register():
     print(f"Python : {PYTHON}")
-    print(f"Script : {WRITER}")
+    print(f"Script : {CHIP_WRITER}")
     print()
+    # 先删旧任务
+    for name in OLD_TASKS:
+        subprocess.run(f'schtasks /delete /tn "{name}" /f',
+                       shell=True, capture_output=True, text=True)
+    # 注册新任务（/it = 仅交互式会话，防止睡眠补跑）
     for name, time, slot in TASKS:
         bat = create_bat(slot)
-        cmd = f'schtasks /create /tn "{name}" /tr "{bat}" /sc daily /st {time} /f'
+        cmd = (f'schtasks /create /tn "{name}" /tr "{bat}" /sc daily /st {time}'
+               f' /f /rl HIGHEST')
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         if result.returncode == 0:
             print(f"✅  {name}  每天 {time}")
         else:
             print(f"❌  {name}  失败: {result.stderr.strip()}")
     print()
-    print("完成。每天到时间会自动运行并把文案发到微信。")
-    print("注意：电脑需要在线且开机，任务才能触发。")
+    print("完成。chip_writer.py 内置超时检查，超出窗口自动跳过，不会补跑。")
 
 
 def remove():
-    for name, _, _ in TASKS:
+    all_names = [n for n, _, _ in TASKS] + OLD_TASKS
+    for name in all_names:
         result = subprocess.run(
             f'schtasks /delete /tn "{name}" /f',
             shell=True, capture_output=True, text=True,
@@ -66,7 +81,7 @@ def remove():
 
 
 def status():
-    for name, time, _ in TASKS:
+    for name, time, _ in (TASKS + [(n, "?", "") for n in OLD_TASKS]):
         result = subprocess.run(
             f'schtasks /query /tn "{name}" /fo LIST',
             shell=True, capture_output=True, text=True,

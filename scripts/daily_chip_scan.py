@@ -82,7 +82,11 @@ def main() -> None:
     filter_label = "BOLL中轨+MACD近零" + ("＋排半年高位" if args.high_filter else "")
 
     sections: list[str] = []
+    tier_data: dict[str, list] = {}
+    all_picks: list[dict] = []
+
     for tier in TIERS:
+        tier_key = tier["label"].split()[0]   # "T1", "T2", ...
         result = screen(
             candidates,
             min_win        = tier["min_win"],
@@ -97,8 +101,10 @@ def main() -> None:
         )
         picks = len(result)
         header = f"【{tier['label']}】{picks}只"
+        tier_picks: list[dict] = []
         if result.empty:
             sections.append(f"{header}\n（无）")
+            tier_data[tier_key] = []
             continue
 
         rows = []
@@ -106,13 +112,33 @@ def main() -> None:
             code  = r["ts_code"].split(".")[0]
             name  = r.get("name", code)
             ind   = r.get("industry", "")
-            close = r.get("close", 0)
+            close = float(r.get("close", 0))
             rows.append(f"{code} {name} {ind} ¥{close:.2f}  ")
+            entry = {"code": code, "name": name, "industry": ind,
+                     "close": close, "winner_rate": float(r.get("winner_rate", 0)),
+                     "tier": tier_key}
+            tier_picks.append(entry)
+            all_picks.append(entry)
         sections.append(header + "  \n" + "\n".join(rows))
+        tier_data[tier_key] = tier_picks
 
     title = f"筹码全档 {trade_date}（{filter_label}）"
     body  = "\n\n".join(sections)
     print(f"\n{title}\n{body}")
+
+    # 保存结构化选股结果（供 xhs/chip_writer.py 使用）
+    latest_trade = _latest_trade_date()
+    if trade_date == latest_trade or args.date is None:
+        scan_out = ROOT / "data" / "chip_scan_latest.json"
+        scan_data = {
+            "date":         trade_date,
+            "generated_at": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "filter":       filter_label,
+            "tiers":        tier_data,
+            "all_picks":    all_picks,
+        }
+        scan_out.write_text(json.dumps(scan_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[scan] 已保存 chip_scan_latest.json（{len(all_picks)} 只）")
 
     if not args.dry_run:
         _push(title, body)
