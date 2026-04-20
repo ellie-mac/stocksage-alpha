@@ -6,7 +6,7 @@ StockSage Discord Bot  (with Claude AI)
 配置 (stock-bot/config.json):
     discord.bot_token    - Discord Developer Portal → Bot → Token
     discord.allowed_ids  - 只接受这些用户 ID（留空=接受所有人）
-    claude.api_key       - Anthropic API Key（留空=仅固定命令模式）
+    claude.api_key       - 已弃用（改用本地 Claude Code CLI 中继）
 
 启动:
     python -X utf8 stock-bot/discord_bot.py
@@ -34,8 +34,8 @@ StockSage Discord Bot  (with Claude AI)
     do                   执行上条建议
     sc / sc 1-6          快捷命令（启停进程、预热缓存等）
 
-对话模式 (消耗 claude.api_key 额度):
-    其他内容走 Claude AI 自然语言对话。
+对话模式 (本地 Claude Code CLI，无需 API Key):
+    其他内容通过 claude --print --continue 中继给 Claude Code 执行。
 """
 
 from __future__ import annotations
@@ -1273,69 +1273,43 @@ def _execute_tool(name: str, inputs: dict) -> str:
     return result
 
 
-def _claude_dispatch(channel_id: int, text: str) -> str:
-    try:
-        import anthropic
-    except ImportError:
-        return "❌ anthropic 包未安装，运行: pip install anthropic"
+_CLAUDE_CODE_LOCK = threading.Lock()
 
-    api_key = _claude_api_key()
-    if not api_key:
-        return "❌ 未配置 claude.api_key，请在 stock-bot/config.json 填入 Anthropic API Key"
 
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-    except Exception as e:
-        return f"❌ Claude 客户端初始化失败: {e}"
-
-    history = _history.setdefault(channel_id, [])
-    history.append({"role": "user", "content": text})
-
-    messages = history.copy()
-
-    # Agentic loop (tool use)
-    for _ in range(5):  # max 5 rounds
+def _claude_code_dispatch(text: str) -> str:
+    """
+    Run Claude Code CLI in print mode for unattended Discord relay.
+    Uses --continue to maintain conversation context across messages.
+    Requires no API key — uses the local Claude Code installation.
+    """
+    cmd = [
+        "claude", "--print",
+        "--dangerously-skip-permissions",
+        "--continue",
+        text,
+    ]
+    print(f"[claude-code] running: {text[:80]!r}", flush=True)
+    with _CLAUDE_CODE_LOCK:
         try:
-            response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=600,
-                system=_CLAUDE_SYSTEM,
-                tools=_CLAUDE_TOOLS,
-                messages=messages,
+            result = subprocess.run(
+                cmd,
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                timeout=300,
+                encoding="utf-8",
+                errors="replace",
             )
+            output = result.stdout.strip()
+            if not output:
+                output = result.stderr.strip() or "（完成，无输出）"
+            return output
+        except subprocess.TimeoutExpired:
+            return "❌ 执行超时（5分钟），任务可能仍在后台运行"
+        except FileNotFoundError:
+            return "❌ 找不到 claude 命令，请确认 Claude Code CLI 已安装并在 PATH 中"
         except Exception as e:
-            err = str(e)
-            if "credit balance" in err or "400" in err:
-                return "❌ Claude API 余额不足，请充值后再用对话功能。固定命令（h/z/q/ic等）不受影响。"
-            return f"❌ Claude API 错误: {err[:200]}"
-
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    print(f"[TOOL] {block.name}({block.input})", flush=True)
-                    result = _execute_tool(block.name, block.input)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    })
-            messages.append({"role": "assistant", "content": response.content})
-            messages.append({"role": "user", "content": tool_results})
-        else:
-            # Final text response
-            reply = "".join(
-                block.text for block in response.content if hasattr(block, "text")
-            ) or "(无回复)"
-
-            # Save to history (keep last N turns)
-            history.append({"role": "assistant", "content": reply})
-            if len(history) > _MAX_HISTORY:
-                _history[channel_id] = history[-_MAX_HISTORY:]
-
-            return reply
-
-    return "❌ Claude 未能在限定轮次内完成回复，请重试"
+            return f"❌ 执行失败: {e}"
 
 
 # ── Discord client ────────────────────────────────────────────────────────────
@@ -1347,8 +1321,7 @@ client  = discord.Client(intents=intents)
 @client.event
 async def on_ready():
     print(f"[StockSage] Logged in as {client.user} (id={client.user.id})", flush=True)
-    claude_ok = bool(_claude_api_key())
-    print(f"[StockSage] Claude AI: {'enabled' if claude_ok else 'disabled (no api_key)'}", flush=True)
+    print(f"[StockSage] Claude Code relay: enabled (--print --continue)", flush=True)
     if not _allowed_ids():
         print("[StockSage] allowed_ids empty — accepting all users", flush=True)
 
@@ -1375,21 +1348,19 @@ async def on_message(message: discord.Message):
     if not allowed:
         print(f"  -> tip: add {user_id} to discord.allowed_ids to restrict access", flush=True)
 
-    async with message.channel.typing():
-        loop = asyncio.get_event_loop()
+    loop = asyncio.get_event_loop()
 
-        # Try fixed commands first (fast, no API call)
-        result = await loop.run_in_executor(_executor, _dispatch_sync, text)
+    # Fixed commands: instant, no typing indicator needed
+    result = await loop.run_in_executor(_executor, _dispatch_sync, text)
 
-        # Fall back to Claude AI
-        if result is None:
-            if _claude_api_key():
-                channel_id = message.channel.id
-                result = await loop.run_in_executor(
-                    _executor, _claude_dispatch, channel_id, text
-                )
-            else:
-                result = f"未知命令: `{text}`\n\n发送 `帮助` 查看可用命令。\n💡 配置 `claude.api_key` 后可直接用自然语言对话。"
+    if result is None:
+        # Claude Code relay: acknowledge immediately, then process
+        pending = await message.reply("⏳ 处理中…")
+        try:
+            result = await loop.run_in_executor(_executor, _claude_code_dispatch, text)
+        except Exception as e:
+            result = f"❌ 执行出错: {e}"
+        await pending.delete()
 
     MAX = 1990
     for chunk in [result[i:i+MAX] for i in range(0, len(result), MAX)]:
