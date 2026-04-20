@@ -251,10 +251,22 @@ def fetch_chip_data(trade_date: str, pro) -> pd.DataFrame:
 
     print("  拉取 cyq_perf ...")
     t0 = time.time()
-    cyq = pro.cyq_perf(
-        trade_date=trade_date,
-        fields="ts_code,trade_date,cost_5pct,cost_50pct,cost_85pct,cost_95pct,weight_avg,winner_rate",
-    )
+    try:
+        cyq = pro.cyq_perf(
+            trade_date=trade_date,
+            fields="ts_code,trade_date,cost_5pct,cost_50pct,cost_85pct,cost_95pct,weight_avg,winner_rate",
+        )
+    except Exception as e:
+        msg = str(e)
+        if "每小时" in msg or "每天" in msg or "最多访问" in msg:
+            from datetime import datetime
+            now = datetime.now()
+            reset_min = 60 - now.minute
+            print(f"[fetch] Tushare 限流：{msg}")
+            print(f"[fetch] 每小时额度已耗尽，约 {reset_min} 分钟后（{now.hour+1 if now.minute>0 else now.hour}:00）重置，请届时重新运行")
+        else:
+            print(f"[fetch] cyq_perf 失败: {e}")
+        return pd.DataFrame()
     print(f"  cyq_perf: {len(cyq) if cyq is not None else 0} 条  ({time.time()-t0:.1f}s)")
 
     if cyq is None or cyq.empty:
