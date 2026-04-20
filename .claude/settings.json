@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tasklist *)",
+      "Bash(git push origin main)",
+      "Bash(python -X utf8 stock-bot/discord_bot.py *)"
+    ]
+  }
+}
