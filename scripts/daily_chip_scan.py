@@ -162,7 +162,9 @@ def main() -> None:
             "all_picks":    all_picks,
         }
         scan_out.write_text(json.dumps(scan_data, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"[scan] 已保存 chip_scan_latest.json（{len(all_picks)} 只）")
+        dated_out = ROOT / "data" / f"chip_scan_{trade_date}.json"
+        dated_out.write_text(json.dumps(scan_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[scan] 已保存 chip_scan_latest.json + chip_scan_{trade_date}.json（{len(all_picks)} 只）")
 
     if not args.dry_run and not args.no_push:
         _push(title, body)
