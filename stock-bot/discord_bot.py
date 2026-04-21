@@ -30,8 +30,8 @@ StockSage Discord Bot  (with Claude AI)
     kb                   终止回测
     bt / bt16 / bt16s    启动个股回测（s=小盘）
     bte / bte12          启动 ETF 回测
-    sug                  给出操作建议
-    do                   执行上条建议
+    # sug                给出操作建议（已弃用，直接对话）
+    # do                 执行上条建议（已弃用）
     sc / sc 1-6          快捷命令（启停进程、预热缓存等）
 
 对话模式 (本地 Claude Code CLI，无需 API Key):
@@ -98,13 +98,16 @@ _HELP = """**筹码策略**
 `ca` 全档  |  `cah` 全档+排高位  |  `cabekh` 全档+BOLL+≤50+排科创+排高位
 修饰符：`b` BOLL  `e` 股价≤50  `k` 排科创  `h` 排高位  |  `ch` 筹码详情
 
-`sh` 系统状态  |  `sch` 快捷命令  |  `fh` 因子/回测  |  💬 其他走AI对话"""
+`z` 状态  |  `q` 全局概览  |  `p` 推荐  |  `sch` 快捷命令  |  `fh` 因子/回测  |  💬 其他走AI对话"""
 
 _FACTOR_HELP = """**因子 & 分析**
-`ic` 因子IC摘要  |  `ich` 因子列表  |  `icf 因子名` 因子说明  |  `fx 600519` 单股分析
+`ic` 因子IC摘要  |  `ich` 因子列表
+`icf 因子名` 因子说明  |  `fx 600519` 单股分析
 
 **回测**
-`bs` 回测进度  |  `br` 结果摘要  |  `bt` / `bt16s` 组合回测  |  `bte` / `bte12` ETF回测"""
+`bs` 进度  |  `br` 结果摘要
+`bt` 主板  |  `bts` 小盘  |  `bte` ETF
+数字=期数（`bt` 默认16，`bte` 默认12），`s`=小盘，如 `bt24s`、`bte6`"""
 
 def _describe_cmdline(cmd: str) -> str:
     """Convert a Python process command line to a human-readable one-liner."""
@@ -226,12 +229,12 @@ def _h_test_now() -> str:
     return "已触发全市场扫描 (--test-now)，结果稍后发送到微信 📱"
 
 
-_SH_LIST = """**系统状态**
-`z` 状态  |  `q` 全局概览  |  `p` 今日推荐  |  `sug` 给我建议  |  `do` 执行建议"""
+_SH_LIST = ""  # retired — z/q/p now in main help
 
 _SC_LIST = """**快捷命令 sc N**
-`sc 1` 启动 monitor  |  `sc 2` 重启 monitor  |  `sc 3` 终止回测
-`sc 4` 因子IC回测  |  `sc 5` 预热财务缓存  |  `sc 6` 重建股票池
+`sc 1` 启动 monitor  |  `sc 2` 重启 monitor
+`sc 3` 终止回测  |  `sc 4` 因子IC回测
+`sc 5` 预热财务缓存  |  `sc 6` 重建股票池
 `sc 7` 扫盘推送 📱  |  `sc 8` monitor日志"""
 
 _CHIP_LIST = """**筹码命令**
@@ -1151,10 +1154,10 @@ def _dispatch_inner(t: str) -> str | None:
         return _h_status()
     elif t in ("q", "全局概览", "当前状态", "overview"):
         return _h_overview()
-    elif t in ("sug", "建议", "suggest", "你觉得呢"):
-        return _h_suggest()
-    elif t in ("do", "执行", "执行建议", "按照你说的做"):
-        return _h_do()
+    # elif t in ("sug", "建议", "suggest", "你觉得呢"):
+    #     return _h_suggest()
+    # elif t in ("do", "执行", "执行建议", "按照你说的做"):
+    #     return _h_do()
     # elif t in ("持仓", "c"):
     #     return _h_holdings()
     # elif t in ("hh", "持仓列表"):
@@ -1178,8 +1181,8 @@ def _dispatch_inner(t: str) -> str | None:
     elif t == "sc" or (t.startswith("sc ") and t[3:4] != ""):
         num = t[2:].strip()
         return _h_shortcut(num)
-    elif t == "sh":
-        return _SH_LIST
+    # elif t == "sh":
+    #     return _SH_LIST
     elif t in ("sch", "快捷列表"):
         return _SC_LIST
     elif t == "ch":
