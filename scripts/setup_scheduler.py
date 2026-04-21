@@ -45,6 +45,7 @@ TASKS = [
     ("StockSage_ChipEvening",   "15:10", "chip_evening",   "收盘筹码分析推送 📱",               True),
     # ── EOD analytics ───────────────────────────────────────────────────────
     ("StockSage_ChipPerfLog",   "17:15", "perf_log",       "cad/cadm 每日胜率统计推送 📱",      True),
+    ("StockSage_MainMorning",   "07:10", "monitor_scan",   "主策略盘前兜底（17:30未跑时补救），不推送", False),
     ("StockSage_MonitorScan",   "17:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json", False),
 ]
 
