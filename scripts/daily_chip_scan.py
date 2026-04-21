@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 每日筹码全档扫描：T1-T5 全部档位，默认带 BOLL中轨±8% + 绿柱离零轴>1% 过滤。
-用法：python -X utf8 scripts/daily_chip_scan.py [--date YYYYMMDD] [--dry-run]
+用法：python -X utf8 scripts/daily_chip_scan.py [--date YYYYMMDD] [--dry-run] [--ak]
+  --ak  跳过 Tushare，直接用 akshare 自算筹码分布（无额度限制，约5-10分钟）
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ ROOT    = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
-from chip_strategy import fetch_chip_data, fetch_6m_high, screen, add_indicators, load_names, _get_pro, _latest_trade_date
+from chip_strategy import fetch_chip_data, fetch_chip_data_ak, fetch_6m_high, screen, add_indicators, load_names, _get_pro, _latest_trade_date
 from common import send_wechat, configure_pushplus
 
 TIERS = [
@@ -44,15 +45,27 @@ def main() -> None:
     parser.add_argument("--dry-run",     action="store_true")
     parser.add_argument("--high-filter", action="store_true",
                         help="剔除处于半年高位的股票（close/6m_high >= 90%）")
+    parser.add_argument("--ak",          action="store_true",
+                        help="强制使用 akshare 自算模式，不消耗 Tushare 额度")
+    parser.add_argument("--boll",        action="store_true",
+                        help="启用 BOLL中轨±8% 过滤（默认关闭）")
     args = parser.parse_args()
 
     trade_date = args.date or _latest_trade_date()
     print(f"[scan] trade_date={trade_date}", flush=True)
 
-    pro   = _get_pro()
     names = load_names()
+    pro   = _get_pro()  # needed for fetch_6m_high even in --ak mode
 
-    df = fetch_chip_data(trade_date, pro)
+    if args.ak:
+        print("[scan] --ak 模式：akshare 自算筹码分布", flush=True)
+        df = fetch_chip_data_ak(trade_date)
+    else:
+        df = fetch_chip_data(trade_date, pro)
+        if df.empty:
+            print("[scan] Tushare 无数据，自动降级到 akshare 模式", flush=True)
+            df = fetch_chip_data_ak(trade_date)
+
     if df.empty:
         print("[scan] 无数据，退出")
         _push(f"筹码扫描 {trade_date}", "无数据，可能是非交易日或 API 限流")
@@ -79,7 +92,10 @@ def main() -> None:
     if not candidates.empty:
         candidates = add_indicators(candidates)
 
-    filter_label = "BOLL中轨+MACD近零" + ("＋排半年高位" if args.high_filter else "")
+    parts = ["MACD近零"]
+    if args.boll:        parts.insert(0, "BOLL中轨")
+    if args.high_filter: parts.append("排半年高位")
+    filter_label = "＋".join(parts)
 
     sections: list[str] = []
     tier_data: dict[str, list] = {}
@@ -94,7 +110,7 @@ def main() -> None:
             max_today_pct  = 5.0,
             max_price      = None,
             exclude_kcb    = False,
-            boll_near_mid  = True,
+            boll_near_mid  = args.boll,
             macd_near_zero = True,
             max_6m_ratio   = 0.9 if args.high_filter else None,
             six_month_high = six_month_high if args.high_filter else None,

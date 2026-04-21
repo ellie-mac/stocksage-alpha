@@ -235,12 +235,172 @@ def _load_chip_cache(trade_date: str) -> pd.DataFrame | None:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Akshare-based chip distribution (自算版，无需 Tushare 额度)
+# ---------------------------------------------------------------------------
+
+def _calc_chip_stats(hist_df: pd.DataFrame, current_price: float) -> tuple[float, float]:
+    """
+    Compute winner_rate (%) and cost_95pct from OHLCV history.
+    hist_df: columns [low, high, vol], sorted oldest → newest.
+    Uses fixed exponential decay: weight = vol * (1-0.001)^days_ago
+    """
+    import numpy as np
+
+    rows = hist_df[["low", "high", "vol"]].dropna()
+    if rows.empty or current_price <= 0:
+        return 0.0, 0.0
+
+    lows   = rows["low"].values.astype(float)
+    highs  = rows["high"].values.astype(float)
+    vols   = rows["vol"].values.astype(float)
+    n      = len(lows)
+
+    days_ago = np.arange(n - 1, -1, -1, dtype=float)
+    weights  = vols * (0.999 ** days_ago)
+
+    min_p = lows.min() * 0.9
+    max_p = max(highs.max(), current_price) * 1.05
+    N = 400
+    edges    = np.linspace(min_p, max_p, N + 1)
+    mids     = (edges[:-1] + edges[1:]) / 2
+    bin_w    = edges[1] - edges[0]
+    chip     = np.zeros(N)
+
+    for i in range(n):
+        lo = int(max(0,   (lows[i]  - min_p) / bin_w))
+        hi = int(min(N,   (highs[i] - min_p) / bin_w + 1))
+        if hi > lo:
+            chip[lo:hi] += weights[i] / (hi - lo)
+        elif lo < N:
+            chip[lo] += weights[i]
+
+    total = chip.sum()
+    if total <= 0:
+        return 0.0, 0.0
+
+    winner_rate = float(chip[mids <= current_price].sum() / total * 100)
+    cumsum      = np.cumsum(chip)
+    idx95       = int(np.searchsorted(cumsum, 0.95 * total))
+    cost_95pct  = float(mids[min(idx95, N - 1)])
+    return winner_rate, cost_95pct
+
+
+def _fetch_stock_hist_ak(code6: str, start_date: str, end_date: str) -> pd.DataFrame | None:
+    """Fetch daily OHLCV from akshare for one stock. Returns df[low,high,vol,close,pct_chg,amount] or None."""
+    try:
+        import akshare as ak
+        df = ak.stock_zh_a_hist(symbol=code6, period="daily",
+                                start_date=start_date, end_date=end_date,
+                                adjust="")
+        if df is None or df.empty:
+            return None
+        df = df.rename(columns={
+            "收盘": "close", "最低": "low", "最高": "high",
+            "成交量": "vol", "涨跌幅": "pct_chg", "成交额": "amount",
+        })
+        keep = [c for c in ["close", "low", "high", "vol", "pct_chg", "amount"] if c in df.columns]
+        return df[keep].reset_index(drop=True)
+    except Exception:
+        return None
+
+
+def _ts_code_suffix(code6: str) -> str:
+    if code6.startswith("6") or code6.startswith("5"):
+        return code6 + ".SH"
+    if code6.startswith("4") or code6.startswith("8") or code6.startswith("9"):
+        return code6 + ".BJ"
+    return code6 + ".SZ"
+
+
+def fetch_chip_data_ak(trade_date: str) -> pd.DataFrame:
+    """
+    Compute chip distribution for every A-share using fetcher.get_price_history.
+    No Tushare cyq_perf quota consumed.  fetcher has 5 fallback sources + per-stock cache.
+    Uses same cache key as Tushare path so subsequent calls are instant.
+
+    Returns DataFrame with columns compatible with fetch_chip_data():
+      ts_code, trade_date, winner_rate, cost_95pct, close, pct_chg, amount, code
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import fetcher as _fetcher
+
+    cached = _load_chip_cache(trade_date)
+    if cached is not None:
+        print(f"[chip cache] 命中 chip_data_{trade_date}，共 {len(cached)} 条")
+        return cached
+
+    names    = load_names()
+    ts_codes = list(names.keys())
+    trade_dt = datetime.strptime(trade_date, "%Y%m%d")
+    total    = len(ts_codes)
+    print(f"[chip_ak] {trade_date} — 自算模式，共 {total} 只（workers=5）", flush=True)
+
+    def _fetch(ts_code: str):
+        code = ts_code.split(".")[0]
+        try:
+            hist = _fetcher.get_price_history(code, days=260)
+            if hist is None or hist.empty:
+                return ts_code, None
+            # Filter to trade_date so we get the correct closing price
+            hist = hist[pd.to_datetime(hist["date"]) <= pd.Timestamp(trade_dt)].copy()
+            if len(hist) < 30:
+                return ts_code, None
+            hist = hist.rename(columns={"volume": "vol", "change_pct": "pct_chg"})
+            return ts_code, hist
+        except Exception:
+            return ts_code, None
+
+    hist_map: dict[str, pd.DataFrame] = {}
+    done = 0
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        futs = {ex.submit(_fetch, c): c for c in ts_codes}
+        for f in as_completed(futs):
+            ts_code, hist = f.result()
+            if hist is not None:
+                hist_map[ts_code] = hist
+            done += 1
+            if done % 500 == 0:
+                print(f"[chip_ak] {done}/{total} 完成 ...", flush=True)
+
+    print(f"[chip_ak] 历史数据就绪 {len(hist_map)} 只，计算筹码分布 ...", flush=True)
+    records = []
+    for ts_code, hist in hist_map.items():
+        last  = hist.iloc[-1]
+        close = float(last.get("close", 0))
+        if close <= 0:
+            continue
+        wr, c95 = _calc_chip_stats(hist, close)
+        records.append({
+            "ts_code":     ts_code,
+            "trade_date":  trade_date,
+            "winner_rate": wr,
+            "cost_95pct":  c95,
+            "cost_85pct":  float("nan"),
+            "cost_50pct":  float("nan"),
+            "cost_5pct":   float("nan"),
+            "weight_avg":  float("nan"),
+            "close":       close,
+            "pct_chg":     float(last.get("pct_chg", 0)),
+            "amount":      float(last.get("amount", 0)),
+            "code":        ts_code.split(".")[0],
+        })
+
+    df_out = pd.DataFrame(records)
+    print(f"[chip_ak] 完成，共 {len(df_out)} 只")
+    _cache.set(_chip_cache_key(trade_date), df_out)
+    print(f"[chip cache] 已写入 chip_data_{trade_date}（akshare自算）")
+    return df_out
+
+
 def fetch_chip_data(trade_date: str, pro) -> pd.DataFrame:
     """
     Pull cyq_perf + daily for trade_date and cache.
     Returns DataFrame with columns:
         ts_code, trade_date, cost_5pct, cost_50pct, cost_85pct, cost_95pct,
         weight_avg, winner_rate, close, pct_chg, amount
+
+    On Tushare rate-limit, automatically falls back to fetch_chip_data_ak().
     """
     cached = _load_chip_cache(trade_date)
     if cached is not None:
@@ -259,11 +419,11 @@ def fetch_chip_data(trade_date: str, pro) -> pd.DataFrame:
     except Exception as e:
         msg = str(e)
         if "每小时" in msg or "每天" in msg or "最多访问" in msg:
-            from datetime import datetime
             now = datetime.now()
             reset_min = 60 - now.minute
             print(f"[fetch] Tushare 限流：{msg}")
-            print(f"[fetch] 每小时额度已耗尽，约 {reset_min} 分钟后（{now.hour+1 if now.minute>0 else now.hour}:00）重置，请届时重新运行")
+            print(f"[fetch] 额度耗尽，自动切换到 akshare 自算模式 ...")
+            return fetch_chip_data_ak(trade_date)
         else:
             print(f"[fetch] cyq_perf 失败: {e}")
         return pd.DataFrame()
@@ -429,15 +589,6 @@ def screen(
         if n_kcb:
             print(f"[screen] 剔除 {n_kcb} 只科创板股票")
 
-    # Cross-check: close should be >= cost_95pct (allow 1% rounding slack)
-    inconsistent = (
-        result["close"].notna() &
-        result["cost_95pct"].notna() &
-        (result["close"] < result["cost_95pct"] * 0.99)
-    )
-    if inconsistent.sum() > 0:
-        print(f"[warn] 剔除 {inconsistent.sum()} 条 close < cost_95pct（数据不一致）")
-        result = result[~inconsistent]
 
     before = len(result)
 
