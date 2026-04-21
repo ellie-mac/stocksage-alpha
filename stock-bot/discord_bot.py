@@ -238,13 +238,12 @@ _SC_LIST = """**快捷命令 sc N**
 `sc 7` 扫盘推送 📱  |  `sc 8` monitor日志"""
 
 _CHIP_LIST = """**筹码命令**
-`ca`         全档T1-T5合并汇总（默认MACD近零）📱
-`cabekh`     全档 + BOLL + 股价≤50 + 排科创 + 排半年高位 📱
-`c all`修饰符可叠加：`b` BOLL中轨  `e` 股价≤50  `k` 排科创  `h` 排半年高位 📱
-`c 1`~`c 5`  各档筹码扫描（T1≥95% / T2:90-95% / T3:85-90% / T4:75-85% / T5:65-75%）📱
-修饰符（c 1-5 可叠加）：
-  `e` 剔除股价>50      `k` 排科创      `h` 排半年高位
-  `b` BOLL中轨±8%过滤  `m` MACD绿柱收敛  `z` MACD柱离零轴≤1%
+`ca` / `c all`  全档T1-T5  |  `cah` 全档排高位  |  `cabekh` 全档+全修饰
+
+`c 1` T1≥95%  `c 2` T2 90-95%  `c 3` T3 85-90%  `c 4` T4 75-85%  `c 5` T5 65-75%
+
+**修饰符**（可叠加）
+`b` BOLL  `e` ≤50元  `k` 排科创  `h` 排高位  `m` MACD绿柱  `z` MACD近零
 示例：`c 1bmz`  `c 2mz`  `c 4kh`  `c all bh`"""
 
 # Chip tier config: (min_win, max_win_or_None)
