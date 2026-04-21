@@ -239,13 +239,13 @@ _SC_LIST = """**快捷命令 sc N**
 
 _CHIP_LIST = """**筹码命令**
 `cad`  数据驱动全档（T4→T5→T3→T2→T1，默认bekhm）⭐
-`ca` / `c all`  全档T1-T5  |  `cah` 全档排高位  |  `cabekh` 全档+全修饰
+`ca`  全档T1-T5  |  `cah` 全档排高位  |  `cabekh` 全档+全修饰
 
 `c 1` T1≥95%  `c 2` T2 90-95%  `c 3` T3 85-90%  `c 4` T4 75-85%  `c 5` T5 65-75%
 
 **修饰符**（可叠加）
 `b` BOLL  `e` ≤50元  `k` 排科创  `h` 排高位  `m` MACD绿柱  `z` MACD近零
-示例：`c 1bmz`  `c 2mz`  `c 4kh`  `cad`  `cad ek`"""
+示例：`c1bmz`  `c2mz`  `c4kh`  `cad`  `cad ek`"""
 
 # Chip tier config: (min_win, max_win_or_None)
 _CHIP_TIERS = {
@@ -350,18 +350,17 @@ def _h_chip(arg: str) -> str:
 
 
 def _h_chip_data_driven(mods: str = "bekhm") -> str:
-    """cad: launch all tiers in backtest-optimal order T4→T5→T3→T2→T1."""
-    order = ["4", "5", "3", "2", "1"]
-    for tier in order:
-        _launch_chip(tier, mods)
-    mod_label = " ".join(filter(None, [
-        "BOLL" if "b" in mods else "",
-        "≤50元" if "e" in mods else "",
-        "排科创" if "k" in mods else "",
-        "排高位" if "h" in mods else "",
-        "MACD绿柱" if "m" in mods else "",
-    ]))
-    return f"筹码数据驱动扫描（T4→T5→T3→T2→T1 {mod_label}）已启动 ✅\n各档结果依次推送到微信 📱"
+    """cad: run all tiers T4→T5→T3→T2→T1 in one process, push one combined message."""
+    log_path = LOGS / "chip_cad.log"
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write(f"--- chip_cad started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+    subprocess.Popen(
+        [sys.executable, "-X", "utf8", str(SCRIPTS / "chip_cad.py"), "--mods", mods],
+        cwd=str(ROOT),
+        stdout=open(log_path, "a", encoding="utf-8"),
+        stderr=subprocess.STDOUT,
+    )
+    return f"筹码数据驱动扫描（T4→T5→T3→T2→T1 {mods}）已启动 ✅\n约3-5分钟后推一条微信 📱"
 
 
 def _h_shortcut(num: str) -> str:
