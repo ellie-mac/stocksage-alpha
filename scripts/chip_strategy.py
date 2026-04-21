@@ -242,22 +242,43 @@ def _load_chip_cache(trade_date: str, source: str = "ts") -> pd.DataFrame | None
 def _calc_chip_stats(hist_df: pd.DataFrame, current_price: float) -> tuple[float, float]:
     """
     Compute winner_rate (%) and cost_95pct from OHLCV history.
-    hist_df: columns [low, high, vol], sorted oldest → newest.
-    Uses fixed exponential decay: weight = vol * (1-0.001)^days_ago
+    hist_df: columns [low, high, vol/volume, turnover(%)], sorted oldest → newest.
+
+    Uses turnover-rate decay (同花顺 methodology):
+      survival_i = ∏(1 - turnover_j/100)  for all j > i
+    Chips from bar i that have NOT been replaced by subsequent trading.
+    Falls back to volume-ratio decay when turnover column is absent.
     """
     import numpy as np
 
-    rows = hist_df[["low", "high", "vol"]].dropna()
+    need_cols = ["low", "high"]
+    has_turnover = "turnover" in hist_df.columns
+    vol_col      = "vol" if "vol" in hist_df.columns else "volume"
+    rows = hist_df[need_cols + [vol_col] + (["turnover"] if has_turnover else [])].dropna()
     if rows.empty or current_price <= 0:
         return 0.0, 0.0
 
-    lows   = rows["low"].values.astype(float)
-    highs  = rows["high"].values.astype(float)
-    vols   = rows["vol"].values.astype(float)
-    n      = len(lows)
+    lows  = rows["low"].values.astype(float)
+    highs = rows["high"].values.astype(float)
+    vols  = rows[vol_col].values.astype(float)
+    n     = len(lows)
 
-    days_ago = np.arange(n - 1, -1, -1, dtype=float)
-    weights  = vols * (0.999 ** days_ago)
+    if has_turnover:
+        # Turnover-rate survival: survival_i = ∏_{j>i}(1 - t_j)
+        t = np.minimum(rows["turnover"].values.astype(float) / 100, 0.99)
+        log_s        = np.log1p(-t)
+        cum_log_rev  = np.cumsum(log_s[::-1])[::-1]
+        cum_log_after = np.append(cum_log_rev[1:], 0.0)   # vol after bar i
+        survival = np.exp(cum_log_after)
+        weights  = t * survival   # traded fraction × survival
+    else:
+        total_vol = vols.sum()
+        if total_vol <= 0:
+            return 0.0, 0.0
+        k = 2.0
+        cum_vol_after = total_vol - np.cumsum(vols)
+        survival = np.exp(-k * cum_vol_after / total_vol)
+        weights  = vols * survival
 
     min_p = lows.min() * 0.9
     max_p = max(highs.max(), current_price) * 1.05
