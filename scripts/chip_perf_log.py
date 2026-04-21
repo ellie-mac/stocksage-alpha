@@ -22,9 +22,8 @@ DATA_DIR  = ROOT / "data"
 
 # (label, glob_pattern, show_tier_detail)
 SOURCES = [
-    ("ca",   "chip_scan_????????.json",  False),   # 全档无过滤，只看汇总
-    ("cad",  "chip_cad_????????.json",   True),
-    ("cadm", "chip_cadm_????????.json",  True),
+    ("cad",  "chip_cad_????????.json",  True),
+    ("cadm", "chip_cadm_????????.json", True),
 ]
 
 TIER_ORDER = ["T4", "T1", "T2", "T3", "T5"]
