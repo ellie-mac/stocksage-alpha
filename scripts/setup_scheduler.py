@@ -49,6 +49,7 @@ OLD_TASKS = [
     "ss_MainNight", "ss_ChipNight", "ss_ChipPremarket",
     "ss_ChipMorning", "ss_ChipMidday", "ss_ChipEvening",
     "ss_ChipPerfLog", "ss_CadScan", "ss_CadmScan", "ss_MainMorning", "ss_MonitorScan",
+    "chip_CadmScan",
 ]
 
 # ── Scheduled tasks ───────────────────────────────────────────────────────────
@@ -67,8 +68,7 @@ TASKS = [
     ("xhs_Evening",     "15:10", "chip_evening",   "小红书收盘筹码分析推送 📱",                      True),
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
     ("chip_PerfLog",    "17:15", "perf_log",       "读昨日cad/cadm票，测今日胜率 📱",                True),
-    ("chip_CadScan",    "18:30", "cad_scan",       "筹码全档扫描 bekh，保存当日票 📱",               True),
-    ("chip_CadmScan",   "18:30", "cadm_scan",      "筹码全档扫描 bekhm，保存当日票 📱",              True),
+    ("chip_CadScan",    "18:30", "cad_scan",       "筹码全档扫描 bekh+bekhm，一次加载两组推送 📱",   True),
     ("main_Scan",       "18:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json",             False),
 ]
 
@@ -79,10 +79,7 @@ def _bat(slot: str) -> tuple[Path, str]:
 
     if slot == "cad_scan":
         path = XHS_DIR / "run_cad_scan.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{CHIP_CAD}" --mods bekh >> "{log}\\chip_cad.log" 2>&1'
-    elif slot == "cadm_scan":
-        path = XHS_DIR / "run_cadm_scan.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{CHIP_CAD}" --mods bekhm >> "{log}\\chip_cadm.log" 2>&1'
+        cmd  = f'"{PYTHON}" -X utf8 "{CHIP_CAD}" --mods bekh bekhm >> "{log}\\chip_cad.log" 2>&1'
     elif slot == "main_night":
         path = XHS_DIR / "run_main_night.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{BATCH_FIN}" >> "{log}\\batch_financials.log" 2>&1'

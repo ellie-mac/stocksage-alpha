@@ -211,8 +211,10 @@ def run_screener(query: str, top_n: int = 5) -> Optional[dict]:
 
 def fetch_current_prices(codes: list[str]) -> dict[str, dict]:
     try:
-        import akshare as ak
-        df = ak.stock_zh_a_spot_em()
+        import sys as _sys
+        _sys.path.insert(0, str(SCRIPTS_DIR))
+        from common import get_spot_em
+        df = get_spot_em()
         result = {}
         for code in codes:
             row = df[df["代码"] == code]

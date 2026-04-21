@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
-cad — 数据驱动筹码全档扫描，按回测最优顺序 T4→T5→T3→T2→T1 推送一条微信。
+cad — 数据驱动筹码全档扫描，支持多组 mods 一次加载数据分别推送。
 
 用法：
-    python -X utf8 scripts/chip_cad.py [--mods bekhm] [--dry-run]
+    python -X utf8 scripts/chip_cad.py                      # 默认跑 bekh + bekhm
+    python -X utf8 scripts/chip_cad.py --mods bekh bekhm    # 同上，显式指定
+    python -X utf8 scripts/chip_cad.py --mods bekh          # 只跑 cad
+    python -X utf8 scripts/chip_cad.py [--dry-run]
 """
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
-from datetime import datetime
 from pathlib import Path
 
 ROOT    = Path(__file__).resolve().parent.parent
@@ -23,7 +26,6 @@ from chip_strategy import (
 )
 from common import send_wechat, configure_pushplus
 
-# T4→T5→T3→T2→T1 by backtest win rate
 TIER_ORDER = [
     ("T1", 95.0, None),
     ("T2", 90.0, 95.0),
@@ -33,13 +35,10 @@ TIER_ORDER = [
 ]
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--mods",     default="bekh", help="修饰符: b=BOLL e=≤50 k=排科创 h=排高位 m=MACD绿柱 z=MACD近零")
-    parser.add_argument("--dry-run",  action="store_true")
-    args = parser.parse_args()
-
-    mods = args.mods.lower()
+def _run_one(df_all, mods: str, trade_date: str,
+             sendkey: str, dry_run: bool) -> None:
+    """Run a single mods variant against pre-loaded df_all and push."""
+    mods = mods.lower()
     boll_near   = "b" in mods
     cheap       = "e" in mods
     no_kcb      = "k" in mods
@@ -50,41 +49,20 @@ def main() -> None:
     max_price    = 50.0 if cheap else None
     max_6m_ratio = 0.9  if high_filter else None
 
-    cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-    sendkey = cfg.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
-
-    pro          = _get_pro()
-    query_date   = _latest_trade_date()
-    df_all       = fetch_chip_data(query_date, pro)
-
-    if df_all.empty:
-        print("[cad] 无数据，退出")
-        return
-
-    # Use actual data date (price history may lag behind query date)
-    trade_date = str(df_all["trade_date"].iloc[0]) if "trade_date" in df_all.columns else query_date
-
-    names = load_names()
-    if names:
-        df_all["name"]     = df_all["ts_code"].map(lambda c: names.get(c, {}).get("name", ""))
-        df_all["industry"] = df_all["ts_code"].map(lambda c: names.get(c, {}).get("industry", ""))
-    else:
-        df_all["name"] = df_all["industry"] = ""
-
-    date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
+    date_fmt  = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
     mod_label = " ".join(filter(None, [
-        "BOLL" if boll_near else "",
-        "≤50元" if cheap else "",
-        "排科创" if no_kcb else "",
-        "排高位" if high_filter else "",
-        "MACD绿柱" if macd_conv else "",
-        "MACD近零" if macd_zero else "",
+        "BOLL"     if boll_near   else "",
+        "≤50元"   if cheap       else "",
+        "排科创"   if no_kcb     else "",
+        "排高位"   if high_filter else "",
+        "MACD绿柱" if macd_conv   else "",
+        "MACD近零" if macd_zero   else "",
     ]))
 
     sections: list[str] = []
     total = 0
     saves: dict[str, list[dict]] = {}
+    pro = _get_pro()
 
     for tier_name, min_win, max_win in TIER_ORDER:
         win_range = f"{min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{min_win:.0f}%"
@@ -94,7 +72,7 @@ def main() -> None:
                         max_price=max_price, exclude_kcb=no_kcb)
 
         if max_6m_ratio is not None and not result.empty:
-            six_m = fetch_6m_high(result["ts_code"].tolist(), trade_date, pro)
+            six_m  = fetch_6m_high(result["ts_code"].tolist(), trade_date, pro)
             result = screen(df_all, min_win, max_win=max_win, max_today_pct=5.0,
                             max_6m_ratio=max_6m_ratio, six_month_high=six_m,
                             max_price=max_price, exclude_kcb=no_kcb)
@@ -109,7 +87,7 @@ def main() -> None:
 
         n = len(result)
         total += n
-        print(f"[cad] {tier_name} ({win_range}): {n} 只", flush=True)
+        print(f"[cad/{mods}] {tier_name} ({win_range}): {n} 只", flush=True)
 
         picks_list: list[dict] = []
         header = f"\n### {tier_name}（获利盘 {win_range}）— {n} 只"
@@ -126,7 +104,6 @@ def main() -> None:
             ind     = str(row.get("industry", "") or "")[:6]
             close   = row.get("close", float("nan"))
             win     = row.get("winner_rate", float("nan"))
-            import math
             close_s = f"{close:.2f}" if not math.isnan(close) else "-"
             win_s   = f"{win:.1f}%" if not math.isnan(win) else "-"
             rows.append(f"| {name} | {ind} | {close_s} | {win_s} |")
@@ -135,19 +112,53 @@ def main() -> None:
         saves[tier_name] = picks_list
         sections.append(header + "\n" + "\n".join(rows))
 
-    # Save filtered picks for chip_perf_log.py (next-day evaluation)
-    prefix    = "chip_cadm" if "m" in mods else "chip_cad"
-    payload   = json.dumps({"date": trade_date, "mods": mods, "tiers": saves}, ensure_ascii=False, indent=2)
-    dated     = ROOT / "data" / f"{prefix}_{trade_date}.json"
-    latest    = ROOT / "data" / f"{prefix}_latest.json"
+    prefix  = "chip_cadm" if "m" in mods else "chip_cad"
+    payload = json.dumps({"date": trade_date, "mods": mods, "tiers": saves},
+                         ensure_ascii=False, indent=2)
+    dated   = ROOT / "data" / f"{prefix}_{trade_date}.json"
+    latest  = ROOT / "data" / f"{prefix}_latest.json"
     dated.write_text(payload, encoding="utf-8")
     latest.write_text(payload, encoding="utf-8")
-    print(f"[cad] 已保存 {dated.name}（共{total}只）")
+    print(f"[cad/{mods}] 已保存 {dated.name}（共{total}只）")
 
-    body  = "\n".join(sections) + f"\n\n> ⚠️ 仅供参考，不构成投资建议"
+    body  = "\n".join(sections) + "\n\n> ⚠️ 仅供参考，不构成投资建议"
     title = f"筹码驱动 {date_fmt} ({mod_label}) 共{total}只"
     print(f"\n{title}\n")
-    send_wechat(title, body, sendkey, dry_run=args.dry_run)
+    send_wechat(title, body, sendkey, dry_run=dry_run)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mods", nargs="+", default=["bekh", "bekhm"],
+                        help="一个或多个修饰符组合，数据只加载一次")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+
+    cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
+    sendkey = cfg.get("serverchan", {}).get("sendkey", "")
+    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+
+    pro        = _get_pro()
+    query_date = _latest_trade_date()
+    df_all     = fetch_chip_data(query_date, pro)
+
+    if df_all.empty:
+        print("[cad] 无数据，退出")
+        return
+
+    trade_date = str(df_all["trade_date"].iloc[0]) if "trade_date" in df_all.columns else query_date
+
+    names = load_names()
+    if names:
+        df_all["name"]     = df_all["ts_code"].map(lambda c: names.get(c, {}).get("name", ""))
+        df_all["industry"] = df_all["ts_code"].map(lambda c: names.get(c, {}).get("industry", ""))
+    else:
+        df_all["name"] = df_all["industry"] = ""
+
+    print(f"[cad] trade_date={trade_date}  mods={args.mods}", flush=True)
+
+    for mods_str in args.mods:
+        _run_one(df_all, mods_str, trade_date, sendkey, args.dry_run)
 
 
 if __name__ == "__main__":

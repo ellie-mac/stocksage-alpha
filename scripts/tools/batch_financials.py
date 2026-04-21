@@ -24,6 +24,7 @@ import pandas as pd
 import akshare as ak
 
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 BATCH_FILE = os.path.join(os.path.dirname(__file__), ".cache", "batch_financials.csv")
 RATE_DELAY = 0.35   # seconds between API calls to avoid rate-limiting
@@ -71,7 +72,8 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> None:
 
     # Full market quote to get the list of all codes
     print("Fetching full market quote list...")
-    spot = ak.stock_zh_a_spot_em()
+    from common import get_spot_em
+    spot = get_spot_em()
     all_codes: list[str] = spot["代码"].astype(str).str.zfill(6).tolist()
 
     if max_stocks:

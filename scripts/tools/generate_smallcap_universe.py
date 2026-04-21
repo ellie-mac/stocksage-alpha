@@ -20,21 +20,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 def generate(max_cap_yi: float = 50.0, max_n: int = 200, exclude_st: bool = True) -> list[str]:
     """Return up to max_n small-cap codes filtered from EM full-market snapshot."""
-    import time
     import pandas as pd
-    import akshare as ak
+    from common import get_spot_em
 
-    df = None
-    for attempt in range(3):
-        try:
-            print(f"Fetching market snapshot (attempt {attempt + 1}/3)...")
-            df = ak.stock_zh_a_spot_em()
-            if df is not None and not df.empty:
-                break
-        except Exception as e:
-            print(f"  Attempt {attempt + 1} failed: {e}")
-            if attempt < 2:
-                time.sleep(5)
+    print("Fetching market snapshot...")
+    df = get_spot_em()
 
     if df is None or df.empty:
         print("[ERROR] Cannot fetch market data after 3 attempts")
