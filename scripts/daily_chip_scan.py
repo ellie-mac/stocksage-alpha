@@ -49,6 +49,8 @@ def main() -> None:
                         help="强制使用 akshare 自算模式，不消耗 Tushare 额度")
     parser.add_argument("--boll",        action="store_true",
                         help="启用 BOLL中轨±8% 过滤（默认关闭）")
+    parser.add_argument("--max-price",   type=float, default=None,
+                        help="剔除股价高于此值的股票（如 --max-price 50）")
     args = parser.parse_args()
 
     trade_date = args.date or _latest_trade_date()
@@ -95,6 +97,7 @@ def main() -> None:
     parts = ["MACD近零"]
     if args.boll:        parts.insert(0, "BOLL中轨")
     if args.high_filter: parts.append("排半年高位")
+    if args.max_price:   parts.append(f"股价≤{args.max_price:.0f}")
     filter_label = "＋".join(parts)
 
     sections: list[str] = []
@@ -108,7 +111,7 @@ def main() -> None:
             min_win        = tier["min_win"],
             max_win        = tier["max_win"],
             max_today_pct  = 5.0,
-            max_price      = None,
+            max_price      = args.max_price,
             exclude_kcb    = False,
             boll_near_mid  = args.boll,
             macd_near_zero = True,

@@ -241,7 +241,7 @@ _SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
 _CHIP_LIST = """**筹码命令**
 `ca`         全档T1-T5合并汇总（默认MACD近零）📱
 `cah`        全档 + 排除半年高位 📱
-`c all b`    全档 + BOLL中轨±8%过滤（可叠加 h，如 `c all bh`）📱
+`c all`修饰符可叠加：`b` BOLL中轨  `e` 股价≤50  `h` 排半年高位（如 `c all beh`）📱
 `c 1`~`c 5`  各档筹码扫描（T1≥95% / T2:90-95% / T3:85-90% / T4:75-85% / T5:65-75%）📱
 修饰符（c 1-5 可叠加）：
   `e` 剔除股价>50      `k` 剔除科创板      `h` 排除半年高位
@@ -309,20 +309,23 @@ def _h_chip(arg: str) -> str:
     if arg == "all" or arg.startswith("all"):
         # parse: "all", "all h", "allh", "all bh", "allbh", etc.
         rest = arg[3:].strip().replace(" ", "")
-        high_filter = "h" in rest
-        boll_filter = "b" in rest
+        high_filter  = "h" in rest
+        boll_filter  = "b" in rest
+        cheap_filter = "e" in rest
         log_path = SCRIPTS / "daily_chip_scan.log"
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- daily_chip_scan started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         cmd = [sys.executable, "-X", "utf8", str(SCRIPTS / "daily_chip_scan.py")]
-        if high_filter: cmd += ["--high-filter"]
-        if boll_filter: cmd += ["--boll"]
+        if high_filter:  cmd += ["--high-filter"]
+        if boll_filter:  cmd += ["--boll"]
+        if cheap_filter: cmd += ["--max-price", "50"]
         subprocess.Popen(cmd, cwd=str(ROOT),
                          stdout=open(log_path, "a", encoding="utf-8"),
                          stderr=subprocess.STDOUT)
         mods = []
-        if boll_filter: mods.append("BOLL中轨")
-        if high_filter: mods.append("排半年高位")
+        if boll_filter:  mods.append("BOLL中轨")
+        if cheap_filter: mods.append("股价≤50")
+        if high_filter:  mods.append("排半年高位")
         suffix = ("＋" + "＋".join(mods)) if mods else ""
         return f"筹码全档扫描（T1-T5 MACD近零{suffix}）已启动，约2-3分钟后推微信 📱"
 
