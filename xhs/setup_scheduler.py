@@ -30,7 +30,8 @@ OLD_TASKS = [
 CHIP_WRITER   = REPO_ROOT / "xhs" / "chip_writer.py"
 DAILY_SCAN    = REPO_ROOT / "scripts" / "daily_chip_scan.py"
 TASKS = [
-    ("StockSage_ChipPremarket", "09:00", None),      # 盘前扫描，准备当日数据
+    ("StockSage_ChipNight",     "23:00", "night"),   # 夜间预取，缓存当日筹码数据
+    ("StockSage_ChipPremarket", "09:00", None),      # 盘前确认缓存（兜底）
     ("StockSage_ChipMorning",   "09:25", "morning"),
     ("StockSage_ChipMidday",    "11:35", "midday"),
     ("StockSage_ChipEvening",   "15:10", "evening"),
@@ -39,15 +40,26 @@ TASKS = [
 
 def create_bat(slot: str | None) -> Path:
     """Create a .bat launcher for the given slot (gitignored)."""
-    if slot is None:
-        # Premarket scan: run daily_chip_scan.py --ak, no chip_writer
+    if slot == "night":
+        # Nightly prefetch: cache today's chip data silently, no WeChat push
+        bat = XHS_DIR / "run_chip_night.bat"
+        log = REPO_ROOT / "scripts" / "logs" / "chip_scan_night.log"
+        bat.write_text(
+            f'@echo off\n'
+            f'cd /d "{REPO_ROOT}"\n'
+            f'mkdir "{REPO_ROOT}\\scripts\\logs" 2>nul\n'
+            f'"{PYTHON}" -X utf8 "{DAILY_SCAN}" --ak --no-push >> "{log}" 2>&1\n',
+            encoding="utf-8",
+        )
+    elif slot is None:
+        # Premarket scan: fallback scan at 9:00, sends push if cache missed last night
         bat = XHS_DIR / "run_chip_premarket.bat"
         log = REPO_ROOT / "scripts" / "logs" / "chip_scan_premarket.log"
         bat.write_text(
             f'@echo off\n'
             f'cd /d "{REPO_ROOT}"\n'
             f'mkdir "{REPO_ROOT}\\scripts\\logs" 2>nul\n'
-            f'"{PYTHON}" -X utf8 "{DAILY_SCAN}" --ak >> "{log}" 2>&1\n',
+            f'"{PYTHON}" -X utf8 "{DAILY_SCAN}" --ak --no-push >> "{log}" 2>&1\n',
             encoding="utf-8",
         )
     else:

@@ -53,6 +53,8 @@ def main() -> None:
                         help="剔除股价高于此值的股票（如 --max-price 50）")
     parser.add_argument("--no-kcb",      action="store_true",
                         help="剔除科创板股票（688xxx）")
+    parser.add_argument("--no-push",     action="store_true",
+                        help="只预取缓存，不发微信通知（夜间预热用）")
     args = parser.parse_args()
 
     trade_date = args.date or _latest_trade_date()
@@ -162,7 +164,7 @@ def main() -> None:
         scan_out.write_text(json.dumps(scan_data, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"[scan] 已保存 chip_scan_latest.json（{len(all_picks)} 只）")
 
-    if not args.dry_run:
+    if not args.dry_run and not args.no_push:
         _push(title, body)
 
 
