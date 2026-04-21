@@ -1181,10 +1181,9 @@ def _dispatch_inner(t: str) -> str | None:
         return _SC_LIST
     elif t == "ch":
         return _CHIP_LIST
-    elif t == "ca":
-        return _h_chip("all")
-    elif t == "cah":
-        return _h_chip("all h")
+    elif t == "ca" or t.startswith("ca"):
+        mods = t[2:]  # e.g. "caeh" → mods="eh"
+        return _h_chip("all " + mods if mods else "all")
     elif t == "c" or t.startswith("c "):
         return _h_chip(t[2:].strip() if t.startswith("c ") else "")
     elif t in ("ich", "因子列表"):
