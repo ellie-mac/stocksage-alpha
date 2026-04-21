@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 筹码每日胜率记录器
-每日收盘后（15:10+）运行，统计当日 chip_scan_latest.json 各档表现，
+每日收盘后（17:15）运行，统计当日 cad/cadm 筛选结果的各档表现，
 追加写入 data/chip_daily_perf.json。
 
 用法：
@@ -13,18 +13,19 @@ import argparse
 import json
 import math
 import time
-from datetime import datetime, date as _date
+from datetime import datetime
 from pathlib import Path
 
-ROOT       = Path(__file__).resolve().parent.parent
-SCAN_PATH  = ROOT / "data" / "chip_scan_latest.json"
-PERF_PATH  = ROOT / "data" / "chip_daily_perf.json"
+ROOT      = Path(__file__).resolve().parent.parent
+PERF_PATH = ROOT / "data" / "chip_daily_perf.json"
 
-TIERS = ["T1", "T2", "T3", "T4", "T5"]
+CAD_PATH  = ROOT / "data" / "chip_cad_latest.json"    # cad  (bekh)
+CADM_PATH = ROOT / "data" / "chip_cadm_latest.json"   # cadm (bekhm)
+
+TIER_ORDER = ["T4", "T1", "T2", "T3", "T5"]   # display order matches cad
 
 
 def _fetch_prices(codes: list[str], retries: int = 3) -> dict[str, float]:
-    """返回 {code: pct_chg}，失败自动重试。"""
     import akshare as ak
     for attempt in range(1, retries + 1):
         try:
@@ -55,20 +56,60 @@ def _tier_stats(picks: list[dict], prices: dict[str, float]) -> dict:
     win_rate = round(n_win / len(rets) * 100, 1)
     avg_ret  = round(sum(rets) / len(rets), 2)
     top3 = sorted(
-        [{"code": p["code"], "name": p.get("name",""), "pct": prices[p["code"]]}
+        [{"code": p["code"], "name": p.get("name", ""), "pct": prices[p["code"]]}
          for p in picks if p["code"] in prices],
         key=lambda x: x["pct"], reverse=True
     )[:3]
     return {"n": len(rets), "win_rate": win_rate, "avg_ret": avg_ret, "top3": top3}
 
 
+def _compute_block(scan: dict, prices: dict[str, float]) -> dict:
+    tiers_data = scan.get("tiers", {})
+    tiers_out: dict[str, dict] = {}
+    total_rets: list[float] = []
+    for tier in TIER_ORDER:
+        picks = tiers_data.get(tier, [])
+        stats = _tier_stats(picks, prices)
+        tiers_out[tier] = stats
+        if stats["avg_ret"] is not None:
+            total_rets.extend(prices[p["code"]] for p in picks if p["code"] in prices)
+    result = {"mods": scan.get("mods", ""), "tiers": tiers_out}
+    if total_rets:
+        result["total_n"]        = len(total_rets)
+        result["total_win_rate"] = round(sum(1 for r in total_rets if r > 0) / len(total_rets) * 100, 1)
+        result["total_avg_ret"]  = round(sum(total_rets) / len(total_rets), 2)
+    return result
+
+
+def _format_block(label: str, block: dict) -> str:
+    mods  = block.get("mods", "")
+    total = block.get("total_n", 0)
+    lines = [f"**{label}** ({mods})  共{total}只\n"]
+    for tier in TIER_ORDER:
+        s = block["tiers"].get(tier, {})
+        if not s or s.get("win_rate") is None:
+            lines.append(f"{tier}: 无数据")
+            continue
+        wr_emoji = "🟢" if s["win_rate"] >= 50 else "🔴"
+        ar_s     = f"{s['avg_ret']:+.2f}%"
+        lines.append(f"{wr_emoji} {tier} ({s['n']}只)  胜率 **{s['win_rate']}%**  均 {ar_s}")
+        top = "  ".join(f"{t['name']}{t['pct']:+.1f}%" for t in s["top3"])
+        if top:
+            lines.append(f"  ↑ {top}")
+    if "total_win_rate" in block:
+        wr   = block["total_win_rate"]
+        ar   = block["total_avg_ret"]
+        emoji = "🟢" if wr >= 50 else "🔴"
+        lines.append(f"\n{emoji} 全档 胜率 **{wr}%**  均 {ar:+.2f}%")
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--force",   action="store_true", help="跳过时间窗口检查")
+    parser.add_argument("--force",   action="store_true", help="跳过时间窗口检查并覆盖今日已有记录")
     args = parser.parse_args()
 
-    # 时间窗口检查：15:10 后才有完整收盘数据
     now = datetime.now()
     if not args.force:
         hm = now.hour * 60 + now.minute
@@ -76,67 +117,105 @@ def main() -> None:
             print(f"[perf] 当前 {now:%H:%M}，需 15:10 后运行，跳过")
             return
 
-    if not SCAN_PATH.exists():
-        print(f"[perf] 找不到 {SCAN_PATH}，请先运行筹码扫描")
+    today = now.strftime("%Y%m%d")
+
+    # Load available scan files
+    scans: list[tuple[str, dict]] = []
+    for label, path in [("cad", CAD_PATH), ("cadm", CADM_PATH)]:
+        if path.exists():
+            try:
+                s = json.loads(path.read_text(encoding="utf-8"))
+                if s.get("date") == today:
+                    scans.append((label, s))
+                    print(f"[perf] 读取 {label}: {path.name}  日期={s['date']}  mods={s.get('mods','?')}")
+                else:
+                    print(f"[perf] {label} 文件日期 {s.get('date')} ≠ 今日 {today}，跳过")
+            except Exception as e:
+                print(f"[perf] 读取 {label} 失败: {e}")
+
+    if not scans:
+        print("[perf] 今日 cad/cadm 均未运行，无数据可记录")
         return
 
-    scan = json.loads(SCAN_PATH.read_text(encoding="utf-8"))
-    scan_date = scan.get("date", now.strftime("%Y%m%d"))
-
-    # 防重复：同一日期只记录一次
-    existing: list[dict] = []
-    if PERF_PATH.exists():
-        existing = json.loads(PERF_PATH.read_text(encoding="utf-8"))
-    if any(r["date"] == scan_date for r in existing):
-        print(f"[perf] {scan_date} 已记录，跳过")
-        return
-
-    tiers_data = scan.get("tiers", {})
-    all_codes  = [p["code"] for tier in TIERS for p in tiers_data.get(tier, [])]
-    if not all_codes:
-        print("[perf] 无选股数据")
-        return
+    # Collect all codes
+    all_codes: set[str] = set()
+    for _, s in scans:
+        for tier_picks in s.get("tiers", {}).values():
+            all_codes.update(p["code"] for p in tier_picks)
 
     print(f"[perf] 获取 {len(all_codes)} 只股票行情 ...")
-    prices = _fetch_prices(all_codes)
+    prices = _fetch_prices(list(all_codes))
     print(f"[perf] 获取到 {len(prices)} 只")
 
     record: dict = {
-        "date":   scan_date,
+        "date":   today,
         "logged": now.isoformat(timespec="seconds"),
-        "filter": scan.get("filter", ""),
-        "tiers":  {},
     }
 
-    total_rets: list[float] = []
-    for tier in TIERS:
-        picks = tiers_data.get(tier, [])
-        stats = _tier_stats(picks, prices)
-        record["tiers"][tier] = stats
-        if stats["avg_ret"] is not None:
-            total_rets.extend(
-                prices[p["code"]] for p in picks if p["code"] in prices
-            )
-        n    = stats["n"]
-        wr   = f"{stats['win_rate']}%" if stats["win_rate"] is not None else "-"
-        ar   = f"{stats['avg_ret']:+.2f}%" if stats["avg_ret"] is not None else "-"
-        print(f"  {tier}: {n}只  胜率{wr}  均涨{ar}")
+    push_blocks: list[str] = []
+    for label, scan in scans:
+        block = _compute_block(scan, prices)
+        record[label] = block
+        push_blocks.append(_format_block(label, block))
+        # Console summary
+        for tier in TIER_ORDER:
+            s  = block["tiers"].get(tier, {})
+            n  = s.get("n", 0)
+            wr = f"{s['win_rate']}%" if s.get("win_rate") is not None else "-"
+            ar = f"{s['avg_ret']:+.2f}%" if s.get("avg_ret") is not None else "-"
+            print(f"  [{label}] {tier}: {n}只  胜率{wr}  均涨{ar}")
+        if "total_win_rate" in block:
+            print(f"  [{label}] 全档: {block['total_n']}只  胜率{block['total_win_rate']}%  均涨{block['total_avg_ret']:+.2f}%")
 
-    if total_rets:
-        record["total_win_rate"] = round(sum(1 for r in total_rets if r > 0) / len(total_rets) * 100, 1)
-        record["total_avg_ret"]  = round(sum(total_rets) / len(total_rets), 2)
-        print(f"  全档: {len(total_rets)}只  胜率{record['total_win_rate']}%  均涨{record['total_avg_ret']:+.2f}%")
+    date_fmt  = f"{today[4:6]}/{today[6:]}"
+    push_body = f"## 📊 筹码胜率 {date_fmt}\n\n" + "\n\n---\n\n".join(push_blocks) + "\n\n⚠️ 仅供参考，不构成投资建议"
+    print(f"\n{push_body}\n")
 
     if args.dry_run:
         print("[perf] dry-run，不写入文件")
         return
 
+    # Dedup: remove existing record for today if --force, else skip
+    existing: list[dict] = []
+    if PERF_PATH.exists():
+        existing = json.loads(PERF_PATH.read_text(encoding="utf-8"))
+    if any(r["date"] == today for r in existing):
+        if args.force:
+            existing = [r for r in existing if r["date"] != today]
+            print(f"[perf] --force：覆盖 {today} 已有记录")
+        else:
+            print(f"[perf] {today} 已记录，跳过（使用 --force 覆盖）")
+            return
+
     existing.append(record)
     PERF_PATH.write_text(
         json.dumps(existing, ensure_ascii=False, indent=2),
-        encoding="utf-8"
+        encoding="utf-8",
     )
     print(f"[perf] 已写入 {PERF_PATH.name}（共 {len(existing)} 条记录）")
+
+    # WeChat push
+    try:
+        import sys
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from common import send_wechat, configure_pushplus
+        cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
+        sendkey = cfg.get("serverchan", {}).get("sendkey", "")
+        configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+
+        # Build short title
+        parts = []
+        for label, _ in scans:
+            b  = record.get(label, {})
+            wr = b.get("total_win_rate", "-")
+            ar = b.get("total_avg_ret")
+            ar_s = f"{ar:+.2f}%" if ar is not None else "-"
+            parts.append(f"{label}胜率{wr}% 均{ar_s}")
+        title = f"筹码胜率 {date_fmt} | {' / '.join(parts)}"
+        send_wechat(title, push_body, sendkey)
+        print("[perf] 微信推送成功")
+    except Exception as e:
+        print(f"[perf] 微信推送失败: {e}")
 
 
 if __name__ == "__main__":

@@ -1,56 +1,14 @@
 {
-  "timestamp": "2026-04-15T15:35:27.532346",
+  "timestamp": "2026-04-17T18:46:11.020060",
   "source": "monitor",
   "results": [
     {
-      "code": "688063",
-      "name": "派能科技",
-      "score": 79.2,
-      "change_pct": -4.4,
-      "buy_score": 79.2,
-      "sell_score": 10.8,
-      "bullish": [
-        {
-          "factor": "growth",
-          "score": 24.5,
-          "signal": ""
-        },
-        {
-          "factor": "momentum",
-          "score": 23.2,
-          "signal": ""
-        },
-        {
-          "factor": "ma_alignment",
-          "score": 11.0,
-          "signal": ""
-        }
-      ],
-      "bearish": [
-        {
-          "factor": "atr_normalized",
-          "sell_score": 10.0,
-          "signal": "高ATR=0.053 — 盘中大幅震荡，操纵/炒作风险高"
-        },
-        {
-          "factor": "cash_flow_quality",
-          "sell_score": 10.0,
-          "signal": "weak cash backing: CF/NI=0%"
-        },
-        {
-          "factor": "max_return",
-          "sell_score": 10.0,
-          "signal": "extreme spike 8.5% — strong lottery effect, expect underperformance"
-        }
-      ]
-    },
-    {
-      "code": "688170",
-      "name": "德龙激光",
-      "score": 74.7,
-      "change_pct": 0.76,
-      "buy_score": 74.7,
-      "sell_score": 23.9,
+      "code": "603061",
+      "name": "金海通",
+      "score": 85.3,
+      "change_pct": -0.85,
+      "buy_score": 85.3,
+      "sell_score": 7.6,
       "bullish": [
         {
           "factor": "momentum",
@@ -59,7 +17,49 @@
         },
         {
           "factor": "growth",
-          "score": 22.4,
+          "score": 24.5,
+          "signal": ""
+        },
+        {
+          "factor": "ma_alignment",
+          "score": 15.0,
+          "signal": ""
+        }
+      ],
+      "bearish": [
+        {
+          "factor": "idiosyncratic_vol",
+          "sell_score": 10.0,
+          "signal": "高特质波动率=0.72 — 投机溢价，预期跑输"
+        },
+        {
+          "factor": "atr_normalized",
+          "sell_score": 10.0,
+          "signal": "高ATR=0.066 — 盘中大幅震荡，操纵/炒作风险高"
+        },
+        {
+          "factor": "ma60_deviation",
+          "sell_score": 10.0,
+          "signal": "大幅高于MA60 +30.2% — 均值回归风险高"
+        }
+      ]
+    },
+    {
+      "code": "605117",
+      "name": "德业股份",
+      "score": 84.8,
+      "change_pct": 2.86,
+      "buy_score": 84.8,
+      "sell_score": 11.1,
+      "bullish": [
+        {
+          "factor": "momentum",
+          "score": 25.0,
+          "signal": ""
+        },
+        {
+          "factor": "growth",
+          "score": 21.6,
           "signal": ""
         },
         {
@@ -77,22 +77,22 @@
         {
           "factor": "atr_normalized",
           "sell_score": 10.0,
-          "signal": "高ATR=0.055 — 盘中大幅震荡，操纵/炒作风险高"
+          "signal": "高ATR=0.059 — 盘中大幅震荡，操纵/炒作风险高"
         },
         {
-          "factor": "cash_flow_quality",
+          "factor": "ma60_deviation",
           "sell_score": 10.0,
-          "signal": "negative cash ratio (earnings not backed by cash): CF/NI=-0%"
+          "signal": "大幅高于MA60 +27.5% — 均值回归风险高"
         }
       ]
     },
     {
-      "code": "000534",
-      "name": "万泽股份",
-      "score": 74.2,
-      "change_pct": -6.52,
-      "buy_score": 74.2,
-      "sell_score": 19.7,
+      "code": "000815",
+      "name": "美利云",
+      "score": 84.7,
+      "change_pct": -2.75,
+      "buy_score": 84.7,
+      "sell_score": 8.2,
       "bullish": [
         {
           "factor": "momentum",
@@ -114,101 +114,101 @@
         {
           "factor": "idiosyncratic_vol",
           "sell_score": 10.0,
-          "signal": "高特质波动率=0.76 — 投机溢价，预期跑输"
-        },
-        {
-          "factor": "atr_normalized",
-          "sell_score": 10.0,
-          "signal": "高ATR=0.068 — 盘中大幅震荡，操纵/炒作风险高"
-        },
-        {
-          "factor": "ma60_deviation",
-          "sell_score": 10.0,
-          "signal": "大幅高于MA60 +26.3% — 均值回归风险高"
-        }
-      ]
-    },
-    {
-      "code": "300804",
-      "name": "广康生化",
-      "score": 73.5,
-      "change_pct": -1.43,
-      "buy_score": 73.5,
-      "sell_score": 9.3,
-      "bullish": [
-        {
-          "factor": "growth",
-          "score": 25.0,
-          "signal": ""
-        },
-        {
-          "factor": "momentum",
-          "score": 25.0,
-          "signal": ""
-        },
-        {
-          "factor": "ma_alignment",
-          "score": 11.0,
-          "signal": ""
-        }
-      ],
-      "bearish": [
-        {
-          "factor": "idiosyncratic_vol",
-          "sell_score": 10.0,
-          "signal": "高特质波动率=0.71 — 投机溢价，预期跑输"
-        },
-        {
-          "factor": "atr_normalized",
-          "sell_score": 10.0,
-          "signal": "高ATR=0.078 — 盘中大幅震荡，操纵/炒作风险高"
-        },
-        {
-          "factor": "max_return",
-          "sell_score": 10.0,
-          "signal": "extreme spike 10.6% — strong lottery effect, expect underperformance"
-        }
-      ]
-    },
-    {
-      "code": "000533",
-      "name": "顺钠股份",
-      "score": 73.4,
-      "change_pct": 6.57,
-      "buy_score": 73.4,
-      "sell_score": 14.0,
-      "bullish": [
-        {
-          "factor": "momentum",
-          "score": 25.0,
-          "signal": ""
-        },
-        {
-          "factor": "growth",
-          "score": 19.0,
-          "signal": ""
-        },
-        {
-          "factor": "ma_alignment",
-          "score": 11.0,
-          "signal": ""
-        }
-      ],
-      "bearish": [
-        {
-          "factor": "idiosyncratic_vol",
-          "sell_score": 10.0,
           "signal": "高特质波动率=0.83 — 投机溢价，预期跑输"
         },
         {
           "factor": "atr_normalized",
           "sell_score": 10.0,
-          "signal": "高ATR=0.055 — 盘中大幅震荡，操纵/炒作风险高"
+          "signal": "高ATR=0.069 — 盘中大幅震荡，操纵/炒作风险高"
+        },
+        {
+          "factor": "ma60_deviation",
+          "sell_score": 10.0,
+          "signal": "大幅高于MA60 +31.2% — 均值回归风险高"
+        }
+      ]
+    },
+    {
+      "code": "000657",
+      "name": "中钨高新",
+      "score": 84.0,
+      "change_pct": 8.13,
+      "buy_score": 84.0,
+      "sell_score": 13.9,
+      "bullish": [
+        {
+          "factor": "momentum",
+          "score": 25.0,
+          "signal": ""
+        },
+        {
+          "factor": "ma_alignment",
+          "score": 11.0,
+          "signal": ""
+        },
+        {
+          "factor": "volume",
+          "score": 10.0,
+          "signal": ""
+        }
+      ],
+      "bearish": [
+        {
+          "factor": "idiosyncratic_vol",
+          "sell_score": 10.0,
+          "signal": "高特质波动率=0.73 — 投机溢价，预期跑输"
+        },
+        {
+          "factor": "atr_normalized",
+          "sell_score": 10.0,
+          "signal": "高ATR=0.052 — 盘中大幅震荡，操纵/炒作风险高"
         },
         {
           "factor": "cash_flow_quality",
           "sell_score": 10.0,
-          "signal": "weak cash backing: CF/NI=0%"
+          "signal": "negative cash ratio (earnings not backed by cash): CF/NI=-2%"
+        }
+      ]
+    },
+    {
+      "code": "002636",
+      "name": "金安国纪",
+      "score": 83.8,
+      "change_pct": 0.41,
+      "buy_score": 83.8,
+      "sell_score": 12.8,
+      "bullish": [
+        {
+          "factor": "momentum",
+          "score": 25.0,
+          "signal": ""
+        },
+        {
+          "factor": "ma_alignment",
+          "score": 15.0,
+          "signal": ""
+        },
+        {
+          "factor": "northbound",
+          "score": 10.0,
+          "signal": ""
+        }
+      ],
+      "bearish": [
+        {
+          "factor": "idiosyncratic_vol",
+          "sell_score": 10.0,
+          "signal": "高特质波动率=0.73 — 投机溢价，预期跑输"
+        },
+        {
+          "factor": "atr_normalized",
+          "sell_score": 10.0,
+          "signal": "高ATR=0.067 — 盘中大幅震荡，操纵/炒作风险高"
+        },
+        {
+          "factor": "ma60_deviation",
+          "sell_score": 10.0,
+          "signal": "大幅高于MA60 +37.0% — 均值回归风险高"
         }
       ]
     }

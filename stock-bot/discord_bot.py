@@ -238,14 +238,15 @@ _SC_LIST = """**快捷命令 sc N**
 `sc7` 扫盘推送 📱  |  `sc8` monitor日志"""
 
 _CHIP_LIST = """**筹码命令**
-`cad`  数据驱动全档（T4→T1→T2→T3→T5，默认bekhm）⭐
+`cad`  数据驱动全档（T4→T1→T2→T3→T5，bekh）⭐
+`cadm` 同上 + MACD绿柱（bekhm）⭐
 `ca`  全档T1-T5  |  `cah` 全档排高位  |  `cabekh` 全档+全修饰
 
 `c1` T1≥95%  `c2` T2 90-95%  `c3` T3 85-90%  `c4` T4 75-85%  `c5` T5 65-75%
 
 **修饰符**（可叠加）
 `b` BOLL  `e` ≤50元  `k` 排科创  `h` 排高位  `m` MACD绿柱  `z` MACD近零
-示例：`c1bmz`  `c2mz`  `c4kh`  `cad`  `cad ek`"""
+示例：`c1bmz`  `c2mz`  `c4kh`  `cad`  `cadm`"""
 
 # Chip tier config: (min_win, max_win_or_None)
 _CHIP_TIERS = {
@@ -1208,7 +1209,10 @@ def _dispatch_inner(t: str) -> str | None:
     elif t == "ch":
         return _CHIP_LIST
     elif t == "cad" or t.startswith("cad"):
-        mods = t[3:].strip().replace(" ", "") or "bekhm"
+        if t.startswith("cadm"):
+            mods = t[4:].strip().replace(" ", "") or "bekhm"
+        else:
+            mods = t[3:].strip().replace(" ", "") or "bekh"
         return _h_chip_data_driven(mods)
     elif t == "ca" or t.startswith("ca"):
         mods = t[2:]  # e.g. "caeh" → mods="eh"

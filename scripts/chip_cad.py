@@ -35,7 +35,7 @@ TIER_ORDER = [
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mods",     default="bekhm", help="修饰符: b=BOLL e=≤50 k=排科创 h=排高位 m=MACD绿柱 z=MACD近零")
+    parser.add_argument("--mods",     default="bekh", help="修饰符: b=BOLL e=≤50 k=排科创 h=排高位 m=MACD绿柱 z=MACD近零")
     parser.add_argument("--dry-run",  action="store_true")
     args = parser.parse_args()
 
@@ -81,6 +81,7 @@ def main() -> None:
 
     sections: list[str] = [f"## 筹码数据驱动 {date_fmt}  ({mod_label})"]
     total = 0
+    saves: dict[str, list[dict]] = {}
 
     for tier_name, min_win, max_win in TIER_ORDER:
         win_range = f"{min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{min_win:.0f}%"
@@ -107,8 +108,10 @@ def main() -> None:
         total += n
         print(f"[cad] {tier_name} ({win_range}): {n} 只", flush=True)
 
+        picks_list: list[dict] = []
         header = f"\n### {tier_name}（获利盘 {win_range}）— {n} 只"
         if n == 0:
+            saves[tier_name] = []
             sections.append(header + "\n无符合条件股票")
             continue
 
@@ -126,8 +129,19 @@ def main() -> None:
             pct_s   = f"{pct_chg:+.2f}%" if not math.isnan(pct_chg) else "-"
             win_s   = f"{win:.1f}%" if not math.isnan(win) else "-"
             rows.append(f"| {code} | {name} | {ind} | {close_s} | {pct_s} | {win_s} |")
+            picks_list.append({"code": str(code), "name": name})
 
+        saves[tier_name] = picks_list
         sections.append(header + "\n" + "\n".join(rows))
+
+    # Save filtered picks for chip_perf_log.py
+    save_fname = "chip_cadm_latest.json" if "m" in mods else "chip_cad_latest.json"
+    save_path  = ROOT / "data" / save_fname
+    save_path.write_text(
+        json.dumps({"date": trade_date, "mods": mods, "tiers": saves}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"[cad] 已保存 {save_path.name}（共{total}只）")
 
     body  = "\n".join(sections) + f"\n\n> 共 **{total}** 只  |  ⚠️ 仅供参考"
     title = f"筹码数据驱动 {date_fmt} | 共{total}只"
