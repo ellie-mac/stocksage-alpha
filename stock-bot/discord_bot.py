@@ -238,13 +238,14 @@ _SC_LIST = """**快捷命令 sc N**
 `sc 7` 扫盘推送 📱  |  `sc 8` monitor日志"""
 
 _CHIP_LIST = """**筹码命令**
+`cad`  数据驱动全档（T4→T5→T3→T2→T1，默认bekhm）⭐
 `ca` / `c all`  全档T1-T5  |  `cah` 全档排高位  |  `cabekh` 全档+全修饰
 
 `c 1` T1≥95%  `c 2` T2 90-95%  `c 3` T3 85-90%  `c 4` T4 75-85%  `c 5` T5 65-75%
 
 **修饰符**（可叠加）
 `b` BOLL  `e` ≤50元  `k` 排科创  `h` 排高位  `m` MACD绿柱  `z` MACD近零
-示例：`c 1bmz`  `c 2mz`  `c 4kh`  `c all bh`"""
+示例：`c 1bmz`  `c 2mz`  `c 4kh`  `cad`  `cad ek`"""
 
 # Chip tier config: (min_win, max_win_or_None)
 _CHIP_TIERS = {
@@ -346,6 +347,21 @@ def _h_chip(arg: str) -> str:
         return f"档位 {tier_str} 不存在，有效范围 1-5\n\n{_CHIP_LIST}"
 
     return _launch_chip(tier_str, mods)
+
+
+def _h_chip_data_driven(mods: str = "bekhm") -> str:
+    """cad: launch all tiers in backtest-optimal order T4→T5→T3→T2→T1."""
+    order = ["4", "5", "3", "2", "1"]
+    for tier in order:
+        _launch_chip(tier, mods)
+    mod_label = " ".join(filter(None, [
+        "BOLL" if "b" in mods else "",
+        "≤50元" if "e" in mods else "",
+        "排科创" if "k" in mods else "",
+        "排高位" if "h" in mods else "",
+        "MACD绿柱" if "m" in mods else "",
+    ]))
+    return f"筹码数据驱动扫描（T4→T5→T3→T2→T1 {mod_label}）已启动 ✅\n各档结果依次推送到微信 📱"
 
 
 def _h_shortcut(num: str) -> str:
@@ -1189,6 +1205,9 @@ def _dispatch_inner(t: str) -> str | None:
         return _SC_LIST
     elif t == "ch":
         return _CHIP_LIST
+    elif t == "cad" or t.startswith("cad"):
+        mods = t[3:].strip().replace(" ", "") or "bekhm"
+        return _h_chip_data_driven(mods)
     elif t == "ca" or t.startswith("ca"):
         mods = t[2:]  # e.g. "caeh" → mods="eh"
         return _h_chip("all " + mods if mods else "all")
