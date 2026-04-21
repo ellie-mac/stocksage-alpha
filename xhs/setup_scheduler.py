@@ -29,12 +29,14 @@ OLD_TASKS = [
 # 新筹码三段式任务
 CHIP_WRITER   = REPO_ROOT / "xhs" / "chip_writer.py"
 DAILY_SCAN    = REPO_ROOT / "scripts" / "daily_chip_scan.py"
+PERF_LOG      = REPO_ROOT / "scripts" / "chip_perf_log.py"
 TASKS = [
     ("StockSage_ChipNight",     "23:00", "night"),   # 夜间预取，缓存当日筹码数据
     ("StockSage_ChipPremarket", "09:00", None),      # 盘前确认缓存（兜底）
     ("StockSage_ChipMorning",   "09:25", "morning"),
     ("StockSage_ChipMidday",    "11:35", "midday"),
     ("StockSage_ChipEvening",   "15:10", "evening"),
+    ("StockSage_ChipPerfLog",   "17:15", "perf_log"),
 ]
 
 
@@ -60,6 +62,16 @@ def create_bat(slot: str | None) -> Path:
             f'cd /d "{REPO_ROOT}"\n'
             f'mkdir "{REPO_ROOT}\\scripts\\logs" 2>nul\n'
             f'"{PYTHON}" -X utf8 "{DAILY_SCAN}" --ak --no-push >> "{log}" 2>&1\n',
+            encoding="utf-8",
+        )
+    elif slot == "perf_log":
+        bat = XHS_DIR / "run_chip_perf_log.bat"
+        log = REPO_ROOT / "scripts" / "logs" / "chip_perf_log.log"
+        bat.write_text(
+            f'@echo off\n'
+            f'cd /d "{REPO_ROOT}"\n'
+            f'mkdir "{REPO_ROOT}\\scripts\\logs" 2>nul\n'
+            f'"{PYTHON}" -X utf8 "{PERF_LOG}" >> "{log}" 2>&1\n',
             encoding="utf-8",
         )
     else:
