@@ -26,7 +26,7 @@ SOURCES = [
     ("cadm", "chip_cadm_????????.json", True),
 ]
 
-TIER_ORDER = ["T4", "T1", "T2", "T3", "T5"]
+TIER_ORDER = ["T1", "T2", "T3", "T4", "T5"]
 
 
 def _fetch_prices(codes: list[str], retries: int = 3) -> dict[str, float]:
