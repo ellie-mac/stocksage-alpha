@@ -29,27 +29,25 @@ SOURCES = [
 TIER_ORDER = ["T1", "T2", "T3", "T4", "T5"]
 
 
-def _fetch_prices(codes: list[str], retries: int = 3) -> dict[str, float]:
-    import akshare as ak
-    for attempt in range(1, retries + 1):
+def _fetch_prices(codes: list[str]) -> dict[str, float]:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    from common import get_spot_em
+    df = get_spot_em()
+    if df.empty:
+        return {}
+    df = df[df["代码"].isin(codes)].copy()
+    result: dict[str, float] = {}
+    for _, row in df.iterrows():
+        code = str(row["代码"]).zfill(6)
         try:
-            df = ak.stock_zh_a_spot_em()
-            df = df[df["代码"].isin(codes)].copy()
-            result: dict[str, float] = {}
-            for _, row in df.iterrows():
-                code = str(row["代码"]).zfill(6)
-                try:
-                    pct = float(row["涨跌幅"])
-                    if not math.isnan(pct):
-                        result[code] = pct
-                except Exception:
-                    pass
-            return result
-        except Exception as e:
-            print(f"[perf] 行情获取失败（第{attempt}次）: {e}")
-            if attempt < retries:
-                time.sleep(5)
-    return {}
+            pct = float(row["涨跌幅"])
+            if not math.isnan(pct):
+                result[code] = pct
+        except Exception:
+            pass
+    return result
 
 
 def _tier_stats(picks: list[dict], prices: dict[str, float]) -> dict:

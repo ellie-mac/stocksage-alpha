@@ -55,12 +55,15 @@ def main() -> None:
     configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
 
     pro          = _get_pro()
-    trade_date   = _latest_trade_date()
-    df_all       = fetch_chip_data(trade_date, pro)
+    query_date   = _latest_trade_date()
+    df_all       = fetch_chip_data(query_date, pro)
 
     if df_all.empty:
         print("[cad] 无数据，退出")
         return
+
+    # Use actual data date (price history may lag behind query date)
+    trade_date = str(df_all["trade_date"].iloc[0]) if "trade_date" in df_all.columns else query_date
 
     names = load_names()
     if names:

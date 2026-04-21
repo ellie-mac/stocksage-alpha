@@ -113,29 +113,34 @@ def configure_pushplus(token: str) -> None:
     _pushplus_token = token.strip() if token else ""
 
 
-def _send_pushplus(title: str, desp: str, token: str) -> None:
-    import urllib.request, json as _json
-    try:
-        payload = _json.dumps({
-            "token":    token,
-            "title":    title[:100],
-            "content":  desp,
-            "template": "markdown",
-        }).encode("utf-8")
-        req = urllib.request.Request(
-            "https://www.pushplus.plus/send",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            resp = _json.loads(r.read().decode("utf-8"))
-        if resp.get("code") == 200:
-            print(f"[OK] 微信推送成功: {title}")
-        else:
-            print(f"[WARN] PushPlus: code={resp.get('code')} msg={resp.get('msg')}")
-    except Exception as e:
-        print(f"[WARN] PushPlus 推送失败: {e}")
+def _send_pushplus(title: str, desp: str, token: str, retries: int = 3) -> None:
+    import urllib.request, json as _json, time as _time
+    payload = _json.dumps({
+        "token":    token,
+        "title":    title[:100],
+        "content":  desp,
+        "template": "markdown",
+    }).encode("utf-8")
+    for attempt in range(1, retries + 1):
+        try:
+            req = urllib.request.Request(
+                "https://www.pushplus.plus/send",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                resp = _json.loads(r.read().decode("utf-8"))
+            if resp.get("code") == 200:
+                print(f"[OK] 微信推送成功: {title}")
+                return
+            print(f"[WARN] PushPlus: code={resp.get('code')} msg={resp.get('msg')}（第{attempt}次）")
+            if attempt < retries:
+                _time.sleep(3)
+        except Exception as e:
+            print(f"[WARN] PushPlus 推送失败（第{attempt}次）: {e}")
+            if attempt < retries:
+                _time.sleep(3)
 
 
 def send_wechat(title: str, desp: str, sendkey: str, dry_run: bool = False) -> None:
@@ -154,6 +159,42 @@ def send_wechat(title: str, desp: str, sendkey: str, dry_run: bool = False) -> N
             print(f"[WARN] 微信推送: code={resp.get('code')} msg={resp.get('message')}")
     else:
         print(f"[WARN] 未配置推送渠道（pushplus.token / serverchan.sendkey），跳过: {title}")
+
+
+# ── Spot market (cached) ──────────────────────────────────────────────────────
+
+def get_spot_em(retries: int = 3):
+    """
+    Fetch full A-share spot market data (stock_zh_a_spot_em) with caching.
+
+    TTL: 90s during trading hours, 4h after close (prices are final).
+    Multiple scripts can share one API call per session.
+    Returns a pandas DataFrame with all columns from stock_zh_a_spot_em,
+    or an empty DataFrame on failure.
+    """
+    import pandas as pd
+    now = datetime.now()
+    hm  = now.hour * 60 + now.minute
+    in_trading = (
+        (9 * 60 + 25 <= hm <= 11 * 60 + 35) or
+        (12 * 60 + 55 <= hm <= 15 * 60 + 5)
+    )
+    ttl = 90 if in_trading else 4 * 3600   # 90s live; 4h after close
+
+    cached = _cache.get_df("spot_em", ttl)
+    if cached is not None:
+        return cached
+    import akshare as ak
+    for attempt in range(1, retries + 1):
+        try:
+            df = ak.stock_zh_a_spot_em()
+            _cache.set("spot_em", df)
+            return df
+        except Exception as e:
+            print(f"[spot_em] 获取失败（第{attempt}次）: {e}")
+            if attempt < retries:
+                time.sleep(3)
+    return pd.DataFrame()
 
 
 # ── ETF / T+0 identification ───────────────────────────────────────────────────

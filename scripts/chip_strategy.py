@@ -402,9 +402,17 @@ def fetch_chip_data_ak(trade_date: str) -> pd.DataFrame:
         if close <= 0:
             continue
         wr, c95 = _calc_chip_stats(hist, close)
+        # Use actual last date from price history, not the query date
+        last_date = last.get("date")
+        if hasattr(last_date, "strftime"):
+            actual_date = last_date.strftime("%Y%m%d")
+        elif last_date:
+            actual_date = str(last_date).replace("-", "")[:8]
+        else:
+            actual_date = trade_date
         records.append({
             "ts_code":     ts_code,
-            "trade_date":  trade_date,
+            "trade_date":  actual_date,
             "winner_rate": wr,
             "cost_95pct":  c95,
             "cost_85pct":  float("nan"),

@@ -67,9 +67,9 @@ TASKS = [
     ("xhs_Evening",     "15:10", "chip_evening",   "小红书收盘筹码分析推送 📱",                      True),
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
     ("chip_PerfLog",    "17:15", "perf_log",       "读昨日cad/cadm票，测今日胜率 📱",                True),
-    ("chip_CadScan",    "17:30", "cad_scan",       "筹码全档扫描 bekh，保存当日票 📱",               True),
-    ("chip_CadmScan",   "17:30", "cadm_scan",      "筹码全档扫描 bekhm，保存当日票 📱",              True),
-    ("main_Scan",       "17:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json",             False),
+    ("chip_CadScan",    "18:30", "cad_scan",       "筹码全档扫描 bekh，保存当日票 📱",               True),
+    ("chip_CadmScan",   "18:30", "cadm_scan",      "筹码全档扫描 bekhm，保存当日票 📱",              True),
+    ("main_Scan",       "18:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json",             False),
 ]
 
 

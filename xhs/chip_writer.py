@@ -65,32 +65,26 @@ def _load_scan() -> dict:
     return json.loads(SCAN_PATH.read_text(encoding="utf-8"))
 
 
-def _fetch_prices(codes: list[str], retries: int = 3, delay: float = 5.0) -> dict[str, dict]:
-    """通过 akshare 拉取实时行情，返回 {code: {price, change_pct}}。失败自动重试。"""
+def _fetch_prices(codes: list[str]) -> dict[str, dict]:
+    """通过共享缓存拉取实时行情，返回 {code: {price, change_pct}}。"""
     if not codes:
         return {}
-    import time as _time
-    import akshare as ak
-    for attempt in range(1, retries + 1):
+    from common import get_spot_em
+    df = get_spot_em()
+    if df.empty:
+        return {}
+    df = df[df["代码"].isin(codes)].copy()
+    result: dict[str, dict] = {}
+    for _, row in df.iterrows():
+        code = str(row["代码"]).zfill(6)
         try:
-            df = ak.stock_zh_a_spot_em()
-            df = df[df["代码"].isin(codes)].copy()
-            result: dict[str, dict] = {}
-            for _, row in df.iterrows():
-                code = str(row["代码"]).zfill(6)
-                try:
-                    result[code] = {
-                        "price":      float(row["最新价"]),
-                        "change_pct": float(row["涨跌幅"]),
-                    }
-                except Exception:
-                    pass
-            return result
-        except Exception as e:
-            print(f"[prices] 获取失败（第{attempt}次）: {e}")
-            if attempt < retries:
-                _time.sleep(delay)
-    return {}
+            result[code] = {
+                "price":      float(row["最新价"]),
+                "change_pct": float(row["涨跌幅"]),
+            }
+        except Exception:
+            pass
+    return result
 
 
 def _calc_stats(picks: list[dict], prices: dict[str, dict]) -> dict:
