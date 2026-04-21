@@ -102,7 +102,7 @@ _HELP = """**筹码策略**
 
 _FACTOR_HELP = """**因子 & 分析**
 `ic` 因子IC摘要  |  `ich` 因子列表
-`icf 因子名` 因子说明  |  `fx 600519` 单股分析
+`icf 因子名` 因子说明  |  `fx600519` 单股分析
 
 **回测**
 `bs` 进度  |  `br` 结果摘要
@@ -232,16 +232,16 @@ def _h_test_now() -> str:
 _SH_LIST = ""  # retired — z/q/p now in main help
 
 _SC_LIST = """**快捷命令 sc N**
-`sc 1` 启动 monitor  |  `sc 2` 重启 monitor
-`sc 3` 终止回测  |  `sc 4` 因子IC回测
-`sc 5` 预热财务缓存  |  `sc 6` 重建股票池
-`sc 7` 扫盘推送 📱  |  `sc 8` monitor日志"""
+`sc1` 启动 monitor  |  `sc2` 重启 monitor
+`sc3` 终止回测  |  `sc4` 因子IC回测
+`sc5` 预热财务缓存  |  `sc6` 重建股票池
+`sc7` 扫盘推送 📱  |  `sc8` monitor日志"""
 
 _CHIP_LIST = """**筹码命令**
 `cad`  数据驱动全档（T4→T1→T2→T3→T5，默认bekhm）⭐
 `ca`  全档T1-T5  |  `cah` 全档排高位  |  `cabekh` 全档+全修饰
 
-`c 1` T1≥95%  `c 2` T2 90-95%  `c 3` T3 85-90%  `c 4` T4 75-85%  `c 5` T5 65-75%
+`c1` T1≥95%  `c2` T2 90-95%  `c3` T3 85-90%  `c4` T4 75-85%  `c5` T5 65-75%
 
 **修饰符**（可叠加）
 `b` BOLL  `e` ≤50元  `k` 排科创  `h` 排高位  `m` MACD绿柱  `z` MACD近零
@@ -476,7 +476,7 @@ def _h_shortcut(num: str) -> str:
 def _h_research(code: str) -> str:
     """Run research.py for a single stock and return trimmed output."""
     if not code:
-        return "用法: `fx 600519` 或 `研究 600519`"
+        return "用法: `fx600519` 或 `研究 600519`"
     try:
         r = subprocess.run(
             [sys.executable, "-X", "utf8", str(SCRIPTS / "research.py"), code, "--text"],
@@ -1190,11 +1190,14 @@ def _dispatch_inner(t: str) -> str | None:
     #     return _h_test_now()
     elif t in ("今日推荐", "推荐", "picks", "p"):
         return _h_picks()
-    elif t.startswith("fx ") or t.startswith("研究 ") or t.startswith("分析 "):
+    elif t.startswith("fx") and len(t) > 2 and (t[2:3].isdigit() or t[2:3] == " "):
+        code = t[2:].strip()
+        return _h_research(code)
+    elif t.startswith("研究 ") or t.startswith("分析 "):
         code = t.split(None, 1)[1].strip()
         return _h_research(code)
     elif t in ("fx", "研究", "分析"):
-        return "用法: `fx 600519` 或 `研究 贵州茅台`"
+        return "用法: `fx600519` 或 `研究 贵州茅台`"
     elif t == "sc" or (t.startswith("sc ") and t[3:4] != ""):
         num = t[2:].strip()
         return _h_shortcut(num)
