@@ -25,6 +25,7 @@ DAILY_SCAN    = SCRIPTS   / "daily_chip_scan.py"
 PERF_LOG      = SCRIPTS   / "chip_perf_log.py"
 MONITOR       = SCRIPTS   / "monitor.py"
 BATCH_FIN     = SCRIPTS   / "tools" / "batch_financials.py"
+CHIP_CAD      = SCRIPTS   / "chip_cad.py"
 
 # ── Old tasks (remove only) ───────────────────────────────────────────────────
 OLD_TASKS = [
@@ -46,7 +47,8 @@ TASKS = [
     ("StockSage_ChipMidday",    "11:35", "chip_midday",    "午间筹码分析推送 📱",               True),
     ("StockSage_ChipEvening",   "15:10", "chip_evening",   "收盘筹码分析推送 📱",               True),
     # ── EOD analytics ───────────────────────────────────────────────────────
-    ("StockSage_ChipPerfLog",   "17:15", "perf_log",       "cad/cadm 每日胜率统计推送 📱",      True),
+    ("StockSage_ChipPerfLog",   "17:15", "perf_log",       "读昨日cad/cadm票，测今日胜率 📱",   True),
+    ("StockSage_CadScan",       "17:30", "cad_scan",       "筹码数据驱动全档扫描，保存当日票 📱", True),
     ("StockSage_MainMorning",   "07:10", "monitor_scan",   "主策略盘前兜底（17:30未跑时补救），不推送", False),
     ("StockSage_MonitorScan",   "17:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json", False),
 ]
@@ -56,7 +58,10 @@ def _bat(slot: str) -> tuple[Path, str]:
     """Return (bat_path, bat_content) for a given slot key."""
     log = LOGS_DIR
 
-    if slot == "main_night":
+    if slot == "cad_scan":
+        path = XHS_DIR / "run_cad_scan.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{CHIP_CAD}" >> "{log}\\chip_cad.log" 2>&1'
+    elif slot == "main_night":
         path = XHS_DIR / "run_main_night.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{BATCH_FIN}" >> "{log}\\batch_financials.log" 2>&1'
     elif slot == "chip_night":

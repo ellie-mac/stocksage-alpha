@@ -19,8 +19,8 @@ from pathlib import Path
 ROOT      = Path(__file__).resolve().parent.parent
 PERF_PATH = ROOT / "data" / "chip_daily_perf.json"
 
-CAD_PATH  = ROOT / "data" / "chip_cad_latest.json"    # cad  (bekh)
-CADM_PATH = ROOT / "data" / "chip_cadm_latest.json"   # cadm (bekhm)
+CAD_GLOB  = "chip_cad_????????.json"    # cad  (bekh)  dated files
+CADM_GLOB = "chip_cadm_????????.json"  # cadm (bekhm) dated files
 
 TIER_ORDER = ["T4", "T1", "T2", "T3", "T5"]   # display order matches cad
 
@@ -119,19 +119,29 @@ def main() -> None:
 
     today = now.strftime("%Y%m%d")
 
-    # Load available scan files
+    def _find_prev(glob_pat: str) -> dict | None:
+        """Return the most recent dated file with date strictly before today."""
+        candidates = sorted(
+            (p for p in (ROOT / "data").glob(glob_pat) if p.stem[-8:] < today),
+            key=lambda p: p.stem[-8:], reverse=True,
+        )
+        if not candidates:
+            return None
+        try:
+            return json.loads(candidates[0].read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"[perf] 读取 {candidates[0].name} 失败: {e}")
+            return None
+
+    # Load available scan files (previous trading day's picks)
     scans: list[tuple[str, dict]] = []
-    for label, path in [("cad", CAD_PATH), ("cadm", CADM_PATH)]:
-        if path.exists():
-            try:
-                s = json.loads(path.read_text(encoding="utf-8"))
-                if s.get("date") == today:
-                    scans.append((label, s))
-                    print(f"[perf] 读取 {label}: {path.name}  日期={s['date']}  mods={s.get('mods','?')}")
-                else:
-                    print(f"[perf] {label} 文件日期 {s.get('date')} ≠ 今日 {today}，跳过")
-            except Exception as e:
-                print(f"[perf] 读取 {label} 失败: {e}")
+    for label, glob_pat in [("cad", CAD_GLOB), ("cadm", CADM_GLOB)]:
+        s = _find_prev(glob_pat)
+        if s:
+            scans.append((label, s))
+            print(f"[perf] 读取 {label}: 日期={s.get('date')}  mods={s.get('mods','?')}")
+        else:
+            print(f"[perf] {label}: 无前日文件，跳过")
 
     if not scans:
         print("[perf] 今日 cad/cadm 均未运行，无数据可记录")

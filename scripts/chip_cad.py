@@ -134,14 +134,14 @@ def main() -> None:
         saves[tier_name] = picks_list
         sections.append(header + "\n" + "\n".join(rows))
 
-    # Save filtered picks for chip_perf_log.py
-    save_fname = "chip_cadm_latest.json" if "m" in mods else "chip_cad_latest.json"
-    save_path  = ROOT / "data" / save_fname
-    save_path.write_text(
-        json.dumps({"date": trade_date, "mods": mods, "tiers": saves}, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    print(f"[cad] 已保存 {save_path.name}（共{total}只）")
+    # Save filtered picks for chip_perf_log.py (next-day evaluation)
+    prefix    = "chip_cadm" if "m" in mods else "chip_cad"
+    payload   = json.dumps({"date": trade_date, "mods": mods, "tiers": saves}, ensure_ascii=False, indent=2)
+    dated     = ROOT / "data" / f"{prefix}_{trade_date}.json"
+    latest    = ROOT / "data" / f"{prefix}_latest.json"
+    dated.write_text(payload, encoding="utf-8")
+    latest.write_text(payload, encoding="utf-8")
+    print(f"[cad] 已保存 {dated.name}（共{total}只）")
 
     body  = "\n".join(sections) + f"\n\n> 共 **{total}** 只  |  ⚠️ 仅供参考"
     title = f"筹码数据驱动 {date_fmt} | 共{total}只"
