@@ -84,7 +84,7 @@ def _fetch_chip_retry(date: str, pro, max_retries: int = 0) -> "pd.DataFrame":
             return fetch_chip_data(date, pro)
         except Exception as e:
             msg = str(e)
-            if "每小时" in msg or "每分钟" in msg or "最多访问" in msg:
+            if "每小时" in msg or "每分钟" in msg or "最多访问" in msg or "频率超限" in msg or "次/天" in msg or "次/小时" in msg:
                 if attempts >= max_retries:
                     print(f"  [rate-limit] {date} 限流，跳过", flush=True)
                     import pandas as pd

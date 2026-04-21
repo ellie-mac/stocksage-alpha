@@ -439,7 +439,7 @@ def fetch_chip_data(trade_date: str, pro) -> pd.DataFrame:
         )
     except Exception as e:
         msg = str(e)
-        if "每小时" in msg or "每天" in msg or "最多访问" in msg:
+        if "每小时" in msg or "每天" in msg or "最多访问" in msg or "频率超限" in msg or "次/天" in msg or "次/小时" in msg:
             now = datetime.now()
             reset_min = 60 - now.minute
             print(f"[fetch] Tushare 限流：{msg}")
