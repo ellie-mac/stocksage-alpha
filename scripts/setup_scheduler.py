@@ -43,26 +43,37 @@ OLD_TASKS = [
     "StockSage_CadScan",
     "StockSage_MainMorning",
     "StockSage_MonitorScan",
+    "xhs_MainNight",
+    "xhs_ChipNight",
+    "xhs_ChipPremarket",
+    "xhs_ChipMorning",
+    "xhs_ChipMidday",
+    "xhs_ChipEvening",
+    "xhs_ChipPerfLog",
+    "xhs_CadScan",
+    "xhs_MainMorning",
+    "xhs_MonitorScan",
 ]
 
 # ── Scheduled tasks ───────────────────────────────────────────────────────────
 TASKS = [
     # (name, time, slot, description, wechat_push)
     # ── 夜间准备 ────────────────────────────────────────────────────────────
-    ("xhs_MainNight",     "22:30", "main_night",     "预热财务缓存（batch_financials），不推送", False),
-    ("xhs_ChipNight",     "23:00", "chip_night",     "夜间预取筹码缓存，不推送",               False),
+    ("ss_MainNight",      "22:30", "main_night",     "预热财务缓存（batch_financials），不推送",       False),
+    ("ss_ChipNight",      "23:00", "chip_night",     "夜间预取筹码缓存，不推送",                      False),
     # ── 盘前 ────────────────────────────────────────────────────────────────
-    ("xhs_MainMorning",   "07:10", "monitor_scan",   "主策略盘前兜底（xhs_MonitorScan未跑时），不推送", False),
-    ("xhs_ChipPremarket", "07:00", "chip_premarket", "筹码盘前兜底（xhs_ChipNight未跑时），不推送",    False),
-    ("xhs_ChipMorning",   "09:25", "chip_morning",   "盘前筹码分析推送 📱",                    True),
+    ("ss_ChipPremarket",  "07:00", "chip_premarket", "筹码盘前兜底（ss_ChipNight未跑时），不推送",     False),
+    ("ss_MainMorning",    "07:10", "monitor_scan",   "主策略盘前兜底（ss_MonitorScan未跑时），不推送", False),
+    ("xhs_ChipMorning",   "09:25", "chip_morning",   "小红书盘前筹码分析推送 📱",                     True),
     # ── 盘中 ────────────────────────────────────────────────────────────────
-    ("xhs_ChipMidday",    "11:35", "chip_midday",    "午间筹码分析推送 📱",                    True),
+    ("xhs_ChipMidday",    "11:35", "chip_midday",    "小红书午间筹码分析推送 📱",                     True),
     # ── 收盘 ────────────────────────────────────────────────────────────────
-    ("xhs_ChipEvening",   "15:10", "chip_evening",   "收盘筹码分析推送 📱",                    True),
+    ("xhs_ChipEvening",   "15:10", "chip_evening",   "小红书收盘筹码分析推送 📱",                     True),
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
-    ("xhs_ChipPerfLog",   "17:15", "perf_log",       "读昨日cad/cadm票，测今日胜率 📱",        True),
-    ("xhs_CadScan",       "17:30", "cad_scan",       "筹码数据驱动全档扫描，保存当日票 📱",    True),
-    ("xhs_MonitorScan",   "17:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json",     False),
+    ("ss_ChipPerfLog",    "17:15", "perf_log",       "读昨日cad/cadm票，测今日胜率 📱",               True),
+    ("ss_CadScan",        "17:30", "cad_scan",       "筹码全档扫描 bekh，保存当日票 📱",              True),
+    ("ss_CadmScan",       "17:30", "cadm_scan",      "筹码全档扫描 bekhm，保存当日票 📱",             True),
+    ("ss_MonitorScan",    "17:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json",            False),
 ]
 
 
@@ -72,7 +83,10 @@ def _bat(slot: str) -> tuple[Path, str]:
 
     if slot == "cad_scan":
         path = XHS_DIR / "run_cad_scan.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{CHIP_CAD}" >> "{log}\\chip_cad.log" 2>&1'
+        cmd  = f'"{PYTHON}" -X utf8 "{CHIP_CAD}" --mods bekh >> "{log}\\chip_cad.log" 2>&1'
+    elif slot == "cadm_scan":
+        path = XHS_DIR / "run_cadm_scan.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{CHIP_CAD}" --mods bekhm >> "{log}\\chip_cadm.log" 2>&1'
     elif slot == "main_night":
         path = XHS_DIR / "run_main_night.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{BATCH_FIN}" >> "{log}\\batch_financials.log" 2>&1'
