@@ -55,6 +55,7 @@ from industry import build_industry_map
 from factor_config import (FACTOR_WEIGHTS,
                            REGIME_MA_SHORT, REGIME_MA_LONG,
                            REGIME_EXPOSURE, REGIME_WEIGHTS,
+                           REGIME_WEIGHTS_SMALLCAP,
                            REGIME_CAUTION_THRESHOLD, REGIME_CRISIS_THRESHOLD,
                            REGIME_BULL_THRESHOLD, REGIME_EXTREME_BULL_THRESHOLD)
 
@@ -135,7 +136,8 @@ def _composite_score(stock_scores: dict,
 
 
 def _detect_regime(regime_close: Optional[pd.Series],
-                   price_offset: int) -> tuple[str, float, dict]:
+                   price_offset: int,
+                   weights_table: Optional[dict] = None) -> tuple[str, float, dict]:
     """
     Detect market regime at the cross-section date.
 
@@ -151,9 +153,12 @@ def _detect_regime(regime_close: Optional[pd.Series],
       prior_ret > +3.5% -> BULL    ( 80% exposure, momentum weights)
       prior_ret > +6%   -> EXTREME_BULL (55% exposure, momentum weights)
 
+    weights_table: regime-name -> factor-weights dict.  Defaults to REGIME_WEIGHTS (main strategy).
     Returns (regime_name, exposure, factor_weights).
     """
-    default = ("NORMAL", REGIME_EXPOSURE["NORMAL"], REGIME_WEIGHTS["NORMAL"])
+    if weights_table is None:
+        weights_table = REGIME_WEIGHTS
+    default = ("NORMAL", REGIME_EXPOSURE["NORMAL"], weights_table["NORMAL"])
     if regime_close is None:
         return default
 
@@ -171,7 +176,7 @@ def _detect_regime(regime_close: Optional[pd.Series],
     ma60       = float(regime_close.iloc[ma60_start:ma60_end].mean())
     if end_px < ma60:
         # Structural downtrend: near-cash, use crisis weights for the small deployed portion
-        return "BEAR", REGIME_EXPOSURE["BEAR"], REGIME_WEIGHTS["BEAR"]
+        return "BEAR", REGIME_EXPOSURE["BEAR"], weights_table["BEAR"]
 
     # --- Layer 2: prior-20d return (tactical) ---
     start_px = float(regime_close.iloc[-(price_offset + lookback + 1)])
@@ -191,7 +196,7 @@ def _detect_regime(regime_close: Optional[pd.Series],
     else:
         r = "NORMAL"
 
-    return r, REGIME_EXPOSURE[r], REGIME_WEIGHTS[r]
+    return r, REGIME_EXPOSURE[r], weights_table[r]
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +214,7 @@ def run_backtest(
     max_workers: int = 8,
     use_regime: bool = True,    # apply market-regime exposure filter
     sector_neutral: bool = True, # demean scores within each sector before ranking
+    weights_table: Optional[dict] = None,  # regime->weights map; None = REGIME_WEIGHTS (main)
 ) -> dict:
     """
     Run a long-only quantile portfolio backtest.
@@ -216,10 +222,13 @@ def run_backtest(
     Returns a dict with per-period results, cumulative returns,
     and aggregate performance statistics.
     """
+    if weights_table is None:
+        weights_table = REGIME_WEIGHTS
     n_stocks = len(codes)
     top_n    = max(1, int(n_stocks * top_pct))
+    strategy_label = "smallcap" if weights_table is REGIME_WEIGHTS_SMALLCAP else "main"
 
-    print(f"Portfolio backtest: {n_stocks} stocks, {n_periods} periods × {step}d step")
+    print(f"Portfolio backtest [{strategy_label}]: {n_stocks} stocks, {n_periods} periods × {step}d step")
     print(f"Forward window: {forward_days}d | Top {top_pct*100:.0f}% ({top_n} stocks) | "
           f"Txn cost: {txn_cost_pct:.2f}% | Group: {group} | "
           f"Sector-neutral: {'ON' if sector_neutral else 'OFF'}\n")
@@ -259,9 +268,10 @@ def run_backtest(
 
             # Detect regime BEFORE scoring so we use the right factor weights
             if use_regime:
-                regime_name, exposure, regime_wts = _detect_regime(regime_close, price_offset)
+                regime_name, exposure, regime_wts = _detect_regime(regime_close, price_offset, weights_table)
             else:
-                regime_name, exposure, regime_wts = "NORMAL", 1.0, FACTOR_WEIGHTS
+                wt = (weights_table or REGIME_WEIGHTS)["NORMAL"]
+                regime_name, exposure, regime_wts = "NORMAL", 1.0, wt
 
             period_rows: list[dict] = []
             per_period_timeout = len(codes) * 60  # 60s budget per stock
@@ -394,6 +404,7 @@ def run_backtest(
             "group":         group,
             "use_regime":    use_regime,
             "sector_neutral": sector_neutral,
+            "strategy":      strategy_label,
         },
         "period_results":      period_results,
         "cumulative_portfolio": cum_port,
@@ -556,6 +567,7 @@ if __name__ == "__main__":
     parser.add_argument("--workers",           type=int,   default=4,    help="Thread pool size (default 4)")
     parser.add_argument("--no-regime",         action="store_true",      help="Disable market-regime exposure filter")
     parser.add_argument("--no-sector-neutral", action="store_true",      help="Disable sector neutralization (use raw composite scores)")
+    parser.add_argument("--smallcap",          action="store_true",      help="Use small-cap regime weights (REGIME_WEIGHTS_SMALLCAP)")
     args = parser.parse_args()
 
     if args.universe:
@@ -568,6 +580,8 @@ if __name__ == "__main__":
     else:
         codes = TEST_UNIVERSE[:args.n]
 
+    wt = REGIME_WEIGHTS_SMALLCAP if args.smallcap else REGIME_WEIGHTS
+
     result = run_backtest(
         codes          = codes,
         forward_days   = args.fwd,
@@ -579,6 +593,7 @@ if __name__ == "__main__":
         max_workers    = args.workers,
         use_regime     = not args.no_regime,
         sector_neutral = not args.no_sector_neutral,
+        weights_table  = wt,
     )
 
     _print_results(result)

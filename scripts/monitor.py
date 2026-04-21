@@ -2107,7 +2107,7 @@ def _trigger_xhs_post(slot: str, dry_run: bool = False) -> None:
         # Only pass --style for slots that accept it
         if slot in ("morning", "midday", "night", "evening"):
             cmd += ["--style", "auto"]
-        log_path = os.path.join(_ROOT, "logs", f"xhs_{slot}.log")
+        log_path = os.path.join(_ROOT, "scripts", "logs", f"xhs_{slot}.log")
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         with open(log_path, "a", encoding="utf-8") as _log:
             subprocess.Popen(cmd, stdout=_log, stderr=_log, cwd=_ROOT)
