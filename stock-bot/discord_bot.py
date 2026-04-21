@@ -107,7 +107,7 @@ _FACTOR_HELP = """**因子 & 分析**
 **回测**
 `bs` 进度  |  `br` 结果摘要
 `bt` 主板  |  `bts` 小盘  |  `bte` ETF
-数字=期数（`bt` 默认16，`bte` 默认12），`s`=小盘，如 `bts24`、`bt24s`、`bte6`"""
+数字=期数（`bt` 默认16，`bte` 默认12），`s`=小盘，如 `bts24`、`bte6`"""
 
 def _describe_cmdline(cmd: str) -> str:
     """Convert a Python process command line to a human-readable one-liner."""
