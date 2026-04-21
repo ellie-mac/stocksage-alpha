@@ -157,8 +157,8 @@ def load_names(force: bool = False) -> dict[str, dict]:
 _CHIP_TTL = 23 * 3600
 
 
-def _chip_cache_key(trade_date: str) -> str:
-    return f"chip_data_{trade_date}"
+def _chip_cache_key(trade_date: str, source: str = "ts") -> str:
+    return f"chip_data_{source}_{trade_date}"
 
 
 # ---------------------------------------------------------------------------
@@ -217,8 +217,8 @@ def fetch_6m_high(ts_codes: list[str], trade_date: str, pro) -> dict[str, float]
     return {ts: result[ts] for ts in ts_codes if ts in result}
 
 
-def _load_chip_cache(trade_date: str) -> pd.DataFrame | None:
-    raw = _cache.get(_chip_cache_key(trade_date), _CHIP_TTL)
+def _load_chip_cache(trade_date: str, source: str = "ts") -> pd.DataFrame | None:
+    raw = _cache.get(_chip_cache_key(trade_date, source), _CHIP_TTL)
     if raw is None:
         return None
     try:
@@ -325,9 +325,9 @@ def fetch_chip_data_ak(trade_date: str) -> pd.DataFrame:
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import fetcher as _fetcher
 
-    cached = _load_chip_cache(trade_date)
+    cached = _load_chip_cache(trade_date, source="ak")
     if cached is not None:
-        print(f"[chip cache] 命中 chip_data_{trade_date}，共 {len(cached)} 条")
+        print(f"[chip cache] 命中 chip_data_ak_{trade_date}，共 {len(cached)} 条")
         return cached
 
     names    = load_names()
@@ -388,8 +388,8 @@ def fetch_chip_data_ak(trade_date: str) -> pd.DataFrame:
 
     df_out = pd.DataFrame(records)
     print(f"[chip_ak] 完成，共 {len(df_out)} 只")
-    _cache.set(_chip_cache_key(trade_date), df_out)
-    print(f"[chip cache] 已写入 chip_data_{trade_date}（akshare自算）")
+    _cache.set(_chip_cache_key(trade_date, "ak"), df_out)
+    print(f"[chip cache] 已写入 chip_data_ak_{trade_date}（akshare自算）")
     return df_out
 
 
@@ -402,9 +402,9 @@ def fetch_chip_data(trade_date: str, pro) -> pd.DataFrame:
 
     On Tushare rate-limit, automatically falls back to fetch_chip_data_ak().
     """
-    cached = _load_chip_cache(trade_date)
+    cached = _load_chip_cache(trade_date, source="ts")
     if cached is not None:
-        print(f"[chip cache] 命中 chip_data_{trade_date}，共 {len(cached)} 条")
+        print(f"[chip cache] 命中 chip_data_ts_{trade_date}，共 {len(cached)} 条")
         return cached
 
     print(f"[fetch] trade_date={trade_date}")
@@ -453,8 +453,8 @@ def fetch_chip_data(trade_date: str, pro) -> pd.DataFrame:
     # 6-digit code for display
     df["code"] = df["ts_code"].str.split(".").str[0]
 
-    _cache.set(_chip_cache_key(trade_date), df)
-    print(f"[chip cache] 已写入 chip_data_{trade_date}")
+    _cache.set(_chip_cache_key(trade_date, "ts"), df)
+    print(f"[chip cache] 已写入 chip_data_ts_{trade_date}")
     return df
 
 
