@@ -218,6 +218,13 @@ def fetch_6m_high(ts_codes: list[str], trade_date: str, pro) -> dict[str, float]
 
 
 def _load_chip_cache(trade_date: str, source: str = "ts") -> pd.DataFrame | None:
+    # Today's cache built before market close contains yesterday's prices — expire after 15:30
+    from datetime import date as _date, time as _time
+    if trade_date == _date.today().strftime("%Y%m%d"):
+        from datetime import datetime as _dt
+        if _dt.now().time() >= _time(15, 30):
+            print(f"[chip cache] {trade_date} 收盘后缓存作废，重新计算")
+            return None
     raw = _cache.get(_chip_cache_key(trade_date, source), _CHIP_TTL)
     if raw is None:
         return None
