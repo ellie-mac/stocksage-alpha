@@ -1,0 +1,120 @@
+[
+  {
+    "timestamp": "2026-04-21 14:12",
+    "dry_run": false,
+    "changes": [
+      {
+        "factor": "volume",
+        "current": 0.5,
+        "suggested": 0.0,
+        "delta": -0.5,
+        "icir": -0.612,
+        "mean_ic": -0.0567
+      },
+      {
+        "factor": "div_yield",
+        "current": 1.0,
+        "suggested": 0.7,
+        "delta": -0.3,
+        "icir": 0.239,
+        "mean_ic": 0.0103
+      },
+      {
+        "factor": "position_52w",
+        "current": 1.0,
+        "suggested": 0.7,
+        "delta": -0.3,
+        "icir": 0.244,
+        "mean_ic": 0.019
+      },
+      {
+        "factor": "upday_ratio",
+        "current": 0.5,
+        "suggested": 0.2,
+        "delta": -0.3,
+        "icir": -0.024,
+        "mean_ic": -0.0026
+      },
+      {
+        "factor": "roe_trend",
+        "current": 0.5,
+        "suggested": 0.2,
+        "delta": -0.3,
+        "icir": -0.001,
+        "mean_ic": -0.0002
+      },
+      {
+        "factor": "main_inflow",
+        "current": 0.5,
+        "suggested": 0.2,
+        "delta": -0.3,
+        "icir": 0.094,
+        "mean_ic": 0.0182
+      },
+      {
+        "factor": "medium_term_momentum",
+        "current": 0.5,
+        "suggested": 0.2,
+        "delta": -0.3,
+        "icir": 0.086,
+        "mean_ic": 0.0126
+      },
+      {
+        "factor": "market_beta",
+        "current": 0.5,
+        "suggested": 0.2,
+        "delta": -0.3,
+        "icir": 0.237,
+        "mean_ic": 0.0231
+      },
+      {
+        "factor": "momentum",
+        "current": 0.5,
+        "suggested": 0.8,
+        "delta": 0.3,
+        "icir": 0.502,
+        "mean_ic": 0.0866
+      },
+      {
+        "factor": "hammer_bottom",
+        "current": 0.5,
+        "suggested": 0.8,
+        "delta": 0.3,
+        "icir": 0.511,
+        "mean_ic": 0.0452
+      },
+      {
+        "factor": "limit_hits",
+        "current": -1.5,
+        "suggested": -1.2,
+        "delta": 0.3,
+        "icir": -0.765,
+        "mean_ic": -0.0882
+      },
+      {
+        "factor": "price_inertia",
+        "current": -0.5,
+        "suggested": -0.8,
+        "delta": -0.3,
+        "icir": -1.435,
+        "mean_ic": -0.0634
+      },
+      {
+        "factor": "limit_open_rate",
+        "current": -0.5,
+        "suggested": -0.8,
+        "delta": -0.3,
+        "icir": -0.855,
+        "mean_ic": -0.0748
+      },
+      {
+        "factor": "intraday_vs_overnight",
+        "current": -0.5,
+        "suggested": -0.8,
+        "delta": -0.3,
+        "icir": -0.525,
+        "mean_ic": -0.0561
+      }
+    ]
+  }
+]

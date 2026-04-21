@@ -32,26 +32,26 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "return_skewness":       1.5,   # IC=+0.0673, ICIR=1.021
 
     # ── Tier 2: ICIR 0.5–1.0 ─────────────────────────────────────────────
-    "div_yield":             1.0,   # IC=+0.0281, ICIR=0.959 (was 2.0; ICIR normalised with larger sample)
-    "position_52w":          1.0,   # IC=+0.1154, ICIR=0.934 (new: nearness to 52w high is positive)
+    "div_yield":             0.7,   # IC=+0.0281, ICIR=0.959 (was 2.0; ICIR normalised with larger sample)
+    "position_52w":          0.7,   # IC=+0.1154, ICIR=0.934 (new: nearness to 52w high is positive)
     "growth":                1.0,   # IC=+0.0545, ICIR=0.900 (new activation)
-    "upday_ratio":           0.5,   # IC=+0.0564, ICIR=+0.717 (new: 12p-AB run; up-day frequency = trend quality)
-    "roe_trend":             0.5,   # IC=+0.0642, ICIR=+0.551 (new: 12p-AB run; ROE improvement = quality momentum)
-    "main_inflow":           0.5,   # IC=+0.0546, ICIR=0.568
-    "volume":                0.5,   # IC=+0.0195, ICIR=0.562 (unstable vs 12p-AB; monitor via backtest)
-    "medium_term_momentum":  0.5,   # IC=+0.0567, ICIR=0.541 (FLIPPED: was -0.5; large-cap momentum works)
-    "market_beta":           0.5,   # IC=+0.0451, ICIR=0.483
-    "momentum":              0.5,   # IC=+0.0772, ICIR=0.435
-    "hammer_bottom":         0.5,   # IC=+0.0693, ICIR=0.612
+    "upday_ratio":           0.2,   # IC=+0.0564, ICIR=+0.717 (new: 12p-AB run; up-day frequency = trend quality)
+    "roe_trend":             0.2,   # IC=+0.0642, ICIR=+0.551 (new: 12p-AB run; ROE improvement = quality momentum)
+    "main_inflow":           0.2,   # IC=+0.0546, ICIR=0.568
+    "volume":                0.0,   # IC=+0.0195, ICIR=0.562 (unstable vs 12p-AB; monitor via backtest)
+    "medium_term_momentum":  0.2,   # IC=+0.0567, ICIR=0.541 (FLIPPED: was -0.5; large-cap momentum works)
+    "market_beta":           0.2,   # IC=+0.0451, ICIR=0.483
+    "momentum":              0.8,   # IC=+0.0772, ICIR=0.435
+    "hammer_bottom":         0.8,   # IC=+0.0693, ICIR=0.612
 
     # ── Inverted ──────────────────────────────────────────────────────────
-    "limit_hits":            -1.5,  # IC=-0.0831, ICIR=-0.925 (consistent across all runs)
+    "limit_hits":            -1.2,  # IC=-0.0831, ICIR=-0.925 (consistent across all runs)
     "chip_distribution":     -1.0,  # IC=-0.0232, ICIR=-0.750 (FLIPPED: was +1.0; large-cap reversal)
     "volume_expansion":      -0.5,  # IC=-0.0738, ICIR=-0.590
-    "price_inertia":         -0.5,  # IC=-0.0483, ICIR=-0.459 (new negative)
-    "limit_open_rate":       -0.5,  # IC=-0.0261, ICIR=-0.426
+    "price_inertia":         -0.8,  # IC=-0.0483, ICIR=-0.459 (new negative)
+    "limit_open_rate":       -0.8,  # IC=-0.0261, ICIR=-0.426
     "cash_flow_quality":     -0.5,  # IC=-0.0201, ICIR=-0.422 (FLIPPED: was +0.5)
-    "intraday_vs_overnight": -0.5,  # IC=-0.0571, ICIR=-0.371 (reduced from -1.5; weaker with 705 stocks)
+    "intraday_vs_overnight": -0.8,  # IC=-0.0571, ICIR=-0.371 (reduced from -1.5; weaker with 705 stocks)
     "gap_frequency":         -0.5,  # IC=-0.0810, ICIR=-0.348 (FLIPPED: was +1.0 in small sample)
 }
 
