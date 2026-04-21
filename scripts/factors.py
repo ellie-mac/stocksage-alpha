@@ -40,58 +40,59 @@ class FactorWeights:
     Negative weights: factor is inverted (high score = bad signal).
     compute_total_score handles negative weights via (1 - normalized) contribution.
 
-    IC source: rolling 6-period backtest, 20d forward, 154 stocks, 2026-04-03.
+    IC source: rolling 6-period backtest, 20d forward, 154 stocks, 2026-04-21.
     """
     # ── Core 4 (always computed) ──────────────────────────────────────────
-    value:          float = 0.0    # IC=None (no data: EM quote blocked)
-    growth:         float = 0.0    # IC=-0.010, ICIR=-0.086; noise
-    momentum:       float = -0.5   # IC=-0.086, ICIR=-0.47; A-share mean-reversion (INVERTED)
-    quality:        float = -1.0   # IC=-0.089, ICIR=-0.57; already priced in (INVERTED)
+    value:          float = 0.0    # IC=None (no data)
+    growth:         float = 0.0    # IC=+0.006, noise
+    momentum:       float = 0.0    # IC=-0.057, ICIR=-0.34; too weak to invert
+    quality:        float = 0.0    # IC=-0.040, ICIR=-0.39; weakened, zeroed
     # ── Core 3 ext-original ───────────────────────────────────────────────
-    northbound:          float = 1.0   # IC=+0.073, ICIR=0.65
-    volume:              float = 1.0   # IC=+0.067, ICIR=0.50
+    northbound:          float = 0.2   # IC=+0.054, ICIR=0.55; weakened
+    volume:              float = 0.2   # IC=+0.008, near noise; weakened
     position_52w:        float = 0.0   # noise; subsumed by nearness_to_high
-    # ── Ext-A: low-vol / volatility cluster (strongest signals) ──────────
-    low_volatility:      float = 2.0   # IC=+0.177, ICIR=0.50
-    idiosyncratic_vol:   float = 2.0   # IC=+0.185, ICIR=0.52 — low residual vol
-    gap_frequency:       float = 2.0   # IC=+0.167, ICIR=0.54 — low gap = stable stock
-    atr_normalized:      float = 2.0   # IC=+0.162, ICIR=0.50 — low realised range
-    return_skewness:     float = 2.0   # IC=+0.150, ICIR=4.87 — outstanding stability
-    ma60_deviation:      float = 2.0   # IC=+0.111, ICIR=0.98 — proximity to MA60
-    asset_growth:        float = 2.0   # IC=+0.110, ICIR=0.68
-    divergence:          float = 2.0   # IC=+0.104, ICIR=1.11
+    # ── Ext-A: strong (stable across periods) ────────────────────────────
+    return_skewness:     float = 2.0   # IC=+0.095, ICIR=0.85 — still strong
+    ma60_deviation:      float = 2.0   # IC=+0.134, ICIR=1.20 — strongest factor
+    div_yield:           float = 2.0   # IC=+0.083, ICIR=1.44 — upgraded
     # ── Ext-A: moderate positive ──────────────────────────────────────────
-    div_yield:           float = 1.5   # IC=+0.101, ICIR=2.80 — re-activated
-    cash_flow_quality:   float = 1.5   # IC=+0.100, ICIR=0.84
-    amihud_illiquidity:  float = 1.5   # IC=+0.073, ICIR=3.17 — illiquidity premium
-    max_return:          float = 1.5   # IC=+0.143, ICIR=0.58
-    main_inflow:         float = 1.0   # IC=+0.091, ICIR=0.66
-    turnover_percentile: float = 1.0   # IC=+0.080, ICIR=0.57
+    low_volatility:      float = 1.0   # IC=+0.081, ICIR=0.23; halved (vol regime shift)
+    idiosyncratic_vol:   float = 1.0   # IC=+0.076, ICIR=0.20; halved
+    divergence:          float = 1.0   # IC=+0.073, ICIR=1.02; halved
+    reversal:            float = 1.0   # IC=+0.054, ICIR=0.56; newly activated
+    gap_frequency:       float = 0.5   # IC=+0.046, ICIR=0.15; weakened
+    atr_normalized:      float = 0.5   # IC=+0.064, ICIR=0.20; weakened
+    max_return:          float = 0.5   # IC=+0.067, ICIR=0.23; weakened
+    cash_flow_quality:   float = 0.5   # IC=+0.039, ICIR=0.30; weakened
+    asset_growth:        float = 0.5   # IC=+0.024, ICIR=0.16; weakened
     # ── Ext-A: weak positive ──────────────────────────────────────────────
-    nearness_to_high:    float = 0.5   # IC=+0.080, ICIR=0.48
-    upday_ratio:         float = 0.5   # IC=+0.065, ICIR=0.55 — re-activated
-    turnover_acceleration: float = 0.5 # IC=+0.063, ICIR=0.52 — re-activated
-    roe_trend:           float = 0.5   # IC=+0.059, ICIR=0.43
-    price_inertia:       float = 0.5   # IC=+0.047, ICIR=0.42
-    chip_distribution:   float = 0.2   # IC=+0.028, ICIR=0.44
-    # ── Ext-A: excluded / no data ─────────────────────────────────────────
-    volume_ratio:        float = 0.0   # no data (requires realtime quote)
-    ma_alignment:        float = 0.0   # noise: IC=-0.044, ICIR=-0.353
-    reversal:            float = 0.0   # noise: IC=-0.013, ICIR=-0.081
+    nearness_to_high:    float = 0.5   # IC=+0.024, ICIR=0.11
+    upday_ratio:         float = 0.5   # IC=+0.044, ICIR=0.53
+    roe_trend:           float = 0.5   # IC=+0.042, ICIR=0.49
+    concept_momentum:    float = 0.5   # IC=+0.045, ICIR=0.25; newly activated
+    chip_distribution:   float = 0.2   # IC≈0; minimal weight
+    # ── Ext-A: excluded / zeroed ──────────────────────────────────────────
+    volume_ratio:        float = 0.0   # no data
+    ma_alignment:        float = 0.0   # IC=-0.069, inverted but too noisy
     accruals:            float = 0.0   # no data
     short_interest:      float = 0.0   # no data
-    rsi_signal:          float = 0.0   # no data / noise
-    macd_signal:         float = 0.0   # no data / noise
+    rsi_signal:          float = 0.0   # no data
+    macd_signal:         float = 0.0   # no data
+    amihud_illiquidity:  float = 0.0   # IC flipped to -0.005 (was +0.073); zeroed
+    main_inflow:         float = 0.0   # no data (insufficient periods)
+    turnover_percentile: float = 0.0   # IC=-0.054; turned negative, zeroed
+    turnover_acceleration: float = 0.0 # IC=-0.087; turned negative, zeroed
+    price_inertia:       float = 0.0   # IC=-0.078; turned negative, zeroed
+    price_volume_corr:   float = 0.0   # IC=-0.009, near zero
     # ── Ext-A: inverted signals ───────────────────────────────────────────
-    limit_hits:          float = -2.0  # IC=-0.128, ICIR=-1.92; strongest inverted (INVERTED)
-    hammer_bottom:       float = -1.0  # IC=-0.082, ICIR=-0.75; A股弱势反弹 (INVERTED)
-    limit_open_rate:     float = -1.0  # IC=-0.077, ICIR=-0.78; 派发 (INVERTED)
-    medium_term_momentum: float = -1.0 # IC=-0.129, ICIR=-0.53; 均值回归 (INVERTED)
-    price_volume_corr:   float = -0.5  # IC=-0.038, ICIR=-0.55; 散户追涨 (INVERTED)
+    limit_hits:          float = -1.0  # IC=-0.117, ICIR=-1.07; reduced from -2.0
+    limit_open_rate:     float = -0.5  # IC=-0.001, near zero; reduced
+    medium_term_momentum: float = -0.5 # IC=-0.064, ICIR=-0.31; reduced
+    hammer_bottom:       float = 0.0   # IC=+0.019; turned slightly positive, zeroed
     # ── Ext-B: require additional API calls ──────────────────────────────
-    institutional_visits: float = -1.5 # IC=-0.115, ICIR=-0.99; 调研=出货 (INVERTED)
-    shareholder_change:  float = 0.0   # no data in backtest
-    lhb:                 float = 0.0   # noise: IC=-0.003
+    institutional_visits: float = -0.5 # IC=-0.050, ICIR=-0.38; reduced from -1.5
+    shareholder_change:  float = 0.0   # no data
+    lhb:                 float = 0.0   # noise
     lockup_pressure:     float = 0.0   # no data
     insider:             float = 0.0   # no data
     industry_momentum:   float = 0.0   # no data
@@ -99,7 +100,6 @@ class FactorWeights:
     earnings_revision:   float = 0.0   # no data
     social_heat:         float = 0.0   # no data
     market_regime:       float = 0.0   # used in regime filter, not as stock factor
-    concept_momentum:    float = 0.0   # noise: IC=+0.005
 
     def total(self) -> float:
         from dataclasses import fields as dc_fields
