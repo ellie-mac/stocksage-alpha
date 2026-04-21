@@ -24,6 +24,7 @@ CHIP_WRITER   = XHS_DIR   / "chip_writer.py"
 DAILY_SCAN    = SCRIPTS   / "daily_chip_scan.py"
 PERF_LOG      = SCRIPTS   / "chip_perf_log.py"
 MONITOR       = SCRIPTS   / "monitor.py"
+BATCH_FIN     = SCRIPTS   / "tools" / "batch_financials.py"
 
 # ── Old tasks (remove only) ───────────────────────────────────────────────────
 OLD_TASKS = [
@@ -38,6 +39,7 @@ OLD_TASKS = [
 TASKS = [
     # (name, time, slot, description, wechat_push)
     # ── Chip scan pipeline ──────────────────────────────────────────────────
+    ("StockSage_MainNight",     "22:30", "main_night",     "预热财务缓存（batch_financials），不推送", False),
     ("StockSage_ChipNight",     "23:00", "chip_night",     "夜间预取筹码缓存，不推送",          False),
     ("StockSage_ChipPremarket", "07:00", "chip_premarket", "盘前兜底缓存（夜间未跑时补救），不推送", False),
     ("StockSage_ChipMorning",   "09:25", "chip_morning",   "盘前筹码分析推送 📱",               True),
@@ -54,7 +56,10 @@ def _bat(slot: str) -> tuple[Path, str]:
     """Return (bat_path, bat_content) for a given slot key."""
     log = LOGS_DIR
 
-    if slot == "chip_night":
+    if slot == "main_night":
+        path = XHS_DIR / "run_main_night.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{BATCH_FIN}" >> "{log}\\batch_financials.log" 2>&1'
+    elif slot == "chip_night":
         path = XHS_DIR / "run_chip_night.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{DAILY_SCAN}" --ak --no-push >> "{log}\\chip_scan_night.log" 2>&1'
     elif slot == "chip_premarket":
