@@ -154,7 +154,7 @@ def load_names(force: bool = False) -> dict[str, dict]:
 # Daily chip data — fetch + cache
 # ---------------------------------------------------------------------------
 
-_CHIP_TTL = 23 * 3600
+_CHIP_TTL = 90 * 24 * 3600   # 90天；历史筹码数据不变，长期保留
 
 
 def _chip_cache_key(trade_date: str, source: str = "ts") -> str:
