@@ -33,24 +33,36 @@ OLD_TASKS = [
     "StockSage_Midday",
     "StockSage_Evening",
     "StockSage_Night",
+    "StockSage_MainNight",
+    "StockSage_ChipNight",
+    "StockSage_ChipPremarket",
+    "StockSage_ChipMorning",
+    "StockSage_ChipMidday",
+    "StockSage_ChipEvening",
+    "StockSage_ChipPerfLog",
+    "StockSage_CadScan",
+    "StockSage_MainMorning",
+    "StockSage_MonitorScan",
 ]
 
 # ── Scheduled tasks ───────────────────────────────────────────────────────────
-# (name, time HH:MM, slot_key)
 TASKS = [
     # (name, time, slot, description, wechat_push)
-    # ── Chip scan pipeline ──────────────────────────────────────────────────
-    ("StockSage_MainNight",     "22:30", "main_night",     "预热财务缓存（batch_financials），不推送", False),
-    ("StockSage_ChipNight",     "23:00", "chip_night",     "夜间预取筹码缓存，不推送",          False),
-    ("StockSage_ChipPremarket", "07:00", "chip_premarket", "盘前兜底缓存（夜间未跑时补救），不推送", False),
-    ("StockSage_ChipMorning",   "09:25", "chip_morning",   "盘前筹码分析推送 📱",               True),
-    ("StockSage_ChipMidday",    "11:35", "chip_midday",    "午间筹码分析推送 📱",               True),
-    ("StockSage_ChipEvening",   "15:10", "chip_evening",   "收盘筹码分析推送 📱",               True),
-    # ── EOD analytics ───────────────────────────────────────────────────────
-    ("StockSage_ChipPerfLog",   "17:15", "perf_log",       "读昨日cad/cadm票，测今日胜率 📱",   True),
-    ("StockSage_CadScan",       "17:30", "cad_scan",       "筹码数据驱动全档扫描，保存当日票 📱", True),
-    ("StockSage_MainMorning",   "07:10", "monitor_scan",   "主策略盘前兜底（17:30未跑时补救），不推送", False),
-    ("StockSage_MonitorScan",   "17:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json", False),
+    # ── 夜间准备 ────────────────────────────────────────────────────────────
+    ("xhs_MainNight",     "22:30", "main_night",     "预热财务缓存（batch_financials），不推送", False),
+    ("xhs_ChipNight",     "23:00", "chip_night",     "夜间预取筹码缓存，不推送",               False),
+    # ── 盘前 ────────────────────────────────────────────────────────────────
+    ("xhs_MainMorning",   "07:10", "monitor_scan",   "主策略盘前兜底（xhs_MonitorScan未跑时），不推送", False),
+    ("xhs_ChipPremarket", "07:00", "chip_premarket", "筹码盘前兜底（xhs_ChipNight未跑时），不推送",    False),
+    ("xhs_ChipMorning",   "09:25", "chip_morning",   "盘前筹码分析推送 📱",                    True),
+    # ── 盘中 ────────────────────────────────────────────────────────────────
+    ("xhs_ChipMidday",    "11:35", "chip_midday",    "午间筹码分析推送 📱",                    True),
+    # ── 收盘 ────────────────────────────────────────────────────────────────
+    ("xhs_ChipEvening",   "15:10", "chip_evening",   "收盘筹码分析推送 📱",                    True),
+    # ── 收盘后分析 ──────────────────────────────────────────────────────────
+    ("xhs_ChipPerfLog",   "17:15", "perf_log",       "读昨日cad/cadm票，测今日胜率 📱",        True),
+    ("xhs_CadScan",       "17:30", "cad_scan",       "筹码数据驱动全档扫描，保存当日票 📱",    True),
+    ("xhs_MonitorScan",   "17:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json",     False),
 ]
 
 
