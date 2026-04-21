@@ -312,6 +312,7 @@ def _h_chip(arg: str) -> str:
         high_filter  = "h" in rest
         boll_filter  = "b" in rest
         cheap_filter = "e" in rest
+        kcb_filter   = "k" in rest
         log_path = SCRIPTS / "daily_chip_scan.log"
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- daily_chip_scan started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
@@ -319,12 +320,14 @@ def _h_chip(arg: str) -> str:
         if high_filter:  cmd += ["--high-filter"]
         if boll_filter:  cmd += ["--boll"]
         if cheap_filter: cmd += ["--max-price", "50"]
+        if kcb_filter:   cmd += ["--no-kcb"]
         subprocess.Popen(cmd, cwd=str(ROOT),
                          stdout=open(log_path, "a", encoding="utf-8"),
                          stderr=subprocess.STDOUT)
         mods = []
         if boll_filter:  mods.append("BOLL中轨")
         if cheap_filter: mods.append("股价≤50")
+        if kcb_filter:   mods.append("排科创")
         if high_filter:  mods.append("排半年高位")
         suffix = ("＋" + "＋".join(mods)) if mods else ""
         return f"筹码全档扫描（T1-T5 MACD近零{suffix}）已启动，约2-3分钟后推微信 📱"

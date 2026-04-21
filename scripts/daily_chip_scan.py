@@ -51,6 +51,8 @@ def main() -> None:
                         help="启用 BOLL中轨±8% 过滤（默认关闭）")
     parser.add_argument("--max-price",   type=float, default=None,
                         help="剔除股价高于此值的股票（如 --max-price 50）")
+    parser.add_argument("--no-kcb",      action="store_true",
+                        help="剔除科创板股票（688xxx）")
     args = parser.parse_args()
 
     trade_date = args.date or _latest_trade_date()
@@ -98,6 +100,7 @@ def main() -> None:
     if args.boll:        parts.insert(0, "BOLL中轨")
     if args.high_filter: parts.append("排半年高位")
     if args.max_price:   parts.append(f"股价≤{args.max_price:.0f}")
+    if args.no_kcb:      parts.append("排科创")
     filter_label = "＋".join(parts)
 
     sections: list[str] = []
@@ -112,7 +115,7 @@ def main() -> None:
             max_win        = tier["max_win"],
             max_today_pct  = 5.0,
             max_price      = args.max_price,
-            exclude_kcb    = False,
+            exclude_kcb    = args.no_kcb,
             boll_near_mid  = args.boll,
             macd_near_zero = True,
             max_6m_ratio   = 0.9 if args.high_filter else None,
