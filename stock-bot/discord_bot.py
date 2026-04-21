@@ -1144,6 +1144,9 @@ def _dispatch_sync(text: str) -> str | None:
 
 
 def _dispatch_inner(t: str) -> str | None:
+    import re
+    t = re.sub(r'^(sc)(\d)', r'\1 \2', t)   # sc1 → sc 1
+    t = re.sub(r'^(c)(\d)', r'\1 \2', t)    # c1 → c 1
 
     if t in ("帮助", "help", "h", "？", "?"):
         return _HELP
