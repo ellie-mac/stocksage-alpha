@@ -19,7 +19,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from chip_strategy import (
     _get_pro, fetch_chip_data, screen, load_names,
-    fetch_6m_high, add_indicators,
+    fetch_6m_high, add_indicators, _latest_trade_date,
 )
 from common import send_wechat, configure_pushplus
 
@@ -55,7 +55,7 @@ def main() -> None:
     configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
 
     pro          = _get_pro()
-    trade_date   = datetime.now().strftime("%Y%m%d")
+    trade_date   = _latest_trade_date()
     df_all       = fetch_chip_data(trade_date, pro)
 
     if df_all.empty:
