@@ -26,10 +26,10 @@ from common import send_wechat, configure_pushplus
 # T4→T5→T3→T2→T1 by backtest win rate
 TIER_ORDER = [
     ("T4", 75.0, 85.0),
-    ("T5", 65.0, 75.0),
-    ("T3", 85.0, 90.0),
-    ("T2", 90.0, 95.0),
     ("T1", 95.0, None),
+    ("T2", 90.0, 95.0),
+    ("T3", 85.0, 90.0),
+    ("T5", 65.0, 75.0),
 ]
 
 

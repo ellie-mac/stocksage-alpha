@@ -238,7 +238,7 @@ _SC_LIST = """**快捷命令 sc N**
 `sc 7` 扫盘推送 📱  |  `sc 8` monitor日志"""
 
 _CHIP_LIST = """**筹码命令**
-`cad`  数据驱动全档（T4→T5→T3→T2→T1，默认bekhm）⭐
+`cad`  数据驱动全档（T4→T1→T2→T3→T5，默认bekhm）⭐
 `ca`  全档T1-T5  |  `cah` 全档排高位  |  `cabekh` 全档+全修饰
 
 `c 1` T1≥95%  `c 2` T2 90-95%  `c 3` T3 85-90%  `c 4` T4 75-85%  `c 5` T5 65-75%
@@ -360,7 +360,7 @@ def _h_chip_data_driven(mods: str = "bekhm") -> str:
         stdout=open(log_path, "a", encoding="utf-8"),
         stderr=subprocess.STDOUT,
     )
-    return f"筹码数据驱动扫描（T4→T5→T3→T2→T1 {mods}）已启动 ✅\n约3-5分钟后推一条微信 📱"
+    return f"筹码数据驱动扫描（T4→T1→T2→T3→T5 {mods}）已启动 ✅\n约3-5分钟后推一条微信 📱"
 
 
 def _h_shortcut(num: str) -> str:
