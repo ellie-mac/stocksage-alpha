@@ -115,20 +115,18 @@ def main() -> None:
             sections.append(header + "\n无符合条件股票")
             continue
 
-        rows = ["| 代码 | 名称 | 行业 | 收盘 | 涨跌% | 获利盘% |",
-                "|------|------|------|-----:|------:|--------:|"]
+        rows = ["| 代码 | 名称 | 行业 | 收盘 | 获利盘% |",
+                "|------|------|------|-----:|--------:|"]
         for _, row in result.iterrows():
             code    = row.get("code", "")
             name    = str(row.get("name", "") or "")[:8]
             ind     = str(row.get("industry", "") or "")[:6]
             close   = row.get("close", float("nan"))
-            pct_chg = row.get("pct_chg", float("nan"))
             win     = row.get("winner_rate", float("nan"))
             import math
             close_s = f"{close:.2f}" if not math.isnan(close) else "-"
-            pct_s   = f"{pct_chg:+.2f}%" if not math.isnan(pct_chg) else "-"
             win_s   = f"{win:.1f}%" if not math.isnan(win) else "-"
-            rows.append(f"| {code} | {name} | {ind} | {close_s} | {pct_s} | {win_s} |")
+            rows.append(f"| {code} | {name} | {ind} | {close_s} | {win_s} |")
             picks_list.append({"code": str(code), "name": name})
 
         saves[tier_name] = picks_list
