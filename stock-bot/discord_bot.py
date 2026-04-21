@@ -403,7 +403,7 @@ def _h_shortcut(num: str) -> str:
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- batch_financials started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         subprocess.Popen(
-            [sys.executable, "-X", "utf8", str(SCRIPTS / "batch_financials.py")],
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "tools" / "batch_financials.py")],
             cwd=str(ROOT),
             stdout=open(log_path, "a", encoding="utf-8"),
             stderr=subprocess.STDOUT,
@@ -415,7 +415,7 @@ def _h_shortcut(num: str) -> str:
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- build_universe started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         subprocess.Popen(
-            [sys.executable, "-X", "utf8", str(SCRIPTS / "build_universe.py")],
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "tools" / "build_universe.py")],
             cwd=str(ROOT),
             stdout=open(log_path, "a", encoding="utf-8"),
             stderr=subprocess.STDOUT,
