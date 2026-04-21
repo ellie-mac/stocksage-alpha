@@ -98,7 +98,13 @@ _HELP = """**筹码策略**
 `ca` 全档  |  `cah` 全档+排高位  |  `cabekh` 全档+BOLL+≤50+排科创+排高位
 修饰符：`b` BOLL  `e` 股价≤50  `k` 排科创  `h` 排高位  |  `ch` 筹码详情
 
-`fh` 因子/回测  |  `sch` 系统/快捷  |  💬 其他走AI对话"""
+**系统 & 快捷**
+`z` 状态  |  `q` 全局概览  |  `p` 今日推荐  |  `sug` 给我建议  |  `do` 执行建议
+`sc 1` 启动 monitor  |  `sc 2` 重启 monitor  |  `sc 3` 终止回测
+`sc 4` 因子IC回测  |  `sc 5` 预热财务缓存  |  `sc 6` 重建股票池
+`sc 7` 扫盘推送 📱  |  `sc 8` monitor日志
+
+`fh` 因子/回测详情  |  💬 其他走AI对话"""
 
 _FACTOR_HELP = """**因子 & 分析**
 `ic` 因子IC摘要  |  `ich` 因子列表  |  `icf 因子名` 因子说明  |  `fx 600519` 单股分析
@@ -243,13 +249,7 @@ _CHIP_LIST = """**筹码命令**
 修饰符（c 1-5 可叠加）：
   `e` 剔除股价>50      `k` 排科创      `h` 排半年高位
   `b` BOLL中轨±8%过滤  `m` MACD绿柱收敛  `z` MACD柱离零轴≤1%
-示例：`c 1bmz`  `c 2mz`  `c 4kh`  `c all bh`
-
-**快捷扫描 (sc)**
-`sc 9`   筹码T1 ≥95%（最严格）📱
-`sc 9 2` T2 90-95% 📱  `sc 9 3` T3  `sc 9 4` T4  `sc 9 5` T5
-`sc 10`  筹码全档T1-T5合并 📱
-修饰符：`e` 股价≤50  `k` 排科创（如 `sc 9ek`、`sc 9 2k`）"""
+示例：`c 1bmz`  `c 2mz`  `c 4kh`  `c all bh`"""
 
 # Chip tier config: (min_win, max_win_or_None)
 _CHIP_TIERS = {
