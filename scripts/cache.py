@@ -4,6 +4,18 @@ Local file cache module.
 - Price history:    1h TTL during trading hours; extended until next open otherwise
 - Valuation data:  until next trading session open (or 24h fallback)
 - Financial data:  14d TTL (quarterly report frequency)
+
+Cache files are organized into subdirectories by data type:
+  .cache/chip/        chip distribution, 6m_high
+  .cache/price/       price history, forward close
+  .cache/concept/     concept return data
+  .cache/market/      market regime, market returns, valuation
+  .cache/financial/   financial data, batch_financials
+  .cache/indicators/  index constituents, industry maps
+  .cache/fundflow/    fund flow data
+  .cache/shareholders/ gdhs shareholder data
+  .cache/meta/        trade calendar, stock info, suspension
+  .cache/misc/        everything else
 """
 
 import json
@@ -13,13 +25,50 @@ from datetime import datetime
 from typing import Any, Optional
 import pandas as pd
 
-CACHE_DIR = os.path.join(os.path.dirname(__file__), ".cache")
+CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache")
+
+# prefix → subdirectory mapping (longest-prefix wins)
+_SUBDIR_MAP = {
+    "chip_data":        "chip",
+    "chip_strategy":    "chip",
+    "cyq":              "chip",
+    "6m_high":          "chip",
+    "price":            "price",
+    "fwd_close":        "price",
+    "concept_ret":      "concept",
+    "concept_reverse":  "concept",
+    "market_ret":       "market",
+    "market_regime":    "market",
+    "market_valuation": "market",
+    "financial":        "financial",
+    "valuation":        "financial",
+    "batch_financials": "financial",
+    "index_cons":       "indicators",
+    "industry_map":     "indicators",
+    "sw_industry":      "indicators",
+    "trade_calendar":   "meta",
+    "trade_dates":      "meta",
+    "stock_info":       "meta",
+    "suspension":       "meta",
+    "fundflow":         "fundflow",
+    "gdhs2":            "shareholders",
+    "visits":           "misc",
+}
+
+
+def _subdir_for(key: str) -> str:
+    """Return the subdirectory name for a given cache key."""
+    for prefix, subdir in sorted(_SUBDIR_MAP.items(), key=lambda x: -len(x[0])):
+        if key.startswith(prefix):
+            return subdir
+    return "misc"
 
 
 def _cache_path(key: str) -> str:
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    subdir = os.path.join(CACHE_DIR, _subdir_for(key))
+    os.makedirs(subdir, exist_ok=True)
     safe_key = key.replace("/", "_").replace("\\", "_")
-    return os.path.join(CACHE_DIR, f"{safe_key}.json")
+    return os.path.join(subdir, f"{safe_key}.json")
 
 
 def get(key: str, ttl_seconds: int) -> Optional[Any]:
@@ -66,7 +115,8 @@ def get_df(key: str, ttl_seconds: int) -> Optional[pd.DataFrame]:
         return None
     if isinstance(raw, dict) and raw.get("__type") == "dataframe":
         try:
-            return pd.read_json(raw["records"], orient="records")
+            import io
+            return pd.read_json(io.StringIO(raw["records"]), orient="records")
         except Exception:
             return None
     return None
@@ -146,28 +196,51 @@ def smart_valuation_ttl() -> int:
 def purge_expired(max_age_seconds: int = TTL_FINANCIAL) -> int:
     """
     Delete cache files whose timestamp is older than `max_age_seconds`.
-    Defaults to 7 days (the longest TTL), so no still-valid data is ever removed.
-    Returns the number of files deleted.
+    Defaults to 14 days. Returns the number of files deleted.
     """
     if not os.path.isdir(CACHE_DIR):
         return 0
     deleted = 0
     now = time.time()
+    for root, _, files in os.walk(CACHE_DIR):
+        for fname in files:
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(root, fname)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    entry = json.load(f)
+                if now - entry.get("ts", 0) > max_age_seconds:
+                    os.remove(path)
+                    deleted += 1
+            except Exception:
+                try:
+                    os.remove(path)
+                    deleted += 1
+                except OSError:
+                    pass
+    return deleted
+
+
+def migrate_flat_cache() -> int:
+    """Move legacy flat .cache/*.json files into their subdirectories."""
+    if not os.path.isdir(CACHE_DIR):
+        return 0
+    moved = 0
     for fname in os.listdir(CACHE_DIR):
         if not fname.endswith(".json"):
             continue
-        path = os.path.join(CACHE_DIR, fname)
+        src = os.path.join(CACHE_DIR, fname)
+        if not os.path.isfile(src):
+            continue
+        key = fname[:-5]  # strip .json
+        dest = _cache_path(key)
+        if src == dest:
+            continue
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                entry = json.load(f)
-            if now - entry.get("ts", 0) > max_age_seconds:
-                os.remove(path)
-                deleted += 1
-        except Exception:
-            # Corrupted file — remove it too
-            try:
-                os.remove(path)
-                deleted += 1
-            except OSError:
-                pass
-    return deleted
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            os.rename(src, dest)
+            moved += 1
+        except OSError:
+            pass
+    return moved

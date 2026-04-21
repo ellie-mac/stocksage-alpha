@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 *.pyo
 scripts/.cache/
+scripts/cache/
+scripts/.monitor_state.json
 .env
 alert_config.json
 holdings.json
@@ -13,6 +15,8 @@ xhs/records/
 xhs/run_*.bat
 docs/PROJECT_STRUCTURE.md
 logs/
+scripts/logs/
+scripts/*.log
 scripts/live_scores.json
 stock-bot/config.json
 stock-bot/*.log

@@ -47,7 +47,7 @@ def generate() -> list[str]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CSI 300+500 universe for factor backtest")
     parser.add_argument("--out", type=str,
-                        default=os.path.join(os.path.dirname(__file__), "main_universe.json"),
+                        default=os.path.join(os.path.dirname(__file__), "..", "data", "main_universe.json"),
                         help="Output file path")
     args = parser.parse_args()
 

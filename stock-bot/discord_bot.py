@@ -62,6 +62,8 @@ if hasattr(sys.stderr, "buffer"):
 ROOT    = Path(__file__).resolve().parent.parent
 BOT_DIR = Path(__file__).resolve().parent
 SCRIPTS = ROOT / "scripts"
+LOGS    = SCRIPTS / "logs"
+LOGS.mkdir(exist_ok=True)
 sys.path.insert(0, str(SCRIPTS))
 
 _executor = ThreadPoolExecutor(max_workers=4)
@@ -184,7 +186,7 @@ def _h_status() -> str:
     else:
         lines.append("无运行中的 Python 进程")
 
-    log_path = SCRIPTS / "monitor_loop.log"
+    log_path = LOGS / "monitor_loop.log"
     if log_path.exists():
         tail = log_path.read_bytes()[-3000:].decode("utf-8", errors="replace")
         last = [l for l in tail.splitlines() if l.strip()][-5:]
@@ -280,7 +282,7 @@ def _launch_chip(tier: str, mods: str = "") -> str:
     mod_label = (" " + " ".join(mod_parts)) if mod_parts else ""
 
     log_suffix = f"t{tier}" + (f"_{mods}" if mods else "")
-    log_path = SCRIPTS / f"chip_strategy_{log_suffix}.log"
+    log_path = LOGS / f"chip_strategy_{log_suffix}.log"
     with open(log_path, "w", encoding="utf-8") as f:
         f.write(f"--- chip_strategy {label}{mod_label} started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
     cmd = [sys.executable, "-X", "utf8", str(SCRIPTS / "chip_strategy.py"),
@@ -314,7 +316,7 @@ def _h_chip(arg: str) -> str:
         boll_filter  = "b" in rest
         cheap_filter = "e" in rest
         kcb_filter   = "k" in rest
-        log_path = SCRIPTS / "daily_chip_scan.log"
+        log_path = LOGS / "daily_chip_scan.log"
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- daily_chip_scan started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         cmd = [sys.executable, "-X", "utf8", str(SCRIPTS / "daily_chip_scan.py")]
@@ -389,7 +391,7 @@ def _h_shortcut(num: str) -> str:
             return f"❌ 终止失败: {e}"
 
     elif num == "4":
-        log_path = SCRIPTS / "factor_ic_main.log"
+        log_path = LOGS / "factor_ic_main.log"
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- factor_analysis started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         subprocess.Popen(
@@ -402,7 +404,7 @@ def _h_shortcut(num: str) -> str:
         return "因子IC回测已启动（后台运行，约1-2小时）✅\n日志: factor_ic_main.log"
 
     elif num == "5":
-        log_path = SCRIPTS / "batch_financials.log"
+        log_path = LOGS / "batch_financials.log"
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- batch_financials started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         subprocess.Popen(
@@ -414,7 +416,7 @@ def _h_shortcut(num: str) -> str:
         return "batch_financials.py 已启动（后台运行，约1小时）✅"
 
     elif num == "6":
-        log_path = SCRIPTS / "build_universe.log"
+        log_path = LOGS / "build_universe.log"
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- build_universe started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         subprocess.Popen(
@@ -432,7 +434,7 @@ def _h_shortcut(num: str) -> str:
         return _h_logs(20)
 
     elif num == "10":
-        log_path = SCRIPTS / "daily_chip_scan.log"
+        log_path = LOGS / "daily_chip_scan.log"
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- daily_chip_scan started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         subprocess.Popen(
@@ -575,7 +577,7 @@ def _h_backtest_etf(periods: int = 12, fwd: int = 10, workers: int = 4) -> str:
         return f"⚠️ 已有回测进程在运行（PID {pid}），请等待完成或先停止。"
     # Log-mtime fallback
     import time
-    logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+    logs = sorted(LOGS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
     if logs:
         log = logs[0]
         out_json = ROOT / "data" / (log.stem + ".json")
@@ -584,7 +586,7 @@ def _h_backtest_etf(periods: int = 12, fwd: int = 10, workers: int = 4) -> str:
                     f"可能有回测正在运行。如确认已停止请重试。")
 
     out_file = ROOT / "data" / f"backtest_etf_{periods}p.json"
-    log_path = SCRIPTS / f"backtest_etf_{periods}p.log"
+    log_path = LOGS / f"backtest_etf_{periods}p.log"
 
     with open(log_path, "w", encoding="utf-8") as f:
         f.write(f"--- ETF backtest started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
@@ -626,7 +628,7 @@ def _h_picks() -> str:
 
 
 def _h_logs(n: int = 20) -> str:
-    log_path = SCRIPTS / "monitor_loop.log"
+    log_path = LOGS / "monitor_loop.log"
     if not log_path.exists():
         return "monitor_loop.log 不存在。"
     tail = log_path.read_bytes()[-8000:].decode("utf-8", errors="replace")
@@ -656,7 +658,7 @@ def _h_restart() -> str:
             pass
         time.sleep(2)
 
-    log_path = SCRIPTS / "monitor_loop.log"
+    log_path = LOGS / "monitor_loop.log"
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(f"\n--- Restarted by Discord bot at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
     log_fh = open(log_path, "a", encoding="utf-8")
@@ -686,7 +688,7 @@ def _h_suggest() -> str:
         actions.append(("sc 1", "monitor.py 未运行，需要启动"))
 
     # Rule 2: backtest running or done?
-    logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+    logs = sorted(LOGS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
     if logs:
         log = logs[0]
         log_age = time.time() - log.stat().st_mtime
@@ -754,7 +756,7 @@ def _h_overview() -> str:
 
     # --- Processes (log-mtime based, no wmic needed) ---
     procs = []
-    monitor_log = SCRIPTS / "monitor_loop.log"
+    monitor_log = LOGS / "monitor_loop.log"
     if monitor_log.exists() and time.time() - monitor_log.stat().st_mtime < 900:
         age = int((time.time() - monitor_log.stat().st_mtime) / 60)
         procs.append(f"  ✅ monitor.py 运行中（日志 {age}分钟前更新）")
@@ -762,7 +764,7 @@ def _h_overview() -> str:
         procs.append("  ❌ monitor.py 未运行（或超过15分钟无日志）")
 
     bt_pid = _find_backtest_pid()
-    bt_logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+    bt_logs = sorted(LOGS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
     if bt_pid or (bt_logs and time.time() - bt_logs[0].stat().st_mtime < 1800
                   and not (ROOT / "data" / (bt_logs[0].stem + ".json")).exists()):
         procs.append("  ⏳ backtest.py 运行中")
@@ -976,7 +978,7 @@ def _h_kill_backtest() -> str:
     import time
     pid = _find_backtest_pid()
     if not pid:
-        logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+        logs = sorted(LOGS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
         if logs:
             log = logs[0]
             out_json = ROOT / "data" / (log.stem + ".json")
@@ -1002,7 +1004,7 @@ def _h_start_monitor() -> str:
     if pid:
         return f"monitor.py 已在运行（PID {pid}）"
     # Fallback: recent log activity means it's likely running
-    monitor_log = SCRIPTS / "monitor_loop.log"
+    monitor_log = LOGS / "monitor_loop.log"
     if monitor_log.exists() and time.time() - monitor_log.stat().st_mtime < 300:
         age = int((time.time() - monitor_log.stat().st_mtime) / 60)
         return f"monitor.py 看起来已在运行（日志 {age} 分钟前更新）"
@@ -1034,7 +1036,7 @@ def _h_backtest_status() -> str:
     pid = _find_backtest_pid()
 
     # Find most recently modified backtest log
-    logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+    logs = sorted(LOGS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
 
     if not pid:
         # Fallback: if log modified <30min ago and output JSON missing, likely still running
@@ -1076,7 +1078,7 @@ def _h_backtest(periods: int = 16, universe: str = "main", workers: int = 8) -> 
         return f"⚠️ 已有回测进程在运行（PID {pid}），请等待完成或先停止。"
     # Fallback: if log was updated recently and output JSON missing, treat as running
     if not pid:
-        logs = sorted(SCRIPTS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+        logs = sorted(LOGS.glob("backtest_*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
         if logs:
             log = logs[0]
             out_json = ROOT / "data" / (log.stem + ".json")
@@ -1085,15 +1087,15 @@ def _h_backtest(periods: int = 16, universe: str = "main", workers: int = 8) -> 
                         f"回测可能仍在运行。如确认已停止请发 `bt` 重试。")
 
     universe_map = {
-        "main":     SCRIPTS / "main_universe.json",
-        "smallcap": SCRIPTS / "smallcap_universe.json",
+        "main":     ROOT / "data" / "main_universe.json",
+        "smallcap": ROOT / "data" / "smallcap_universe.json",
     }
     universe_file = universe_map.get(universe, universe_map["main"])
     if not universe_file.exists():
         return f"❌ 股票池文件不存在: {universe_file}"
 
     out_file  = ROOT / "data" / f"backtest_{universe}_{periods}p.json"
-    log_path  = SCRIPTS / f"backtest_{universe}_{periods}p.log"
+    log_path  = LOGS / f"backtest_{universe}_{periods}p.log"
 
     with open(log_path, "w", encoding="utf-8") as f:
         f.write(f"--- Backtest started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")

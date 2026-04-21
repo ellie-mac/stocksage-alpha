@@ -4,14 +4,14 @@ Daily strategy pool recorder and forward-return tracker.
 Records each day's top picks from each strategy with entry prices.
 On subsequent runs, computes equal-weighted forward returns.
 
-Storage: scripts/strategy_perf.json (rolling 30 days)
+Storage: data/strategy_perf.json (rolling 30 days)
 """
 
 import json
 import os
 from datetime import datetime
 
-PERF_FILE = os.path.join(os.path.dirname(__file__), "strategy_perf.json")
+PERF_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "strategy_perf.json")
 _MAX_DAYS = 30
 
 _LABELS: dict[str, str] = {

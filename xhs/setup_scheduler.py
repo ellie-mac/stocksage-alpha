@@ -37,9 +37,13 @@ TASKS = [
 
 def create_bat(slot: str) -> Path:
     """Create a .bat launcher for the given slot (gitignored)."""
-    bat = XHS_DIR / f"run_chip_{slot}.bat"
+    bat  = XHS_DIR / f"run_chip_{slot}.bat"
+    log  = REPO_ROOT / "scripts" / "logs" / f"chip_writer_{slot}.log"
     bat.write_text(
-        f'@echo off\ncd /d "{REPO_ROOT}"\n"{PYTHON}" -X utf8 "{CHIP_WRITER}" {slot}\n',
+        f'@echo off\n'
+        f'cd /d "{REPO_ROOT}"\n'
+        f'mkdir "{REPO_ROOT}\\scripts\\logs" 2>nul\n'
+        f'"{PYTHON}" -X utf8 "{CHIP_WRITER}" {slot} >> "{log}" 2>&1\n',
         encoding="utf-8",
     )
     return bat

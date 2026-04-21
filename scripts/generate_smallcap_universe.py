@@ -79,7 +79,7 @@ if __name__ == "__main__":
     parser.add_argument("--include-st", action="store_true",
                         help="Include ST / 退 stocks (excluded by default)")
     parser.add_argument("--out", type=str,
-                        default=os.path.join(os.path.dirname(__file__), "smallcap_universe.json"),
+                        default=os.path.join(os.path.dirname(__file__), "..", "data", "smallcap_universe.json"),
                         help="Output file path")
     args = parser.parse_args()
 
