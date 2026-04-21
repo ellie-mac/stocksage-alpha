@@ -107,7 +107,7 @@ _FACTOR_HELP = """**因子 & 分析**
 **回测**
 `bs` 进度  |  `br` 结果摘要
 `bt` 主板  |  `bts` 小盘  |  `bte` ETF
-数字=期数（`bt` 默认16，`bte` 默认12），`s`=小盘，如 `bt24s`、`bte6`"""
+数字=期数（`bt` 默认16，`bte` 默认12），`s`=小盘，如 `bts24`、`bt24s`、`bte6`"""
 
 def _describe_cmdline(cmd: str) -> str:
     """Convert a Python process command line to a human-readable one-liner."""
@@ -1244,10 +1244,16 @@ def _dispatch_inner(t: str) -> str | None:
             elif p in ("m", "main", "主"):
                 universe = "main"
         import re
-        m = re.match(r'^(\d+)([sm]?)$', raw.replace("期", ""))
+        r = raw.replace("期", "")
+        m = re.match(r'^(\d+)([sm]?)$', r) or re.match(r'^([sm])(\d+)$', r)
         if m:
-            periods  = int(m.group(1))
-            universe = "smallcap" if m.group(2) == "s" else "main"
+            g1, g2 = m.group(1), m.group(2)
+            if g1.isdigit():
+                periods  = int(g1)
+                universe = "smallcap" if g2 == "s" else "main"
+            else:
+                universe = "smallcap" if g1 == "s" else "main"
+                periods  = int(g2)
         return _h_backtest(periods=periods, universe=universe)
 
     return None  # hand off to Claude
