@@ -27,25 +27,39 @@ OLD_TASKS = [
 ]
 
 # 新筹码三段式任务
-CHIP_WRITER = REPO_ROOT / "xhs" / "chip_writer.py"
+CHIP_WRITER   = REPO_ROOT / "xhs" / "chip_writer.py"
+DAILY_SCAN    = REPO_ROOT / "scripts" / "daily_chip_scan.py"
 TASKS = [
-    ("StockSage_ChipMorning", "09:25", "morning"),
-    ("StockSage_ChipMidday",  "11:35", "midday"),
-    ("StockSage_ChipEvening", "15:10", "evening"),
+    ("StockSage_ChipPremarket", "09:00", None),      # 盘前扫描，准备当日数据
+    ("StockSage_ChipMorning",   "09:25", "morning"),
+    ("StockSage_ChipMidday",    "11:35", "midday"),
+    ("StockSage_ChipEvening",   "15:10", "evening"),
 ]
 
 
-def create_bat(slot: str) -> Path:
+def create_bat(slot: str | None) -> Path:
     """Create a .bat launcher for the given slot (gitignored)."""
-    bat  = XHS_DIR / f"run_chip_{slot}.bat"
-    log  = REPO_ROOT / "scripts" / "logs" / f"chip_writer_{slot}.log"
-    bat.write_text(
-        f'@echo off\n'
-        f'cd /d "{REPO_ROOT}"\n'
-        f'mkdir "{REPO_ROOT}\\scripts\\logs" 2>nul\n'
-        f'"{PYTHON}" -X utf8 "{CHIP_WRITER}" {slot} >> "{log}" 2>&1\n',
-        encoding="utf-8",
-    )
+    if slot is None:
+        # Premarket scan: run daily_chip_scan.py --ak, no chip_writer
+        bat = XHS_DIR / "run_chip_premarket.bat"
+        log = REPO_ROOT / "scripts" / "logs" / "chip_scan_premarket.log"
+        bat.write_text(
+            f'@echo off\n'
+            f'cd /d "{REPO_ROOT}"\n'
+            f'mkdir "{REPO_ROOT}\\scripts\\logs" 2>nul\n'
+            f'"{PYTHON}" -X utf8 "{DAILY_SCAN}" --ak >> "{log}" 2>&1\n',
+            encoding="utf-8",
+        )
+    else:
+        bat = XHS_DIR / f"run_chip_{slot}.bat"
+        log = REPO_ROOT / "scripts" / "logs" / f"chip_writer_{slot}.log"
+        bat.write_text(
+            f'@echo off\n'
+            f'cd /d "{REPO_ROOT}"\n'
+            f'mkdir "{REPO_ROOT}\\scripts\\logs" 2>nul\n'
+            f'"{PYTHON}" -X utf8 "{CHIP_WRITER}" {slot} >> "{log}" 2>&1\n',
+            encoding="utf-8",
+        )
     return bat
 
 

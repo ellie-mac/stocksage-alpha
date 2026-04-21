@@ -208,28 +208,159 @@ def apply_suggestions(
         print("  [dry-run] 跳过写入 weight_history.json。")
 
 
+# ── IC-based tuning ─────────────────────────────────────────────────────────────
+
+IC_FILE_DEFAULT = Path(__file__).parent.parent / "data" / "factor_ic_main.json"
+
+# ICIR magnitude → weight magnitude tiers
+_ICIR_TIERS = [(1.0, 1.5), (0.5, 1.0), (0.3, 0.5)]
+
+
+def _icir_to_target(icir: float) -> float:
+    """Map ICIR to a target weight magnitude * sign."""
+    sign = 1.0 if icir >= 0 else -1.0
+    abs_icir = abs(icir)
+    for threshold, magnitude in _ICIR_TIERS:
+        if abs_icir >= threshold:
+            return sign * magnitude
+    return 0.0
+
+
+def compute_ic_suggestions(
+    ic_table: dict,
+    current_weights: dict[str, float],
+) -> tuple[list[dict], list[str]]:
+    """
+    Compute weight adjustment suggestions from IC backtest results.
+
+    Returns (suggestions, warnings) where warnings lists factors with
+    IC=0.000 that were skipped (likely data-gap artifacts).
+    """
+    suggestions: list[dict] = []
+    warnings: list[str] = []
+
+    for factor, current_w in current_weights.items():
+        entry = ic_table.get(factor)
+        if entry is None:
+            continue  # factor not in IC results
+
+        icir    = entry.get("icir") or 0.0
+        mean_ic = entry.get("mean_ic") or 0.0
+
+        # ICIR=0 and IC=0 almost certainly means a data gap — skip
+        if icir == 0.0 and mean_ic == 0.0:
+            warnings.append(f"  ⚠ {factor}: ICIR=0 IC=0, 疑似数据缺口，跳过")
+            continue
+
+        target = _icir_to_target(icir)
+
+        # Gradually move toward target, capped at MAX_DELTA_PER_RUN
+        raw_delta = target - current_w
+        delta = _clamp(raw_delta, -MAX_DELTA_PER_RUN, MAX_DELTA_PER_RUN)
+        new_w = round(current_w + delta, 2)
+
+        # Clamp: preserve sign direction from IC
+        if target >= 0:
+            new_w = _clamp(new_w, 0.0, WEIGHT_MAX)
+        else:
+            new_w = _clamp(new_w, -WEIGHT_MAX, 0.0)
+
+        if new_w == current_w:
+            continue
+
+        suggestions.append({
+            "factor":    factor,
+            "current":   current_w,
+            "suggested": new_w,
+            "delta":     round(new_w - current_w, 4),
+            "icir":      round(icir, 3),
+            "mean_ic":   round(mean_ic, 4),
+        })
+
+    suggestions.sort(key=lambda x: abs(x["delta"]), reverse=True)
+    return suggestions, warnings
+
+
+def print_ic_preview(suggestions: list[dict], warnings: list[str], ic_meta: dict) -> None:
+    print("\n" + "=" * 70)
+    print("  auto_tune --ic — IC回测权重调整预览")
+    print(f"  IC回测: {ic_meta.get('n_stocks',0)}只股票, "
+          f"{ic_meta.get('n_periods',0)}期, step={ic_meta.get('step_days',0)}d")
+    print("=" * 70)
+
+    if warnings:
+        for w in warnings:
+            print(w)
+        print()
+
+    if not suggestions:
+        print("  没有需要调整的权重（当前权重已与IC结果一致）。")
+        print("=" * 70)
+        return
+
+    print(f"  {'因子':<30} {'当前':>6} {'建议':>6}  {'变化':>7}  ICIR")
+    print("  " + "-" * 60)
+    for s in suggestions:
+        arrow = "↑" if s["delta"] > 0 else "↓"
+        print(f"  {s['factor']:<30} {s['current']:>6.2f} {s['suggested']:>6.2f}"
+              f"  {arrow}{abs(s['delta']):>6.3f}  {s['icir']:>+.3f}")
+    print("=" * 70)
+
+
 # ── CLI 入口 ────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="根据信号绩效自动调整因子权重")
+    parser = argparse.ArgumentParser(description="根据信号绩效或IC结果自动调整因子权重")
     parser.add_argument("--preview", action="store_true",
                         help="只预览建议（默认行为）")
     parser.add_argument("--apply", action="store_true",
                         help="将建议应用到 factor_config.py")
+    parser.add_argument("--ic", action="store_true",
+                        help="使用IC回测结果（而非信号胜率）调整权重")
+    parser.add_argument("--ic-file", type=str, default=str(IC_FILE_DEFAULT),
+                        help=f"IC结果文件路径（默认: {IC_FILE_DEFAULT}）")
     args = parser.parse_args()
 
-    # 默认行为：preview
     do_apply = args.apply
     if not do_apply:
         print("运行模式: --preview（使用 --apply 来实际写入权重）")
 
-    # 1. 加载绩效数据
+    # ── IC模式 ───────────────────────────────────────────────────────────────────
+    if args.ic:
+        ic_path = Path(args.ic_file)
+        if not ic_path.exists():
+            print(f"ERROR: IC文件不存在: {ic_path}")
+            return
+        data = _load_json(ic_path)
+        ic_table = data.get("ic_table", {})
+        ic_meta  = data.get("meta", {})
+        if not ic_table:
+            print("ERROR: ic_table 为空，请先运行 factor_analysis.py")
+            return
+
+        try:
+            current_weights = _load_factor_weights()
+            print(f"从 factor_config.py 读取到 {len(current_weights)} 个 NORMAL 权重。")
+        except Exception as e:
+            print(f"ERROR 读取权重: {e}")
+            return
+
+        suggestions, warnings = compute_ic_suggestions(ic_table, current_weights)
+        print_ic_preview(suggestions, warnings, ic_meta)
+
+        if do_apply:
+            print("\n应用IC权重调整...")
+            apply_suggestions(suggestions, current_weights, dry_run=False)
+        elif suggestions:
+            print("\n  提示: 使用 --apply 参数将上述调整写入 factor_config.py")
+        return
+
+    # ── 信号胜率模式（原逻辑）────────────────────────────────────────────────────
     perf = _load_json(PERF_LOG)
     if not perf:
         print(f"WARN: {PERF_LOG} 不存在或为空。请先运行 signal_tracker.py。")
         return
 
-    # 2. 检查全局样本量（20d 完成信号总数）
     fwd20_stats = perf.get("window_stats", {}).get("fwd_20d", {})
     total_signals = fwd20_stats.get("n", 0)
     print(f"已完成 20d 买入信号总数: {total_signals}（最低要求: {MIN_TOTAL_SIGNALS}）")
@@ -238,7 +369,6 @@ def main() -> None:
         print(f"  样本不足，暂不调整权重。")
         return
 
-    # 3. 加载当前权重
     try:
         current_weights = _load_factor_weights()
         print(f"  从 factor_config.py 读取到 {len(current_weights)} 个 NORMAL 权重。")
@@ -246,21 +376,15 @@ def main() -> None:
         print(f"  ERROR 读取权重: {e}")
         return
 
-    # 4. 计算建议
     factor_hit_rates = perf.get("factor_hit_rates", {})
     suggestions = compute_suggestions(factor_hit_rates, current_weights)
-
-    # 5. 打印预览
     print_preview(suggestions, total_signals)
 
-    # 6. 若 --apply，写入文件
     if do_apply:
         print("\n应用权重调整...")
         apply_suggestions(suggestions, current_weights, dry_run=False)
-    else:
-        # preview 模式也可以展示 dry-run 日志
-        if suggestions:
-            print("\n  提示: 使用 --apply 参数将上述调整写入 factor_config.py")
+    elif suggestions:
+        print("\n  提示: 使用 --apply 参数将上述调整写入 factor_config.py")
 
 
 if __name__ == "__main__":
