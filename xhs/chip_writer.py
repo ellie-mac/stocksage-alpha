@@ -65,28 +65,32 @@ def _load_scan() -> dict:
     return json.loads(SCAN_PATH.read_text(encoding="utf-8"))
 
 
-def _fetch_prices(codes: list[str]) -> dict[str, dict]:
-    """通过 akshare 拉取实时行情，返回 {code: {price, change_pct}}"""
+def _fetch_prices(codes: list[str], retries: int = 3, delay: float = 5.0) -> dict[str, dict]:
+    """通过 akshare 拉取实时行情，返回 {code: {price, change_pct}}。失败自动重试。"""
     if not codes:
         return {}
-    try:
-        import akshare as ak
-        df = ak.stock_zh_a_spot_em()
-        df = df[df["代码"].isin(codes)].copy()
-        result: dict[str, dict] = {}
-        for _, row in df.iterrows():
-            code = str(row["代码"]).zfill(6)
-            try:
-                result[code] = {
-                    "price":      float(row["最新价"]),
-                    "change_pct": float(row["涨跌幅"]),
-                }
-            except Exception:
-                pass
-        return result
-    except Exception as e:
-        print(f"[prices] 获取失败: {e}")
-        return {}
+    import time as _time
+    import akshare as ak
+    for attempt in range(1, retries + 1):
+        try:
+            df = ak.stock_zh_a_spot_em()
+            df = df[df["代码"].isin(codes)].copy()
+            result: dict[str, dict] = {}
+            for _, row in df.iterrows():
+                code = str(row["代码"]).zfill(6)
+                try:
+                    result[code] = {
+                        "price":      float(row["最新价"]),
+                        "change_pct": float(row["涨跌幅"]),
+                    }
+                except Exception:
+                    pass
+            return result
+        except Exception as e:
+            print(f"[prices] 获取失败（第{attempt}次）: {e}")
+            if attempt < retries:
+                _time.sleep(delay)
+    return {}
 
 
 def _calc_stats(picks: list[dict], prices: dict[str, dict]) -> dict:
@@ -183,7 +187,13 @@ def cmd_midday(dry_run: bool = False) -> None:
     prices = _fetch_prices(codes)
     s      = _calc_stats(picks, prices)
     if not s["results"]:
-        print("[midday] 无价格数据")
+        print("[midday] 行情获取失败，发送无数据版本")
+        title = f"筹码午报 {_fmt_date(date)}（行情暂不可用）"
+        body  = (f"📈 午间快报 {_fmt_date(date)} 11:30\n"
+                 f"筹码选股 {len(picks)} 只（行情数据暂时不可用，请自行查看）\n"
+                 f"\n⚠️ 仅供参考，不构成投资建议\n#量化记录 #筹码分布 #数据实验")
+        if not dry_run:
+            _push(title, body)
         return
 
     lines = [f"📈 午间快报 {_fmt_date(date)} 11:30"]
@@ -232,7 +242,13 @@ def cmd_evening(dry_run: bool = False) -> None:
     prices = _fetch_prices(codes)
     s      = _calc_stats(picks, prices)
     if not s["results"]:
-        print("[evening] 无价格数据")
+        print("[evening] 行情获取失败，发送无数据版本")
+        title = f"筹码收盘 {_fmt_date(date)}（行情暂不可用）"
+        body  = (f"📊 收盘总结 {_fmt_date(date)}\n"
+                 f"筹码选股 {len(picks)} 只（行情数据暂时不可用，请自行查看）\n"
+                 f"\n⚠️ 仅供参考，不构成投资建议\n#量化记录 #筹码分布 #数据实验 #记录帖")
+        if not dry_run:
+            _push(title, body)
         return
 
     if s["win_rate"] >= 70 and s["avg_ret"] >= 0.5:

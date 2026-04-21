@@ -396,7 +396,7 @@ def _h_shortcut(num: str) -> str:
             f.write(f"--- factor_analysis started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         subprocess.Popen(
             [sys.executable, "-X", "utf8", str(SCRIPTS / "factor_analysis.py"),
-             "--rolling", "6", "--step", "20", "--out", str(ROOT / "factor_ic.json")],
+             "--rolling", "6", "--step", "20", "--out", str(ROOT / "data" / "factor_ic.json")],
             cwd=str(ROOT),
             stdout=open(log_path, "a", encoding="utf-8"),
             stderr=subprocess.STDOUT,
@@ -941,7 +941,7 @@ _FACTOR_GLOSSARY: dict[str, str] = {
 }
 
 def _h_ic() -> str:
-    ic_path = ROOT / "factor_ic.json"
+    ic_path = ROOT / "data" / "factor_ic.json"
     if not ic_path.exists():
         return "factor_ic.json 不存在"
     data = json.loads(ic_path.read_text(encoding="utf-8"))
