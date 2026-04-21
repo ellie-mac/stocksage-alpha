@@ -36,15 +36,16 @@ OLD_TASKS = [
 # ── Scheduled tasks ───────────────────────────────────────────────────────────
 # (name, time HH:MM, slot_key)
 TASKS = [
-    # ── Chip scan pipeline ─────────────────────────────────────
-    ("StockSage_ChipNight",     "23:00", "chip_night"),       # 夜间预取
-    ("StockSage_ChipPremarket", "09:00", "chip_premarket"),   # 盘前兜底
-    ("StockSage_ChipMorning",   "09:25", "chip_morning"),     # 盘前推送
-    ("StockSage_ChipMidday",    "11:35", "chip_midday"),      # 午间推送
-    ("StockSage_ChipEvening",   "15:10", "chip_evening"),     # 收盘推送
-    # ── EOD analytics ─────────────────────────────────────────
-    ("StockSage_ChipPerfLog",   "17:15", "perf_log"),         # 筹码胜率
-    ("StockSage_MonitorScan",   "17:30", "monitor_scan"),     # 主策略选股
+    # (name, time, slot, description, wechat_push)
+    # ── Chip scan pipeline ──────────────────────────────────────────────────
+    ("StockSage_ChipNight",     "23:00", "chip_night",     "夜间预取筹码缓存，不推送",          False),
+    ("StockSage_ChipPremarket", "07:00", "chip_premarket", "盘前兜底缓存（夜间未跑时补救），不推送", False),
+    ("StockSage_ChipMorning",   "09:25", "chip_morning",   "盘前筹码分析推送 📱",               True),
+    ("StockSage_ChipMidday",    "11:35", "chip_midday",    "午间筹码分析推送 📱",               True),
+    ("StockSage_ChipEvening",   "15:10", "chip_evening",   "收盘筹码分析推送 📱",               True),
+    # ── EOD analytics ───────────────────────────────────────────────────────
+    ("StockSage_ChipPerfLog",   "17:15", "perf_log",       "cad/cadm 每日胜率统计推送 📱",      True),
+    ("StockSage_MonitorScan",   "17:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json", False),
 ]
 
 
@@ -90,23 +91,22 @@ def register():
         subprocess.run(f'schtasks /delete /tn "{name}" /f',
                        shell=True, capture_output=True, text=True)
 
-    for name, time_str, slot in TASKS:
+    for name, time_str, slot, desc, push in TASKS:
         bat_path, bat_content = _bat(slot)
         bat_path.write_text(bat_content, encoding="utf-8")
         cmd = (f'schtasks /create /tn "{name}" /tr "{bat_path}" /sc daily /st {time_str}'
                f' /f /rl HIGHEST')
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        if result.returncode == 0:
-            print(f"✅  {name:<35}  每天 {time_str}")
-        else:
-            print(f"❌  {name:<35}  失败: {result.stderr.strip()}")
+        mark = "✅" if result.returncode == 0 else "❌"
+        err  = f"  失败: {result.stderr.strip()}" if result.returncode != 0 else ""
+        print(f"{mark}  {time_str}  {name:<35}  {desc}{err}")
 
     print()
     print("完成。各脚本内置超时检查，超出窗口自动跳过。")
 
 
 def remove():
-    all_names = [n for n, _, _ in TASKS] + OLD_TASKS
+    all_names = [n for n, _, _, _, _ in TASKS] + OLD_TASKS
     for name in all_names:
         result = subprocess.run(
             f'schtasks /delete /tn "{name}" /f',
@@ -119,17 +119,18 @@ def remove():
 
 
 def status():
-    for name, time_str, _ in TASKS:
+    for name, time_str, _, desc, push in TASKS:
         result = subprocess.run(
             f'schtasks /query /tn "{name}" /fo LIST',
             shell=True, capture_output=True, text=True,
         )
+        push_tag = "📱" if push else "  "
         if result.returncode == 0:
             for line in result.stdout.splitlines():
                 if any(kw in line for kw in ("状态", "Status", "下次运行", "Next Run")):
-                    print(f"  {name} ({time_str}): {line.strip()}")
+                    print(f"  {push_tag} {time_str}  {name:<35}  {desc}  [{line.strip()}]")
         else:
-            print(f"  {name} ({time_str}): 未注册")
+            print(f"  {push_tag} {time_str}  {name:<35}  {desc}  [未注册]")
 
 
 if __name__ == "__main__":
