@@ -67,8 +67,13 @@ sys.path.insert(0, str(SCRIPTS))
 _executor = ThreadPoolExecutor(max_workers=4)
 
 # ── Config ────────────────────────────────────────────────────────────────────
+_CFG_CACHE: dict | None = None
+
 def _cfg() -> dict:
-    return json.loads((BOT_DIR / "config.json").read_text(encoding="utf-8"))
+    global _CFG_CACHE
+    if _CFG_CACHE is None:
+        _CFG_CACHE = json.loads((BOT_DIR / "config.json").read_text(encoding="utf-8"))
+    return _CFG_CACHE
 
 def _dc_cfg() -> dict:
     return _cfg().get("discord", {})
