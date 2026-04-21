@@ -180,7 +180,7 @@ def main() -> None:
 
     # Build push
     date_fmt = f"{today[4:6]}/{today[6:]}"
-    lines = [f"## 📊 筹码胜率对比 {date_fmt}\n"]
+    lines = []
 
     # Summary table
     lines.append("| 策略 | 只数 | 胜率 | 均涨 |")
@@ -232,7 +232,7 @@ def main() -> None:
             f"{lbl}{b.get('total_win_rate','-')}%"
             for lbl, b, _ in blocks if b.get("total_win_rate") is not None
         ]
-        title = f"筹码胜率 {date_fmt} | {' / '.join(parts)}"
+        title = f"筹码胜率对比 {date_fmt} | {' / '.join(parts)}"
         send_wechat(title, push_body, sendkey)
         print("[perf] 微信推送成功")
     except Exception as e:

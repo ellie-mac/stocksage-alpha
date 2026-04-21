@@ -79,7 +79,7 @@ def main() -> None:
         "MACD近零" if macd_zero else "",
     ]))
 
-    sections: list[str] = [f"## 筹码数据驱动 {date_fmt}  ({mod_label})"]
+    sections: list[str] = []
     total = 0
     saves: dict[str, list[dict]] = {}
 
@@ -141,8 +141,8 @@ def main() -> None:
     latest.write_text(payload, encoding="utf-8")
     print(f"[cad] 已保存 {dated.name}（共{total}只）")
 
-    body  = "\n".join(sections) + f"\n\n> 共 **{total}** 只  |  ⚠️ 仅供参考"
-    title = f"筹码数据驱动 {date_fmt} | 共{total}只"
+    body  = "\n".join(sections) + f"\n\n> ⚠️ 仅供参考，不构成投资建议"
+    title = f"筹码驱动 {date_fmt} ({mod_label}) 共{total}只"
     print(f"\n{title}\n")
     send_wechat(title, body, sendkey, dry_run=args.dry_run)
 
