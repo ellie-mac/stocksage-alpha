@@ -100,7 +100,8 @@ _HELP = """**StockSage 命令**
 `bt` / `bt16s` 个股回测  |  `bte` / `bte12` ETF回测
 `sug` 给我建议  |  `do` 执行上条建议
 `sch` 快捷命令列表  |  `sc 1-9` 执行快捷命令
-`ca` 筹码全档扫描  |  `cah` 全档+排半年高位  |  `ch` 筹码命令详情
+`ca` 筹码全档扫描  |  `cah` 全档+排半年高位  |  `cabekh` 全档+BOLL+≤50+排科创+排半年高位
+`c all`修饰符可叠加：`b` BOLL  `e` 股价≤50  `k` 排科创  `h` 排半年高位  |  `ch` 详情
 `h` 帮助  💬 其他走AI对话（消耗token）"""
 
 def _describe_cmdline(cmd: str) -> str:
