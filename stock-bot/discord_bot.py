@@ -94,17 +94,17 @@ def _claude_api_key() -> str:
     return _cfg().get("claude", {}).get("api_key", "")
 
 # ── Command handlers ──────────────────────────────────────────────────────────
-_HELP = """**StockSage 命令**
-`z` 系统状态  |  `q` 全局概览
-`p` 今日推荐  |  `ic` 因子IC摘要
-`ich` 因子列表  |  `icf 因子名` 因子说明  |  `fx 600519` 单股分析
-`bs` 回测进度  |  `br` 回测结果摘要
-`bt` / `bt16s` 个股回测  |  `bte` / `bte12` ETF回测
-`sug` 给我建议  |  `do` 执行上条建议
-`sch` 快捷命令列表  |  `sc 1-9` 执行快捷命令
-`ca` 筹码全档扫描  |  `cah` 全档+排半年高位  |  `cabekh` 全档+BOLL+≤50+排科创+排半年高位
-`c all`修饰符可叠加：`b` BOLL  `e` 股价≤50  `k` 排科创  `h` 排半年高位  |  `ch` 详情
-`h` 帮助  💬 其他走AI对话（消耗token）"""
+_HELP = """**筹码策略**
+`ca` 全档  |  `cah` 全档+排高位  |  `cabekh` 全档+BOLL+≤50+排科创+排高位
+修饰符：`b` BOLL  `e` 股价≤50  `k` 排科创  `h` 排高位  |  `ch` 筹码详情
+
+`fh` 因子/回测  |  `sch` 系统/快捷  |  💬 其他走AI对话"""
+
+_FACTOR_HELP = """**因子 & 分析**
+`ic` 因子IC摘要  |  `ich` 因子列表  |  `icf 因子名` 因子说明  |  `fx 600519` 单股分析
+
+**回测**
+`bs` 回测进度  |  `br` 结果摘要  |  `bt` / `bt16s` 组合回测  |  `bte` / `bte12` ETF回测"""
 
 def _describe_cmdline(cmd: str) -> str:
     """Convert a Python process command line to a human-readable one-liner."""
@@ -226,20 +226,14 @@ def _h_test_now() -> str:
     return "已触发全市场扫描 (--test-now)，结果稍后发送到微信 📱"
 
 
-_SC_LIST = """**快捷命令 (sc N)**  — 发 `sch` 查看此列表
-`sc 1` 启动 monitor 循环
-`sc 2` 重启 monitor（先停后启）
-`sc 3` 终止回测进程
-`sc 4` 因子IC回测（factor_analysis）
-`sc 5` 批量预热财务缓存（batch_financials）
-`sc 6` 重建股票池（build_universe）
-`sc 7` 扫盘推送 📱微信
-`sc 8` monitor 日志最近20行
-`sc 9`   筹码T1 ≥95%（最严格）📱微信
-`sc 9 2` 筹码T2 90-95% 📱  `sc 9 3` T3  `sc 9 4` T4  `sc 9 5` T5
-`sc 10`  筹码全档T1-T5合并扫描，一条微信汇总 📱
-修饰符：`e` 剔除股价>50  `k` 剔除科创板  （如 `sc 9ek`、`sc 9 2k`）
-筹码精选命令见 `c help`"""
+_SC_LIST = """**系统 & 快捷**
+`z` 状态  |  `q` 全局概览  |  `p` 今日推荐  |  `sug` 给我建议  |  `do` 执行建议
+
+**快捷命令 sc N**
+`sc 1` 启动 monitor  |  `sc 2` 重启 monitor  |  `sc 3` 终止回测
+`sc 4` 因子IC回测  |  `sc 5` 预热财务缓存  |  `sc 6` 重建股票池
+`sc 7` 扫盘推送 📱  |  `sc 8` monitor日志
+筹码快捷见 `ch`"""
 
 _CHIP_LIST = """**筹码命令**
 `ca`         全档T1-T5合并汇总（默认MACD近零）📱
@@ -247,9 +241,15 @@ _CHIP_LIST = """**筹码命令**
 `c all`修饰符可叠加：`b` BOLL中轨  `e` 股价≤50  `k` 排科创  `h` 排半年高位 📱
 `c 1`~`c 5`  各档筹码扫描（T1≥95% / T2:90-95% / T3:85-90% / T4:75-85% / T5:65-75%）📱
 修饰符（c 1-5 可叠加）：
-  `e` 剔除股价>50      `k` 剔除科创板      `h` 排除半年高位
+  `e` 剔除股价>50      `k` 排科创      `h` 排半年高位
   `b` BOLL中轨±8%过滤  `m` MACD绿柱收敛  `z` MACD柱离零轴≤1%
-示例：`c 1bmz`  `c 2mz`  `c 4kh`  `c all bh`"""
+示例：`c 1bmz`  `c 2mz`  `c 4kh`  `c all bh`
+
+**快捷扫描 (sc)**
+`sc 9`   筹码T1 ≥95%（最严格）📱
+`sc 9 2` T2 90-95% 📱  `sc 9 3` T3  `sc 9 4` T4  `sc 9 5` T5
+`sc 10`  筹码全档T1-T5合并 📱
+修饰符：`e` 股价≤50  `k` 排科创（如 `sc 9ek`、`sc 9 2k`）"""
 
 # Chip tier config: (min_win, max_win_or_None)
 _CHIP_TIERS = {
@@ -1152,6 +1152,8 @@ def _dispatch_inner(t: str) -> str | None:
 
     if t in ("帮助", "help", "h", "？", "?"):
         return _HELP
+    elif t == "fh":
+        return _FACTOR_HELP
     elif t in ("状态", "status", "z"):
         return _h_status()
     elif t in ("q", "全局概览", "当前状态", "overview"):

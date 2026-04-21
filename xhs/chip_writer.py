@@ -111,19 +111,24 @@ def _calc_stats(picks: list[dict], prices: dict[str, dict]) -> dict:
         return {"results": [], "n_total": 0, "n_win": 0,
                 "win_rate": 0.0, "avg_ret": 0.0, "top5": [],
                 "watch_up": [], "watch_dn": []}
-    n_win    = sum(1 for r in results if r["change_pct"] > 0)
-    win_rate = n_win / len(results) * 100
-    avg_ret  = sum(r["change_pct"] for r in results) / len(results)
-    by_chg   = sorted(results, key=lambda r: r["change_pct"], reverse=True)
+    import math
+    nan_stocks = [r for r in results if math.isnan(r["change_pct"])]
+    valid    = [r["change_pct"] for r in results if not math.isnan(r["change_pct"])]
+    n_win    = sum(1 for v in valid if v > 0)
+    win_rate = n_win / len(valid) * 100 if valid else 0.0
+    avg_ret  = sum(valid) / len(valid) if valid else 0.0
+    by_chg   = sorted([r for r in results if not math.isnan(r["change_pct"])],
+                      key=lambda r: r["change_pct"], reverse=True)
     return {
-        "results":  results,
-        "n_total":  len(results),
-        "n_win":    n_win,
-        "win_rate": win_rate,
-        "avg_ret":  avg_ret,
-        "top5":     by_chg[:5],
-        "watch_up": [r for r in results if 0 < r["change_pct"] <= 3.0],
-        "watch_dn": [r for r in by_chg if r["change_pct"] < 0][:3],
+        "results":    results,
+        "n_total":    len(results),
+        "n_win":      n_win,
+        "win_rate":   win_rate,
+        "avg_ret":    avg_ret,
+        "top5":       by_chg[:5],
+        "watch_up":   [r for r in by_chg if 0 < r["change_pct"] <= 3.0],
+        "watch_dn":   [r for r in by_chg if r["change_pct"] < 0][:3],
+        "nan_stocks": nan_stocks,
     }
 
 
@@ -224,9 +229,9 @@ def cmd_midday(dry_run: bool = False) -> None:
         _push(title, body)
 
 
-def cmd_evening(dry_run: bool = False) -> None:
+def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
     """收盘总结：最终胜率、收益率、Top5、总结"""
-    if not _in_window("evening"):
+    if not force and not _in_window("evening"):
         return
     data = _load_scan()
     if not data:
@@ -269,6 +274,11 @@ def cmd_evening(dry_run: bool = False) -> None:
     lines.append(f"**综合收益率 {s['avg_ret']:+.2f}%**\n")
 
     lines.append(summary)
+
+    if s["nan_stocks"]:
+        codes = " ".join(f"{r['code']}{r['name']}" for r in s["nan_stocks"])
+        lines.append(f"\n⚠️ 行情缺失（停牌/数据异常）：{codes}")
+
     lines.append("\n⚠️ 仅供参考，不构成投资建议")
     lines.append("#量化记录 #筹码分布 #数据实验 #记录帖")
 
@@ -285,9 +295,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("slot", choices=["morning", "midday", "evening"])
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true", help="跳过时间窗口检查")
     args = parser.parse_args()
     fn = {"morning": cmd_morning, "midday": cmd_midday, "evening": cmd_evening}[args.slot]
-    fn(args.dry_run)
+    fn(args.dry_run, args.force) if args.slot == "evening" else fn(args.dry_run)
 
 
 if __name__ == "__main__":
