@@ -1400,6 +1400,8 @@ def run_loop(
     _premarket_picks: list[str] = _state.get("premarket_picks", [])
     _night_scan_date: Optional[object] = _restore_date("night_scan_date")
     _night_picks: list[str] = _state.get("night_picks", [])   # 22:00 buy signals → 9:25 auction check
+    _regime_cached: Optional[tuple] = None
+    _regime_cached_at: float = 0.0
     _WATCHLIST_INTERVAL_MIN = 5
 
     # Holdings hot-reload: detect changes to holdings.json without restarting
@@ -1950,18 +1952,22 @@ def run_loop(
         scan_id = (now.date(), session_key) if session_key else None
         need_full = scan_id is not None and scan_id not in _scanned_sessions
 
-        # Fetch regime once if either scan will run this iteration
+        # Fetch regime at most once per hour; reuse cached value between iterations
         _regime_this_iter = None
         if need_watchlist or need_full:
-            try:
-                mkt = score_market_regime(fetcher.get_market_regime_data())
-                if mkt:
-                    _regime_this_iter = (
-                        mkt.get("score", 5.0),
-                        mkt.get("details", {}).get("signal", "unknown"),
-                    )
-            except Exception:
-                pass
+            _regime_cache_age = time.time() - _regime_cached_at
+            if _regime_cached is None or _regime_cache_age > 3600:
+                try:
+                    mkt = score_market_regime(fetcher.get_market_regime_data())
+                    if mkt:
+                        _regime_cached = (
+                            mkt.get("score", 5.0),
+                            mkt.get("details", {}).get("signal", "unknown"),
+                        )
+                        _regime_cached_at = time.time()
+                except Exception:
+                    pass
+            _regime_this_iter = _regime_cached
 
         if need_watchlist:
             print(f"[{run_time}] Watchlist scan ({len(watchlist)} stocks)...")

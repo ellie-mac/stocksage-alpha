@@ -17,10 +17,11 @@ _spot_lock = threading.Lock()
 _spot_em_failed = False       # True after a timeout; reset after _SPOT_RETRY_SEC
 _spot_em_failed_at: float = 0.0
 _SPOT_RETRY_SEC = 300         # retry after 5 min (avoids permanent lock-out on transient failure)
-_hist_em_failed = False  # once set True, skip stock_zh_a_hist and go straight to fallback
-_hist_ts_failed = False  # once set True, skip Tushare daily this session
-_hist_tdx_failed = False  # once set True, skip mootdx for price history this session
-_rt_tdx_failed   = False  # once set True, skip mootdx for realtime quotes this session
+_HIST_RETRY_SEC = 1800        # retry failed price-history sources after 30 min
+_hist_em_failed = False;  _hist_em_failed_at: float = 0.0
+_hist_ts_failed = False;  _hist_ts_failed_at: float = 0.0
+_hist_tdx_failed = False; _hist_tdx_failed_at: float = 0.0
+_rt_tdx_failed   = False; _rt_tdx_failed_at: float   = 0.0
 
 _ts_pro = None           # Tushare Pro API handle; initialised lazily from alert_config token
 
@@ -415,7 +416,10 @@ def _get_realtime_quote_tdx(code: str) -> Optional[dict]:
     adjustment needed for realtime — this is the correct value to display
     and compare against cost_price.
     """
-    global _rt_tdx_failed
+    global _rt_tdx_failed, _rt_tdx_failed_at
+    import time as _time
+    if _rt_tdx_failed and _time.time() - _rt_tdx_failed_at > _HIST_RETRY_SEC:
+        _rt_tdx_failed = False
     if _rt_tdx_failed:
         return None
     try:
@@ -451,7 +455,7 @@ def _get_realtime_quote_tdx(code: str) -> Optional[dict]:
             "amount":     amount,
         }
     except ImportError:
-        _rt_tdx_failed = True
+        _rt_tdx_failed = True; _rt_tdx_failed_at = _time.time()
         return None
     except Exception:
         return None
@@ -537,7 +541,14 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
       4. 163/Netease (stock_zh_a_daily)  — V8-based
       5. mootdx/通达信                   — binary TCP; unadjusted (last resort)
     """
-    global _hist_em_failed, _hist_ts_failed, _hist_tdx_failed
+    global _hist_em_failed, _hist_em_failed_at
+    global _hist_ts_failed, _hist_ts_failed_at
+    global _hist_tdx_failed, _hist_tdx_failed_at
+    import time as _time
+    _now = _time.time()
+    if _hist_em_failed  and _now - _hist_em_failed_at  > _HIST_RETRY_SEC: _hist_em_failed  = False
+    if _hist_ts_failed  and _now - _hist_ts_failed_at  > _HIST_RETRY_SEC: _hist_ts_failed  = False
+    if _hist_tdx_failed and _now - _hist_tdx_failed_at > _HIST_RETRY_SEC: _hist_tdx_failed = False
     fetch_days = max(days, _PRICE_FETCH_DAYS)
     cache_key = f"price_{code}_{fetch_days}"
     cached = cache.get_df(cache_key, cache.smart_price_ttl())
@@ -571,7 +582,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             cache.set_df(cache_key, df)
             return df
         except Exception:
-            _hist_em_failed = True  # fail fast for all subsequent calls this session
+            _hist_em_failed = True; _hist_em_failed_at = _time.time()
 
     # ── Source 2: Tushare Pro daily (adj=qfq) ────────────────────────────
     # Basic tier (120pts), 500 calls/min, data available ~15:00-16:00 each day.
@@ -579,7 +590,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         try:
             pro = _get_tushare_pro()
             if pro is None:
-                _hist_ts_failed = True
+                _hist_ts_failed = True; _hist_ts_failed_at = _time.time()
             else:
                 ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
                 end_ts = datetime.now()
@@ -607,7 +618,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                             return df.tail(days).reset_index(drop=True)
                         return df
         except Exception:
-            _hist_ts_failed = True
+            _hist_ts_failed = True; _hist_ts_failed_at = _time.time()
 
     # ── Source 3: BaoStock (free, no V8, reliable) ───────────────────────
     # BaoStock's Python client is NOT thread-safe: all concurrent callers share
@@ -743,9 +754,9 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                         return df.tail(days).reset_index(drop=True)
                     return df
         except ImportError:
-            _hist_tdx_failed = True
+            _hist_tdx_failed = True; _hist_tdx_failed_at = _time.time()
         except Exception:
-            _hist_tdx_failed = True
+            _hist_tdx_failed = True; _hist_tdx_failed_at = _time.time()
 
     return None
 
