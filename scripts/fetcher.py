@@ -871,9 +871,15 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
                     return float("nan")
 
             df = df.copy()
-            df["净利润增长率(%)"]     = df["净利润同比增长率"].apply(_pct)
-            df["总营收同比增长率(%)"] = df["营业总收入同比增长率"].apply(_pct)
-            df["净资产收益率(%)"]     = df["净资产收益率"].apply(_pct)
+            for _col in ["净利润同比增长率", "营业总收入同比增长率", "净资产收益率"]:
+                _nan_n = df[_col].isna().sum() if _col in df.columns else 0
+                if _nan_n:
+                    print(f"[financial] {code} {_col}: {_nan_n} NaN values coerced to NaN")
+            def _pct_vec(series):
+                return pd.to_numeric(series.astype(str).str.replace("%", "", regex=False).str.strip(), errors="coerce")
+            df["净利润增长率(%)"]     = _pct_vec(df["净利润同比增长率"])
+            df["总营收同比增长率(%)"] = _pct_vec(df["营业总收入同比增长率"])
+            df["净资产收益率(%)"]     = _pct_vec(df["净资产收益率"])
             # Sort most-recent first (报告期 is year int/str)
             df = df.sort_values("报告期", ascending=False).reset_index(drop=True)
             cache.set_df(cache_key, df)
@@ -1221,6 +1227,7 @@ def _get_hot_rank_df() -> Optional[pd.DataFrame]:
     means the full table is downloaded only once per 2h window regardless of
     how many stocks are scored.  Thread-safe via _hot_rank_cache_lock.
     """
+    import time as _time
     TTL = 7200  # 2 hours
     with _hot_rank_cache_lock:
         cached_df = _hot_rank_cache.get("df")

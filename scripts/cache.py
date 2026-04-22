@@ -55,10 +55,13 @@ _SUBDIR_MAP = {
     "visits":           "misc",
 }
 
+# Pre-sorted by descending prefix length so longest-prefix wins on first match
+_SUBDIR_LIST = sorted(_SUBDIR_MAP.items(), key=lambda x: -len(x[0]))
+
 
 def _subdir_for(key: str) -> str:
     """Return the subdirectory name for a given cache key."""
-    for prefix, subdir in sorted(_SUBDIR_MAP.items(), key=lambda x: -len(x[0])):
+    for prefix, subdir in _SUBDIR_LIST:
         if key.startswith(prefix):
             return subdir
     return "misc"
@@ -81,8 +84,8 @@ def get(key: str, ttl_seconds: int) -> Optional[Any]:
         if time.time() - entry["ts"] > ttl_seconds:
             return None
         return entry["data"]
-    except Exception:
-        # Corrupted or unreadable file — delete it so subsequent calls re-fetch cleanly
+    except Exception as e:
+        print(f"[cache] warn: corrupt cache '{key}': {e}")
         try:
             os.remove(path)
         except OSError:
@@ -105,8 +108,8 @@ def set(key: str, data: Any) -> None:
     except (ValueError, TypeError):
         # NaN / non-serializable value — skip caching silently
         pass
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[cache] warn: failed to write '{key}': {e}")
 
 
 def get_df(key: str, ttl_seconds: int) -> Optional[pd.DataFrame]:
@@ -195,8 +198,8 @@ def smart_price_ttl() -> int:
 
 
 def smart_valuation_ttl() -> int:
-    """Return valuation TTL: extended after market close, shorter before open."""
-    return max(smart_price_ttl(), TTL_VALUATION)
+    """Return valuation TTL: always 24h — PE/PB doesn't change intraday."""
+    return TTL_VALUATION
 
 
 def purge_expired(max_age_seconds: int = TTL_FINANCIAL) -> int:

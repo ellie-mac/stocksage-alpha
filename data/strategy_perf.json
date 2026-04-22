@@ -149,5 +149,43 @@
       ],
       "smallcap": []
     }
+  },
+  {
+    "date": "2026-04-22",
+    "strategies": {
+      "lowvol": [
+        {
+          "code": "001203",
+          "name": "大中矿业",
+          "price": 45.11,
+          "buy_score": 86.2
+        },
+        {
+          "code": "000815",
+          "name": "美利云",
+          "price": 21.16,
+          "buy_score": 85.6
+        },
+        {
+          "code": "301658",
+          "name": "首航新能",
+          "price": 42.09,
+          "buy_score": 85.6
+        },
+        {
+          "code": "000534",
+          "name": "万泽股份",
+          "price": 42.32,
+          "buy_score": 83.6
+        },
+        {
+          "code": "300903",
+          "name": "科翔股份",
+          "price": 43.72,
+          "buy_score": 82.2
+        }
+      ],
+      "smallcap": []
+    }
   }
 ]

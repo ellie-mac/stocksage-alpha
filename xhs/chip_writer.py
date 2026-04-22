@@ -25,10 +25,11 @@ XHS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 SCAN_PATH = ROOT / "data" / "chip_scan_latest.json"
+CAD_PATH  = ROOT / "data" / "chip_cad_latest.json"
 
 # 超出计划时间多少分钟后跳过（防止补跑）
 MAX_DELAY = {"morning": 60, "midday": 40, "evening": 90}
-SCHED_TIME = {"morning": dtime(9, 25), "midday": dtime(11, 35), "evening": dtime(15, 10)}
+SCHED_TIME = {"morning": dtime(9, 25), "midday": dtime(11, 35), "evening": dtime(15, 30)}
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -59,8 +60,24 @@ def _in_window(slot: str) -> bool:
 
 
 def _load_scan() -> dict:
+    """优先读 chip_cad_latest.json（bekh过滤），fallback 到全量 chip_scan_latest.json。"""
+    if CAD_PATH.exists():
+        raw = json.loads(CAD_PATH.read_text(encoding="utf-8"))
+        all_picks = []
+        for tier_key, picks in raw.get("tiers", {}).items():
+            for p in picks:
+                p2 = dict(p)
+                p2["tier"] = tier_key
+                all_picks.append(p2)
+        if all_picks:
+            return {
+                "date":      raw.get("date", datetime.now().strftime("%Y%m%d")),
+                "all_picks": all_picks,
+                "tiers":     raw.get("tiers", {}),
+                "filter":    raw.get("mods", ""),
+            }
     if not SCAN_PATH.exists():
-        print(f"[chip_writer] 找不到 {SCAN_PATH}，请先运行 cah")
+        print(f"[chip_writer] 找不到 {SCAN_PATH} 和 {CAD_PATH}")
         return {}
     return json.loads(SCAN_PATH.read_text(encoding="utf-8"))
 
@@ -85,6 +102,23 @@ def _fetch_prices(codes: list[str]) -> dict[str, dict]:
         except Exception:
             pass
     return result
+
+
+def _fetch_with_retry(codes: list[str], picks: list[dict], slot: str,
+                      retry_interval: int = 600, max_retries: int = 4) -> dict:
+    """行情获取失败时，在窗口期内每隔 retry_interval 秒重试，直到拿到数据或超时。"""
+    import time as _time
+    for attempt in range(max_retries):
+        prices = _fetch_prices(codes)
+        s = _calc_stats(picks, prices)
+        if s["results"]:
+            return s
+        if attempt < max_retries - 1 and _in_window(slot):
+            print(f"[{slot}] 行情未就绪，{retry_interval//60}分钟后重试（第{attempt+1}次）")
+            _time.sleep(retry_interval)
+        else:
+            break
+    return _calc_stats(picks, {})
 
 
 def _calc_stats(picks: list[dict], prices: dict[str, dict]) -> dict:
@@ -183,8 +217,7 @@ def cmd_midday(dry_run: bool = False) -> None:
         return
 
     codes  = [p["code"] for p in picks]
-    prices = _fetch_prices(codes)
-    s      = _calc_stats(picks, prices)
+    s      = _fetch_with_retry(codes, picks, slot="midday")
     if not s["results"]:
         print("[midday] 行情获取失败，发送无数据版本")
         title = f"筹码午报 {_fmt_date(date)}（行情暂不可用）"
@@ -238,8 +271,7 @@ def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
         return
 
     codes  = [p["code"] for p in picks]
-    prices = _fetch_prices(codes)
-    s      = _calc_stats(picks, prices)
+    s      = _fetch_with_retry(codes, picks, slot="evening")
     if not s["results"]:
         print("[evening] 行情获取失败，发送无数据版本")
         title = f"筹码收盘 {_fmt_date(date)}（行情暂不可用）"

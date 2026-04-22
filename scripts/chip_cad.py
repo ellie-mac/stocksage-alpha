@@ -35,9 +35,8 @@ TIER_ORDER = [
 ]
 
 
-def _run_one(df_all, mods: str, trade_date: str,
-             sendkey: str, dry_run: bool) -> None:
-    """Run a single mods variant against pre-loaded df_all and push."""
+def _run_one(df_all, mods: str, trade_date: str) -> tuple[dict, int]:
+    """Run a single mods variant. Returns (tiers_dict, total_count). Does NOT push."""
     mods = mods.lower()
     boll_near   = "b" in mods
     cheap       = "e" in mods
@@ -49,17 +48,6 @@ def _run_one(df_all, mods: str, trade_date: str,
     max_price    = 50.0 if cheap else None
     max_6m_ratio = 0.9  if high_filter else None
 
-    date_fmt  = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
-    mod_label = " ".join(filter(None, [
-        "BOLL"     if boll_near   else "",
-        "≤50元"   if cheap       else "",
-        "排科创"   if no_kcb     else "",
-        "排高位"   if high_filter else "",
-        "MACD绿柱" if macd_conv   else "",
-        "MACD近零" if macd_zero   else "",
-    ]))
-
-    sections: list[str] = []
     total = 0
     saves: dict[str, list[dict]] = {}
     pro = _get_pro()
@@ -90,27 +78,15 @@ def _run_one(df_all, mods: str, trade_date: str,
         print(f"[cad/{mods}] {tier_name} ({win_range}): {n} 只", flush=True)
 
         picks_list: list[dict] = []
-        header = f"\n### {tier_name}（获利盘 {win_range}）— {n} 只"
-        if n == 0:
-            saves[tier_name] = []
-            sections.append(header + "\n无符合条件股票")
-            continue
-
-        rows = ["| 名称 | 行业 | 收盘 | 获利盘% |",
-                "|------|------|-----:|--------:|"]
         for _, row in result.iterrows():
-            code    = row.get("code", "")
-            name    = str(row.get("name", "") or "").strip()[:8] or str(code)
-            ind     = str(row.get("industry", "") or "")[:6]
-            close   = row.get("close", float("nan"))
-            win     = row.get("winner_rate", float("nan"))
-            close_s = f"{close:.2f}" if not math.isnan(close) else "-"
-            win_s   = f"{win:.1f}%" if not math.isnan(win) else "-"
-            rows.append(f"| {name} | {ind} | {close_s} | {win_s} |")
-            picks_list.append({"code": str(code), "name": name})
-
+            code  = row.get("code", "")
+            name  = str(row.get("name", "") or "").strip()[:8] or str(code)
+            ind   = str(row.get("industry", "") or "")[:6]
+            close = row.get("close", float("nan"))
+            win   = row.get("winner_rate", float("nan"))
+            picks_list.append({"code": str(code), "name": name,
+                               "industry": ind, "close": close, "winner_rate": win})
         saves[tier_name] = picks_list
-        sections.append(header + "\n" + "\n".join(rows))
 
     prefix  = "chip_cadm" if "m" in mods else "chip_cad"
     payload = json.dumps({"date": trade_date, "mods": mods, "tiers": saves},
@@ -120,9 +96,56 @@ def _run_one(df_all, mods: str, trade_date: str,
     dated.write_text(payload, encoding="utf-8")
     latest.write_text(payload, encoding="utf-8")
     print(f"[cad/{mods}] 已保存 {dated.name}（共{total}只）")
+    return saves, total
 
+
+def _build_section(tier_name: str, picks: list[dict], label: str) -> str:
+    n = len(picks)
+    if n == 0:
+        return ""
+    win_ranges = {"T1": "≥95%", "T2": "90-95%", "T3": "85-90%", "T4": "75-85%", "T5": "65-75%"}
+    header = f"\n### {tier_name}（{win_ranges.get(tier_name, '')} {label}）— {n} 只"
+    rows = ["| 名称 | 行业 | 收盘 | 获利盘% |",
+            "|------|------|-----:|--------:|"]
+    for p in picks:
+        close_s = f"{p['close']:.2f}" if not math.isnan(float(p['close'] or 0)) else "-"
+        win_s   = f"{p['winner_rate']:.1f}%" if not math.isnan(float(p['winner_rate'] or 0)) else "-"
+        rows.append(f"| {p['name']} | {p['industry']} | {close_s} | {win_s} |")
+    return header + "\n" + "\n".join(rows)
+
+
+def _merged_push(cadm_saves: dict, cad_saves: dict, trade_date: str,
+                 sendkey: str, dry_run: bool) -> None:
+    """合并 cadm + cad 成一条推送：cadm 在前，cad 独有的在后。"""
+    date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
+    cadm_codes = {p["code"] for picks in cadm_saves.values() for p in picks}
+    cad_only: dict[str, list[dict]] = {}
+    for tier, picks in cad_saves.items():
+        unique = [p for p in picks if p["code"] not in cadm_codes]
+        cad_only[tier] = unique
+
+    cadm_total    = sum(len(v) for v in cadm_saves.values())
+    cad_only_total = sum(len(v) for v in cad_only.values())
+
+    sections = []
+
+    if cadm_total:
+        sections.append(f"\n## ✅ cadm（BOLL+≤50+排科创+排高位+MACD收敛）共{cadm_total}只")
+        for tier_name, _, _ in TIER_ORDER:
+            s = _build_section(tier_name, cadm_saves.get(tier_name, []), "cadm")
+            if s:
+                sections.append(s)
+
+    if cad_only_total:
+        sections.append(f"\n## 💡 cad独有（不满足MACD条件）共{cad_only_total}只")
+        for tier_name, _, _ in TIER_ORDER:
+            s = _build_section(tier_name, cad_only.get(tier_name, []), "cad only")
+            if s:
+                sections.append(s)
+
+    total_all = cadm_total + cad_only_total
     body  = "\n".join(sections) + "\n\n> ⚠️ 仅供参考，不构成投资建议"
-    title = f"筹码驱动 {date_fmt} ({mod_label}) 共{total}只"
+    title = f"筹码驱动 {date_fmt} cadm{cadm_total}只 + cad独有{cad_only_total}只"
     print(f"\n{title}\n")
     send_wechat(title, body, sendkey, dry_run=dry_run)
 
@@ -157,8 +180,22 @@ def main() -> None:
 
     print(f"[cad] trade_date={trade_date}  mods={args.mods}", flush=True)
 
-    for mods_str in args.mods:
-        _run_one(df_all, mods_str, trade_date, sendkey, args.dry_run)
+    # bekh + bekhm → 合并成一条推送；其他 mods 组合单独推送
+    mods_list = [m.lower() for m in args.mods]
+    if set(mods_list) == {"bekh", "bekhm"}:
+        cadm_saves, _ = _run_one(df_all, "bekhm", trade_date)
+        cad_saves,  _ = _run_one(df_all, "bekh",  trade_date)
+        _merged_push(cadm_saves, cad_saves, trade_date, sendkey, args.dry_run)
+    else:
+        for mods_str in mods_list:
+            saves, total = _run_one(df_all, mods_str, trade_date)
+            date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
+            body  = "\n".join(
+                _build_section(t, saves.get(t, []), mods_str)
+                for t, _, _ in TIER_ORDER
+            ) + "\n\n> ⚠️ 仅供参考，不构成投资建议"
+            title = f"筹码驱动 {date_fmt} ({mods_str}) 共{total}只"
+            send_wechat(title, body, sendkey, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

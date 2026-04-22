@@ -31,6 +31,7 @@ TIER_ORDER = ["T1", "T2", "T3", "T4", "T5"]
 
 def _fetch_prices(codes: list[str]) -> dict[str, float]:
     import sys
+    import pandas as pd
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent))
     from common import get_spot_em
@@ -38,16 +39,10 @@ def _fetch_prices(codes: list[str]) -> dict[str, float]:
     if df.empty:
         return {}
     df = df[df["代码"].isin(codes)].copy()
-    result: dict[str, float] = {}
-    for _, row in df.iterrows():
-        code = str(row["代码"]).zfill(6)
-        try:
-            pct = float(row["涨跌幅"])
-            if not math.isnan(pct):
-                result[code] = pct
-        except Exception:
-            pass
-    return result
+    df["_code"] = df["代码"].astype(str).str.zfill(6)
+    df["_pct"]  = pd.to_numeric(df["涨跌幅"], errors="coerce")
+    df = df.dropna(subset=["_pct"])
+    return dict(zip(df["_code"], df["_pct"]))
 
 
 def _tier_stats(picks: list[dict], prices: dict[str, float]) -> dict:

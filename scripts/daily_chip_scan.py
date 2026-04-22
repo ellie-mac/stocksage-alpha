@@ -131,18 +131,22 @@ def main() -> None:
             tier_data[tier_key] = []
             continue
 
-        rows = []
-        for _, r in result.iterrows():
-            code  = r["ts_code"].split(".")[0]
-            name  = r.get("name", code)
-            ind   = r.get("industry", "")
-            close = float(r.get("close", 0))
-            rows.append(f"{code} {name} {ind} ¥{close:.2f}  ")
-            entry = {"code": code, "name": name, "industry": ind,
-                     "close": close, "winner_rate": float(r.get("winner_rate", 0)),
-                     "tier": tier_key}
-            tier_picks.append(entry)
-            all_picks.append(entry)
+        result = result.copy()
+        result["_code"] = result["ts_code"].str.split(".").str[0]
+        result["_name"] = result.get("name", result["_code"]).fillna(result["_code"])
+        result["_ind"]  = result.get("industry", "").fillna("")
+        result["_close"] = result.get("close", 0).fillna(0).astype(float)
+        result["_wr"]    = result.get("winner_rate", 0).fillna(0).astype(float)
+        rows = [
+            f"{r['_code']} {r['_name']} {r['_ind']} ¥{r['_close']:.2f}  "
+            for r in result[["_code", "_name", "_ind", "_close"]].to_dict("records")
+        ]
+        tier_picks = [
+            {"code": r["_code"], "name": r["_name"], "industry": r["_ind"],
+             "close": r["_close"], "winner_rate": r["_wr"], "tier": tier_key}
+            for r in result[["_code", "_name", "_ind", "_close", "_wr"]].to_dict("records")
+        ]
+        all_picks.extend(tier_picks)
         sections.append(header + "  \n" + "\n".join(rows))
         tier_data[tier_key] = tier_picks
 

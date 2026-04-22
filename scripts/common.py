@@ -24,6 +24,25 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import cache as _cache
 
+
+def retry(attempts: int = 3, backoff: float = 3.0, exc_types: tuple = (Exception,)):
+    """Decorator: retry a function up to `attempts` times with `backoff` seconds sleep."""
+    import functools
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            for i in range(1, attempts + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except exc_types as e:
+                    if i == attempts:
+                        raise
+                    print(f"[retry] {fn.__name__} attempt {i}/{attempts} failed: {e}")
+                    time.sleep(backoff)
+        return wrapper
+    return decorator
+
+
 # ── Trading session windows ────────────────────────────────────────────────────
 _MORNING_OPEN    = (9, 25)
 _MORNING_CLOSE   = (11, 35)
@@ -184,6 +203,14 @@ def get_spot_em(retries: int = 3):
     cached = _cache.get_df("spot_em", ttl)
     if cached is not None:
         return cached
+    # Check if fetcher already pulled fresh spot data (avoids duplicate API call)
+    spot_all = _cache.get("spot_all", ttl)
+    if spot_all is not None:
+        try:
+            import pandas as _pd_inner
+            return _pd_inner.DataFrame(spot_all)
+        except Exception:
+            pass
     import akshare as ak
     for attempt in range(1, retries + 1):
         try:

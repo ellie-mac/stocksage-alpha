@@ -115,11 +115,12 @@ def load_names(force: bool = False) -> dict[str, dict]:
             yesterday = (_date.today() - timedelta(days=1)).strftime("%Y%m%d")
             df = pro.bak_basic(trade_date=yesterday, fields="ts_code,name,industry")
         if df is not None and not df.empty:
-            for _, row in df.iterrows():
-                names[row["ts_code"]] = {
-                    "name":     str(row.get("name", "") or ""),
-                    "industry": str(row.get("industry", "") or ""),
-                }
+            df["name"]     = df["name"].fillna("").astype(str)
+            df["industry"] = df["industry"].fillna("").astype(str)
+            names.update({
+                r["ts_code"]: {"name": r["name"], "industry": r["industry"]}
+                for r in df[["ts_code", "name", "industry"]].to_dict("records")
+            })
             print(f"[names] bak_basic: {len(names)} 条")
     except Exception as e:
         print(f"[names] bak_basic 失败: {e}，尝试 stock_basic...")
@@ -130,11 +131,12 @@ def load_names(force: bool = False) -> dict[str, dict]:
             df = pro.stock_basic(exchange="", list_status="L",
                                  fields="ts_code,name,industry")
             if df is not None and not df.empty:
-                for _, row in df.iterrows():
-                    names[row["ts_code"]] = {
-                        "name":     str(row.get("name", "") or ""),
-                        "industry": str(row.get("industry", "") or ""),
-                    }
+                df["name"]     = df["name"].fillna("").astype(str)
+                df["industry"] = df["industry"].fillna("").astype(str)
+                names.update({
+                    r["ts_code"]: {"name": r["name"], "industry": r["industry"]}
+                    for r in df[["ts_code", "name", "industry"]].to_dict("records")
+                })
                 print(f"[names] stock_basic: {len(names)} 条")
         except Exception as e2:
             print(f"[names] stock_basic 也失败: {e2}")
@@ -243,6 +245,19 @@ def _load_chip_cache(trade_date: str, source: str = "ts") -> pd.DataFrame | None
         return df
     except Exception:
         return None
+
+
+def _load_recent_ak_cache(max_days: int = 3) -> pd.DataFrame | None:
+    """找最近 max_days 天内最新的 AK 筹码缓存（>500条视为有效）。"""
+    from datetime import date as _d, timedelta as _td
+    today = _d.today()
+    for i in range(1, max_days + 1):
+        d = (today - _td(days=i)).strftime("%Y%m%d")
+        cached = _load_chip_cache(d, source="ak")
+        if cached is not None and len(cached) > 500:
+            print(f"[chip cache] 使用最近 AK 缓存 {d}（共 {len(cached)} 条）")
+            return cached
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -472,6 +487,14 @@ def fetch_chip_data(trade_date: str, pro) -> pd.DataFrame:
         print(f"[WARN] cyq_perf 无数据 (trade_date={trade_date})，可能是非交易日或数据延迟")
         return pd.DataFrame()
 
+    if len(cyq) < 500:
+        print(f"[fetch] Tushare 返回 {len(cyq)} 条（<500，账户权限限制），尝试最近 AK 缓存 ...")
+        recent = _load_recent_ak_cache(max_days=3)
+        if recent is not None:
+            return recent
+        print(f"[fetch] 无最近 AK 缓存，切换到 AK 自算模式（耗时较长）...")
+        return fetch_chip_data_ak(trade_date)
+
     print("  拉取 daily (close/pct_chg/amount) ...")
     t0 = time.time()
     daily = pro.daily(trade_date=trade_date, fields="ts_code,close,pct_chg,vol,amount")
@@ -557,8 +580,9 @@ def add_indicators(df: pd.DataFrame, max_workers: int = 8) -> pd.DataFrame:
             if val:
                 results[code] = val
     df = df.copy()
-    df["boll_mid"]  = df["ts_code"].map(lambda c: results.get(c, {}).get("boll_mid"))
-    df["macd_hist"] = df["ts_code"].map(lambda c: results.get(c, {}).get("macd_hist"))
+    df["boll_mid"]       = df["ts_code"].map(lambda c: results.get(c, {}).get("boll_mid"))
+    df["macd_hist"]      = df["ts_code"].map(lambda c: results.get(c, {}).get("macd_hist"))
+    df["macd_hist_prev"] = df["ts_code"].map(lambda c: results.get(c, {}).get("macd_hist_prev"))
     print(f"[indicators] 完成，命中 {len(results)}/{len(codes)} 只")
     return df
 

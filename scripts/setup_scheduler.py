@@ -23,10 +23,12 @@ LOGS_DIR  = SCRIPTS / "logs"
 CHIP_WRITER   = XHS_DIR   / "chip_writer.py"
 DAILY_SCAN    = SCRIPTS   / "daily_chip_scan.py"
 PERF_LOG      = SCRIPTS   / "chip_perf_log.py"
+MAIN_PERF_LOG = SCRIPTS   / "main_perf_log.py"
 MONITOR       = SCRIPTS   / "monitor.py"
 BATCH_FIN     = SCRIPTS   / "tools" / "batch_financials.py"
 GEN_UNIVERSE  = SCRIPTS   / "tools" / "generate_full_universe.py"
 CHIP_CAD      = SCRIPTS   / "chip_cad.py"
+NOTIFY_FAIL   = SCRIPTS   / "notify_failure.py"
 
 # ── Old tasks (remove only) ───────────────────────────────────────────────────
 OLD_TASKS = [
@@ -57,8 +59,8 @@ OLD_TASKS = [
 TASKS = [
     # (name, time, slot, description, wechat_push)
     # ── 夜间准备 ────────────────────────────────────────────────────────────
+    ("chip_Night",      "18:00", "chip_night",     "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
     ("main_Night",      "22:30", "main_night",     "预热财务缓存（batch_financials），不推送",        False),
-    ("chip_Night",      "23:00", "chip_night",     "夜间预取筹码缓存，不推送",                       False),
     # ── 盘前 ────────────────────────────────────────────────────────────────
     ("chip_Premarket",  "07:00", "chip_premarket", "筹码盘前兜底（chip_Night未跑时），不推送",        False),
     ("main_Morning",    "07:10", "monitor_scan",   "主策略盘前兜底（main_Scan未跑时），不推送",       False),
@@ -66,11 +68,12 @@ TASKS = [
     # ── 盘中 ────────────────────────────────────────────────────────────────
     ("xhs_Midday",      "11:35", "chip_midday",    "小红书午间筹码分析推送 📱",                      True),
     # ── 收盘 ────────────────────────────────────────────────────────────────
-    ("xhs_Evening",     "15:10", "chip_evening",   "小红书收盘筹码分析推送 📱",                      True),
+    ("xhs_Evening",     "15:30", "chip_evening",   "小红书收盘筹码分析推送 📱",                      True),
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
     ("chip_PerfLog",    "17:15", "perf_log",       "读昨日cad/cadm票，测今日胜率 📱",                True),
-    ("chip_CadScan",    "18:30", "cad_scan",       "筹码全档扫描 bekh+bekhm，一次加载两组推送 📱",   True),
-    ("main_Scan",       "18:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json",             False),
+    ("main_PerfLog",    "17:20", "main_perf_log",  "读昨日主策略票，测今日胜率 📱",                  True),
+    ("main_Scan",       "18:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json，推送 📱",    True),
+    ("chip_CadScan",    "20:30", "cad_scan",       "筹码全档扫描 bekh+bekhm，用今日完整数据推送 📱", True),
 ]
 
 
@@ -83,7 +86,10 @@ def _bat(slot: str) -> tuple[Path, str]:
         cmd  = f'"{PYTHON}" -X utf8 "{CHIP_CAD}" --mods bekh bekhm >> "{log}\\chip_cad.log" 2>&1'
     elif slot == "main_night":
         path = XHS_DIR / "run_main_night.bat"
+        notify = (f'"{PYTHON}" -X utf8 "{NOTIFY_FAIL}" "main_Night"'
+                  f' >> "{log}\\notify_failure.log" 2>&1')
         cmd  = (f'"{PYTHON}" -X utf8 "{GEN_UNIVERSE}" >> "{log}\\universe_main.log" 2>&1\n'
+                f'if errorlevel 1 ( {notify} & exit /b 1 )\n'
                 f'"{PYTHON}" -X utf8 "{BATCH_FIN}" >> "{log}\\batch_financials.log" 2>&1')
     elif slot == "chip_night":
         path = XHS_DIR / "run_chip_night.bat"
@@ -98,17 +104,40 @@ def _bat(slot: str) -> tuple[Path, str]:
     elif slot == "perf_log":
         path = XHS_DIR / "run_chip_perf_log.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{PERF_LOG}" >> "{log}\\chip_perf_log.log" 2>&1'
+    elif slot == "main_perf_log":
+        path = XHS_DIR / "run_main_perf_log.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{MAIN_PERF_LOG}" >> "{log}\\main_perf_log.log" 2>&1'
     elif slot == "monitor_scan":
         path = XHS_DIR / "run_monitor_scan.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{MONITOR}" >> "{log}\\monitor_scan.log" 2>&1'
+        cmd  = f'"{PYTHON}" -X utf8 "{MONITOR}" --always-send >> "{log}\\monitor_scan.log" 2>&1'
     else:
         raise ValueError(f"Unknown slot: {slot}")
+
+    # Each slot gets a human-readable name for failure notifications
+    slot_names = {
+        "cad_scan":     "chip_CadScan",
+        "main_night":   "main_Night",
+        "chip_night":   "chip_Night",
+        "chip_premarket": "chip_Premarket",
+        "chip_morning": "xhs_Morning",
+        "chip_midday":  "xhs_Midday",
+        "chip_evening": "xhs_Evening",
+        "perf_log":     "chip_PerfLog",
+        "main_perf_log": "main_PerfLog",
+        "monitor_scan": "main_Scan",
+    }
+    task_name = slot_names.get(slot, slot)
+    notify_cmd = (f'"{PYTHON}" -X utf8 "{NOTIFY_FAIL}" "{task_name}"'
+                  f' >> "{log}\\notify_failure.log" 2>&1')
 
     content = (
         f'@echo off\n'
         f'cd /d "{REPO_ROOT}"\n'
         f'mkdir "{LOGS_DIR}" 2>nul\n'
         f'{cmd}\n'
+        f'if errorlevel 1 (\n'
+        f'    {notify_cmd}\n'
+        f')\n'
     )
     return path, content
 
