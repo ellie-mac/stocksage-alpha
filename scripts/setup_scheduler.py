@@ -57,10 +57,7 @@ OLD_TASKS = [
 
 # ── Scheduled tasks ───────────────────────────────────────────────────────────
 TASKS = [
-    # (name, time, slot, description, wechat_push)
-    # ── 夜间准备 ────────────────────────────────────────────────────────────
-    ("chip_Night",      "18:00", "chip_night",     "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
-    ("main_Night",      "22:30", "main_night",     "预热财务缓存（batch_financials），不推送",        False),
+    # (name, time, slot, description, wechat_push)  — 按时间顺序排列
     # ── 盘前 ────────────────────────────────────────────────────────────────
     ("chip_Premarket",  "07:00", "chip_premarket", "筹码盘前兜底（chip_Night未跑时），不推送",        False),
     ("main_Morning",    "07:10", "monitor_scan",   "主策略盘前兜底（main_Scan未跑时），不推送",       False),
@@ -72,8 +69,11 @@ TASKS = [
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
     ("chip_PerfLog",    "17:15", "perf_log",       "读昨日cad/cadm票，测今日胜率 📱",                True),
     ("main_PerfLog",    "17:20", "main_perf_log",  "读昨日主策略票，测今日胜率 📱",                  True),
+    ("chip_Night",      "18:00", "chip_night",     "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
     ("main_Scan",       "18:30", "monitor_scan",   "主策略扫盘，更新 latest_picks.json，推送 📱",    True),
     ("chip_CadScan",    "20:30", "cad_scan",       "筹码全档扫描 bekh+bekhm，用今日完整数据推送 📱", True),
+    # ── 次日盘前准备 ────────────────────────────────────────────────────────
+    ("main_Night",      "22:30", "main_night",     "预热财务缓存（batch_financials），不推送",        False),
 ]
 
 
