@@ -984,7 +984,17 @@ def run(
     sendkey    = config.get("serverchan", {}).get("sendkey", "")
     configure_pushplus(config.get("pushplus", {}).get("token", ""))
     always_send = always_send or config.get("always_send", False)
-    universe   = universe_override if universe_override is not None else config.get("screener_universe", [])
+    if universe_override is not None:
+        universe = universe_override
+    else:
+        _uni_file = os.path.join(_ROOT, "data", "universe_main.json")
+        if os.path.exists(_uni_file):
+            import json as _json
+            universe = _json.loads(open(_uni_file, encoding="utf-8").read())
+            print(f"  Universe: {len(universe)} stocks (data/universe_main.json)")
+        else:
+            universe = config.get("screener_universe", [])
+            print(f"  Universe: {len(universe)} stocks (alert_config.json)")
     run_time   = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     print(f"[{run_time}] StockSage Monitor starting...")

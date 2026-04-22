@@ -25,6 +25,7 @@ DAILY_SCAN    = SCRIPTS   / "daily_chip_scan.py"
 PERF_LOG      = SCRIPTS   / "chip_perf_log.py"
 MONITOR       = SCRIPTS   / "monitor.py"
 BATCH_FIN     = SCRIPTS   / "tools" / "batch_financials.py"
+GEN_UNIVERSE  = SCRIPTS   / "tools" / "generate_full_universe.py"
 CHIP_CAD      = SCRIPTS   / "chip_cad.py"
 
 # ── Old tasks (remove only) ───────────────────────────────────────────────────
@@ -82,7 +83,8 @@ def _bat(slot: str) -> tuple[Path, str]:
         cmd  = f'"{PYTHON}" -X utf8 "{CHIP_CAD}" --mods bekh bekhm >> "{log}\\chip_cad.log" 2>&1'
     elif slot == "main_night":
         path = XHS_DIR / "run_main_night.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{BATCH_FIN}" >> "{log}\\batch_financials.log" 2>&1'
+        cmd  = (f'"{PYTHON}" -X utf8 "{GEN_UNIVERSE}" >> "{log}\\universe_main.log" 2>&1\n'
+                f'"{PYTHON}" -X utf8 "{BATCH_FIN}" >> "{log}\\batch_financials.log" 2>&1')
     elif slot == "chip_night":
         path = XHS_DIR / "run_chip_night.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{DAILY_SCAN}" --ak --no-push >> "{log}\\chip_scan_night.log" 2>&1'
@@ -124,9 +126,17 @@ def register():
     for name, time_str, slot, desc, push in TASKS:
         bat_path, bat_content = _bat(slot)
         bat_path.write_text(bat_content, encoding="utf-8")
-        cmd = (f'schtasks /create /tn "{name}" /tr "{bat_path}" /sc daily /st {time_str}'
-               f' /f /rl HIGHEST')
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        ps = (
+            f"$a = New-ScheduledTaskAction -Execute '\"{bat_path}\"';"
+            f"$t = New-ScheduledTaskTrigger -Daily -At '{time_str}';"
+            f"$s = New-ScheduledTaskSettingsSet -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Hours 2);"
+            f"$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest;"
+            f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
+        )
+        result = subprocess.run(
+            ["powershell", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True,
+        )
         mark = "✅" if result.returncode == 0 else "❌"
         err  = f"  失败: {result.stderr.strip()}" if result.returncode != 0 else ""
         print(f"{mark}  {time_str}  {name:<35}  {desc}{err}")
