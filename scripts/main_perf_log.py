@@ -52,8 +52,8 @@ def _fetch_prices(codes: list[str]) -> dict[str, float]:
     df = get_spot_em()
     if df.empty:
         return {}
-    df = df[df["代码"].isin(codes)].copy()
     df["_code"] = df["代码"].astype(str).str.zfill(6)
+    df = df[df["_code"].isin(codes)].copy()
     df["_pct"]  = pd.to_numeric(df["涨跌幅"], errors="coerce")
     df = df.dropna(subset=["_pct"])
     return dict(zip(df["_code"], df["_pct"]))
