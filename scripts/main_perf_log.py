@@ -85,7 +85,6 @@ def main() -> None:
         print("[main_perf] 无前日选股数据，退出")
         return
 
-    pick_date = picks[0].get("date", "") if "date" in picks[0] else ""
     print(f"[main_perf] 前日选股 {len(picks)} 只，获取今日行情 ...")
 
     codes  = [str(p.get("code", p.get("ts_code", ""))).split(".")[0] for p in picks]

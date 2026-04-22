@@ -35,7 +35,7 @@ TIER_ORDER = [
 ]
 
 
-def _run_one(df_all, mods: str, trade_date: str) -> tuple[dict, int]:
+def _run_one(df_all, mods: str, trade_date: str, pro) -> tuple[dict, int]:
     """Run a single mods variant. Returns (tiers_dict, total_count). Does NOT push."""
     mods = mods.lower()
     boll_near   = "b" in mods
@@ -50,7 +50,6 @@ def _run_one(df_all, mods: str, trade_date: str) -> tuple[dict, int]:
 
     total = 0
     saves: dict[str, list[dict]] = {}
-    pro = _get_pro()
 
     for tier_name, min_win, max_win in TIER_ORDER:
         win_range = f"{min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{min_win:.0f}%"
@@ -183,12 +182,12 @@ def main() -> None:
     # bekh + bekhm → 合并成一条推送；其他 mods 组合单独推送
     mods_list = [m.lower() for m in args.mods]
     if set(mods_list) == {"bekh", "bekhm"}:
-        cadm_saves, _ = _run_one(df_all, "bekhm", trade_date)
-        cad_saves,  _ = _run_one(df_all, "bekh",  trade_date)
+        cadm_saves, _ = _run_one(df_all, "bekhm", trade_date, pro)
+        cad_saves,  _ = _run_one(df_all, "bekh",  trade_date, pro)
         _merged_push(cadm_saves, cad_saves, trade_date, sendkey, args.dry_run)
     else:
         for mods_str in mods_list:
-            saves, total = _run_one(df_all, mods_str, trade_date)
+            saves, total = _run_one(df_all, mods_str, trade_date, pro)
             date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
             body  = "\n".join(
                 _build_section(t, saves.get(t, []), mods_str)

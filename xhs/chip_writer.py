@@ -86,22 +86,18 @@ def _fetch_prices(codes: list[str]) -> dict[str, dict]:
     """通过共享缓存拉取实时行情，返回 {code: {price, change_pct}}。"""
     if not codes:
         return {}
+    import pandas as pd
     from common import get_spot_em
     df = get_spot_em()
     if df.empty:
         return {}
     df = df[df["代码"].isin(codes)].copy()
-    result: dict[str, dict] = {}
-    for _, row in df.iterrows():
-        code = str(row["代码"]).zfill(6)
-        try:
-            result[code] = {
-                "price":      float(row["最新价"]),
-                "change_pct": float(row["涨跌幅"]),
-            }
-        except Exception:
-            pass
-    return result
+    df["_code"] = df["代码"].astype(str).str.zfill(6)
+    df["_price"] = pd.to_numeric(df["最新价"], errors="coerce")
+    df["_pct"]   = pd.to_numeric(df["涨跌幅"], errors="coerce")
+    df = df.dropna(subset=["_price", "_pct"])
+    return dict(zip(df["_code"], [{"price": p, "change_pct": c}
+                                   for p, c in zip(df["_price"], df["_pct"])]))
 
 
 def _fetch_with_retry(codes: list[str], picks: list[dict], slot: str,
@@ -166,7 +162,7 @@ def _fmt_date(date: str) -> str:
 
 # ── 三段式命令 ────────────────────────────────────────────────────────────────
 
-def cmd_morning(dry_run: bool = False) -> None:
+def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
     """早报：全部筹码选股按档位列出"""
     if not _in_window("morning"):
         return
@@ -189,7 +185,8 @@ def cmd_morning(dry_run: bool = False) -> None:
             continue
         lines.append(f"**【{tier_key} {tier_range}】{len(picks)}只**")
         for p in picks:
-            lines.append(f"{p['code']} {p['name']} {p['industry']} ¥{p['close']:.2f}  ")
+            close_s = f"¥{float(p['close']):.2f}" if p.get("close") and not __import__("math").isnan(float(p["close"])) else ""
+            lines.append(f"{p['code']} {p['name']} {p['industry']} {close_s}  ")
         lines.append("")
 
     lines.append("⚠️ 仅供参考，不构成投资建议")
@@ -202,7 +199,7 @@ def cmd_morning(dry_run: bool = False) -> None:
         _push(title, body)
 
 
-def cmd_midday(dry_run: bool = False) -> None:
+def cmd_midday(dry_run: bool = False, force: bool = False) -> None:
     """午间快报：涨跌幅 Top5、胜率、收益率、下午重点"""
     if not _in_window("midday"):
         return
@@ -324,7 +321,7 @@ def main() -> None:
     parser.add_argument("--force", action="store_true", help="跳过时间窗口检查")
     args = parser.parse_args()
     fn = {"morning": cmd_morning, "midday": cmd_midday, "evening": cmd_evening}[args.slot]
-    fn(args.dry_run, args.force) if args.slot == "evening" else fn(args.dry_run)
+    fn(args.dry_run, args.force)
 
 
 if __name__ == "__main__":

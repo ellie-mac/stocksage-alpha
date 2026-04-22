@@ -605,37 +605,18 @@ def screen(
     macd_near_zero: bool = False,
 ) -> pd.DataFrame:
     """
-    boll_near_mid    : True → 收盘价在 BOLL中轨 ±8% 范围内（不过于偏离中轨）
-    macd_converging  : True → MACD柱绝对值在缩小（当前柱 < 上一根，往零靠近）
-    macd_near_zero   : True → |hist| / close ≤ 1%（柱子离零轴不太远）
-    df 需要预先调用 add_indicators(df) 才能使用这两个参数。
-    """
-    """
     Filter stocks from chip data.
-
-    Parameters
-    ----------
-    min_win : float
-        Minimum winner_rate.  Default 90%.
-    max_today_pct : float | None
-        Cap on today's pct_chg.  Excludes limit-up / hot-momentum stocks.
-        None = disabled.
-    max_6m_ratio : float | None
-        Maximum (close / 6m_max_close).  Stocks where current price is within
-        this ratio of the 6-month high are considered at a high position and
-        excluded.  E.g. 0.9 = exclude stocks within 10% of their 6m high.
-        None = disabled.  Requires six_month_high dict.
-    six_month_high : dict | None
-        {ts_code: max_close_6m} — provided by fetch_6m_high().
-    max_price : float | None
-        Exclude stocks with close > max_price.  None = disabled.
-    exclude_kcb : bool
-        If True, exclude STAR Market stocks (ts_code starting with "688").
+    boll_near_mid   : close 在 BOLL中轨 ±8% 内；需先调用 add_indicators()。
+    macd_converging : 绿柱绝对值在收窄（往零轴靠近）；需先调用 add_indicators()。
+    macd_near_zero  : |hist|/close ≤ 1%；需先调用 add_indicators()。
     """
     if df.empty:
         return df
 
-    mask = df["winner_rate"].notna() & (df["winner_rate"] >= min_win)
+    mask = (
+        df["winner_rate"].notna() & (df["winner_rate"] >= min_win)
+        & df["close"].notna() & (df["close"] > 0)
+    )
     if max_win is not None:
         mask &= df["winner_rate"] < max_win
     result = df[mask].copy()
