@@ -31,7 +31,7 @@ def _load_prev_picks(today: str) -> list[dict]:
         ts  = raw.get("timestamp", "")
         pick_date = ts[:10].replace("-", "") if ts else ""
         results = raw.get("results", [])
-        if results and pick_date < today:
+        if results and pick_date and pick_date < today:
             return results
 
     # signals_log.json fallback

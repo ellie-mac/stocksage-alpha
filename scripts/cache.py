@@ -180,6 +180,12 @@ def smart_price_ttl() -> int:
     """
     now = datetime.now()
     hour_min = now.hour * 60 + now.minute
+
+    # Weekends: no market activity; keep Friday's cache valid until Monday open
+    if now.weekday() >= 5:
+        return _secs_to_next_open() + 600
+
+    # Monday – Friday intraday logic
     # Morning session 9:25–11:35, afternoon session 12:55–15:05
     in_trading = (
         (9 * 60 + 25 <= hour_min <= 11 * 60 + 35) or

@@ -28,10 +28,11 @@ MAIN_PERF_LOG = SCRIPTS   / "main_perf_log.py"
 MONITOR       = SCRIPTS   / "monitor.py"
 BATCH_FIN     = SCRIPTS   / "tools" / "batch_financials.py"
 GEN_UNIVERSE  = SCRIPTS   / "tools" / "generate_full_universe.py"
-CHIP_CAD      = SCRIPTS   / "chip_cad.py"
-CAD_PIPELINE  = SCRIPTS   / "run_cad_pipeline.py"
-PREFETCH      = SCRIPTS   / "prefetch.py"
-NOTIFY_FAIL   = SCRIPTS   / "notify_failure.py"
+CHIP_CAD          = SCRIPTS   / "chip_cad.py"
+CAD_PIPELINE      = SCRIPTS   / "run_cad_pipeline.py"
+PREFETCH          = SCRIPTS   / "prefetch.py"
+INTEGRITY_CHECK   = SCRIPTS   / "integrity_check.py"
+NOTIFY_FAIL       = SCRIPTS   / "notify_failure.py"
 
 # ── Old tasks (remove only) ───────────────────────────────────────────────────
 OLD_TASKS = [
@@ -84,9 +85,11 @@ TASKS = [
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
     ("main_Night",      "22:30", "main_night",     "预热财务缓存（batch_financials），不推送",        False),
     # ── 保活唤醒（填补 22:30-07:00 的睡眠空档，让 Discord bot 保持在线）────
-    ("bot_Keepalive0",  "00:00", "keepalive",      "0:00 唤醒机器，让 Discord bot 重连",             False),
-    ("bot_Keepalive1",  "00:30", "keepalive",      "0:30 唤醒机器，让 Discord bot 重连",             False),
-    ("bot_Keepalive2",  "01:00", "keepalive",      "1:00 唤醒机器，让 Discord bot 重连",             False),
+    ("bot_Keepalive0",  "00:00", "keepalive",        "0:00 唤醒机器，让 Discord bot 重连",             False),
+    ("bot_Keepalive1",  "00:30", "keepalive",        "0:30 唤醒机器，让 Discord bot 重连",             False),
+    ("bot_Keepalive2",  "01:00", "keepalive",        "1:00 唤醒机器，让 Discord bot 重连",             False),
+    # ── 每小时完整性检查（08:00 起，每 1h 一次，持续 15h 到 23:00）──────────
+    ("integrity_Check", "08:00", "integrity_check", "每小时数据完整性检查（首次通过后当日跳过）",      False),
 ]
 
 
@@ -135,6 +138,9 @@ def _bat(slot: str) -> tuple[Path, str]:
     elif slot == "concept_warm":
         path = TASKS_DIR / "run_concept_warm.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --concept >> "{log}\\prefetch_concept.log" 2>&1'
+    elif slot == "integrity_check":
+        path = TASKS_DIR / "run_integrity_check.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{INTEGRITY_CHECK}" >> "{log}\\integrity_check.log" 2>&1'
     else:
         raise ValueError(f"Unknown slot: {slot}")
 
@@ -150,10 +156,11 @@ def _bat(slot: str) -> tuple[Path, str]:
         "perf_log":     "chip_PerfLog",
         "main_perf_log": "main_PerfLog",
         "monitor_scan":  "main_Scan",
-        "market_warm":   "market_Warm",
-        "price_prefetch": "price_Prefetch",
-        "concept_warm":  "concept_Warm",
-        "keepalive":     "bot_Keepalive",
+        "market_warm":     "market_Warm",
+        "price_prefetch":  "price_Prefetch",
+        "concept_warm":    "concept_Warm",
+        "keepalive":       "bot_Keepalive",
+        "integrity_check": "integrity_Check",
     }
     task_name = slot_names.get(slot, slot)
     notify_cmd = (f'"{PYTHON}" -X utf8 "{NOTIFY_FAIL}" "{task_name}"'
@@ -171,6 +178,13 @@ def _bat(slot: str) -> tuple[Path, str]:
     return path, content
 
 
+# Tasks that repeat on a sub-daily schedule: slot → (interval ISO8601, duration ISO8601)
+# integrity_check repeats every 1h for 15h (08:00 → 09:00 → ... → 23:00)
+_REPEAT_TRIGGERS: dict[str, tuple[str, str]] = {
+    "integrity_check": ("PT1H", "PT15H"),
+}
+
+
 def register():
     print(f"Python : {PYTHON}")
     print(f"Repo   : {REPO_ROOT}")
@@ -186,13 +200,28 @@ def register():
     for name, time_str, slot, desc, push in TASKS:
         bat_path, bat_content = _bat(slot)
         bat_path.write_text(bat_content, encoding="utf-8")
-        ps = (
-            f"$a = New-ScheduledTaskAction -Execute '\"{bat_path}\"';"
-            f"$t = New-ScheduledTaskTrigger -Daily -At '{time_str}';"
-            f"$s = New-ScheduledTaskSettingsSet -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Hours 2);"
-            f"$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest;"
-            f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
-        )
+
+        repeat = _REPEAT_TRIGGERS.get(slot)
+        if repeat:
+            interval, duration = repeat
+            # Hourly-repeat task: shorter execution limit (1h), repeat trigger
+            ps = (
+                f"$a = New-ScheduledTaskAction -Execute '\"{bat_path}\"';"
+                f"$t = New-ScheduledTaskTrigger -Daily -At '{time_str}';"
+                f"$t.Repetition.Interval = '{interval}';"
+                f"$t.Repetition.Duration = '{duration}';"
+                f"$s = New-ScheduledTaskSettingsSet -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Hours 1);"
+                f"$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest;"
+                f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
+            )
+        else:
+            ps = (
+                f"$a = New-ScheduledTaskAction -Execute '\"{bat_path}\"';"
+                f"$t = New-ScheduledTaskTrigger -Daily -At '{time_str}';"
+                f"$s = New-ScheduledTaskSettingsSet -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Hours 2);"
+                f"$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest;"
+                f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
+            )
         result = subprocess.run(
             ["powershell", "-NonInteractive", "-Command", ps],
             capture_output=True, text=True,
