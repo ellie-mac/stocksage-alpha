@@ -16,6 +16,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPTS   = REPO_ROOT / "scripts"
 XHS_DIR   = REPO_ROOT / "xhs"
+TASKS_DIR = REPO_ROOT / "tasks"
 PYTHON    = sys.executable
 LOGS_DIR  = SCRIPTS / "logs"
 
@@ -94,45 +95,45 @@ def _bat(slot: str) -> tuple[Path, str]:
     log = LOGS_DIR
 
     if slot == "keepalive":
-        path = XHS_DIR / "run_keepalive.bat"
+        path = TASKS_DIR / "run_keepalive.bat"
         cmd  = f'echo keepalive {"{"}%DATE% %TIME%{"}"} >> "{log}\\keepalive.log" 2>&1'
     elif slot == "cad_scan":
-        path = XHS_DIR / "run_cad_scan.bat"
+        path = TASKS_DIR / "run_cad_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{CAD_PIPELINE}" >> "{log}\\cad_pipeline.log" 2>&1'
     elif slot == "main_night":
-        path = XHS_DIR / "run_main_night.bat"
+        path = TASKS_DIR / "run_main_night.bat"
         notify = (f'"{PYTHON}" -X utf8 "{NOTIFY_FAIL}" "main_Night"'
                   f' >> "{log}\\notify_failure.log" 2>&1')
         cmd  = (f'"{PYTHON}" -X utf8 "{GEN_UNIVERSE}" >> "{log}\\universe_main.log" 2>&1\n'
                 f'if errorlevel 1 ( {notify} & exit /b 1 )\n'
                 f'"{PYTHON}" -X utf8 "{BATCH_FIN}" >> "{log}\\batch_financials.log" 2>&1')
     elif slot == "chip_night":
-        path = XHS_DIR / "run_chip_night.bat"
+        path = TASKS_DIR / "run_chip_night.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{DAILY_SCAN}" --ak --no-push >> "{log}\\chip_scan_night.log" 2>&1'
     elif slot == "chip_premarket":
-        path = XHS_DIR / "run_chip_premarket.bat"
+        path = TASKS_DIR / "run_chip_premarket.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{DAILY_SCAN}" --ak --no-push >> "{log}\\chip_scan_premarket.log" 2>&1'
     elif slot in ("chip_morning", "chip_midday", "chip_evening"):
         phase = slot.split("_")[1]
-        path  = XHS_DIR / f"run_chip_{phase}.bat"
+        path  = TASKS_DIR / f"run_chip_{phase}.bat"
         cmd   = f'"{PYTHON}" -X utf8 "{CHIP_WRITER}" {phase} >> "{log}\\chip_writer_{phase}.log" 2>&1'
     elif slot == "perf_log":
-        path = XHS_DIR / "run_chip_perf_log.bat"
+        path = TASKS_DIR / "run_chip_perf_log.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{PERF_LOG}" >> "{log}\\chip_perf_log.log" 2>&1'
     elif slot == "main_perf_log":
-        path = XHS_DIR / "run_main_perf_log.bat"
+        path = TASKS_DIR / "run_main_perf_log.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{MAIN_PERF_LOG}" >> "{log}\\main_perf_log.log" 2>&1'
     elif slot == "monitor_scan":
-        path = XHS_DIR / "run_monitor_scan.bat"
+        path = TASKS_DIR / "run_monitor_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{MONITOR}" --always-send >> "{log}\\monitor_scan.log" 2>&1'
     elif slot == "market_warm":
-        path = XHS_DIR / "run_market_warm.bat"
+        path = TASKS_DIR / "run_market_warm.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --market >> "{log}\\prefetch_market.log" 2>&1'
     elif slot == "price_prefetch":
-        path = XHS_DIR / "run_price_prefetch.bat"
+        path = TASKS_DIR / "run_price_prefetch.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --price >> "{log}\\prefetch_price.log" 2>&1'
     elif slot == "concept_warm":
-        path = XHS_DIR / "run_concept_warm.bat"
+        path = TASKS_DIR / "run_concept_warm.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --concept >> "{log}\\prefetch_concept.log" 2>&1'
     else:
         raise ValueError(f"Unknown slot: {slot}")
@@ -174,6 +175,8 @@ def register():
     print(f"Python : {PYTHON}")
     print(f"Repo   : {REPO_ROOT}")
     print()
+
+    TASKS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Remove old tasks silently
     for name in OLD_TASKS:

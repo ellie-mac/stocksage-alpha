@@ -13,6 +13,7 @@ build/
 xhs/config.json
 xhs/records/
 xhs/run_*.bat
+tasks/
 docs/PROJECT_STRUCTURE.md
 logs/
 scripts/logs/
