@@ -122,10 +122,10 @@ def _bat(slot: str) -> tuple[Path, str]:
         cmd   = f'"{PYTHON}" -X utf8 "{CHIP_WRITER}" {phase} >> "{log}\\chip_writer_{phase}.log" 2>&1'
     elif slot == "perf_log":
         path = TASKS_DIR / "run_chip_perf_log.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{PERF_LOG}" >> "{log}\\chip_perf_log.log" 2>&1'
+        cmd  = f'"{PYTHON}" -X utf8 "{PERF_LOG}" --force >> "{log}\\chip_perf_log.log" 2>&1'
     elif slot == "main_perf_log":
         path = TASKS_DIR / "run_main_perf_log.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{MAIN_PERF_LOG}" >> "{log}\\main_perf_log.log" 2>&1'
+        cmd  = f'"{PYTHON}" -X utf8 "{MAIN_PERF_LOG}" --force >> "{log}\\main_perf_log.log" 2>&1'
     elif slot == "monitor_scan":
         path = TASKS_DIR / "run_monitor_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{MONITOR}" --always-send >> "{log}\\monitor_scan.log" 2>&1'
@@ -134,7 +134,7 @@ def _bat(slot: str) -> tuple[Path, str]:
         cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --market >> "{log}\\prefetch_market.log" 2>&1'
     elif slot == "price_prefetch":
         path = TASKS_DIR / "run_price_prefetch.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --price >> "{log}\\prefetch_price.log" 2>&1'
+        cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --price --force >> "{log}\\prefetch_price.log" 2>&1'
     elif slot == "concept_warm":
         path = TASKS_DIR / "run_concept_warm.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --concept >> "{log}\\prefetch_concept.log" 2>&1'
