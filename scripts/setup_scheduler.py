@@ -29,6 +29,7 @@ BATCH_FIN     = SCRIPTS   / "tools" / "batch_financials.py"
 GEN_UNIVERSE  = SCRIPTS   / "tools" / "generate_full_universe.py"
 CHIP_CAD      = SCRIPTS   / "chip_cad.py"
 CAD_PIPELINE  = SCRIPTS   / "run_cad_pipeline.py"
+PREFETCH      = SCRIPTS   / "prefetch.py"
 NOTIFY_FAIL   = SCRIPTS   / "notify_failure.py"
 
 # ── Old tasks (remove only) ───────────────────────────────────────────────────
@@ -54,6 +55,8 @@ OLD_TASKS = [
     "ss_ChipMorning", "ss_ChipMidday", "ss_ChipEvening",
     "ss_ChipPerfLog", "ss_CadScan", "ss_CadmScan", "ss_MainMorning", "ss_MonitorScan",
     "chip_CadmScan",
+    # old prefetch task names (in case of re-registration)
+    "price_Warm",
 ]
 
 # ── Scheduled tasks ───────────────────────────────────────────────────────────
@@ -62,11 +65,15 @@ TASKS = [
     # ── 盘前 ────────────────────────────────────────────────────────────────
     ("chip_Premarket",  "07:00", "chip_premarket", "筹码盘前兜底（chip_Night未跑时），不推送",        False),
     ("main_Morning",    "07:10", "monitor_scan",   "主策略盘前兜底（main_Scan未跑时），不推送",       False),
+    ("concept_Warm",    "08:30", "concept_warm",   "预热概念板块反查 map（~30s），不推送",            False),
     ("xhs_Morning",     "09:25", "chip_morning",   "小红书盘前筹码分析推送 📱",                      True),
     # ── 盘中 ────────────────────────────────────────────────────────────────
     ("xhs_Midday",      "11:35", "chip_midday",    "小红书午间筹码分析推送 📱",                      True),
     # ── 收盘 ────────────────────────────────────────────────────────────────
     ("xhs_Evening",     "15:30", "chip_evening",   "小红书收盘筹码分析推送 📱",                      True),
+    # ── 收盘后数据预热 ───────────────────────────────────────────────────────
+    ("market_Warm",     "15:35", "market_warm",    "预热市场数据：CSI300/PE/申万/停牌表，不推送",    False),
+    ("price_Prefetch",  "15:45", "price_prefetch", "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
     ("chip_PerfLog",    "17:15", "perf_log",       "读昨日cad/cadm票，测今日胜率 📱",                True),
     ("main_PerfLog",    "17:20", "main_perf_log",  "读昨日主策略票，测今日胜率 📱",                  True),
@@ -118,6 +125,15 @@ def _bat(slot: str) -> tuple[Path, str]:
     elif slot == "monitor_scan":
         path = XHS_DIR / "run_monitor_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{MONITOR}" --always-send >> "{log}\\monitor_scan.log" 2>&1'
+    elif slot == "market_warm":
+        path = XHS_DIR / "run_market_warm.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --market >> "{log}\\prefetch_market.log" 2>&1'
+    elif slot == "price_prefetch":
+        path = XHS_DIR / "run_price_prefetch.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --price >> "{log}\\prefetch_price.log" 2>&1'
+    elif slot == "concept_warm":
+        path = XHS_DIR / "run_concept_warm.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --concept >> "{log}\\prefetch_concept.log" 2>&1'
     else:
         raise ValueError(f"Unknown slot: {slot}")
 
@@ -132,8 +148,11 @@ def _bat(slot: str) -> tuple[Path, str]:
         "chip_evening": "xhs_Evening",
         "perf_log":     "chip_PerfLog",
         "main_perf_log": "main_PerfLog",
-        "monitor_scan": "main_Scan",
-        "keepalive":    "bot_Keepalive",
+        "monitor_scan":  "main_Scan",
+        "market_warm":   "market_Warm",
+        "price_prefetch": "price_Prefetch",
+        "concept_warm":  "concept_Warm",
+        "keepalive":     "bot_Keepalive",
     }
     task_name = slot_names.get(slot, slot)
     notify_cmd = (f'"{PYTHON}" -X utf8 "{NOTIFY_FAIL}" "{task_name}"'
