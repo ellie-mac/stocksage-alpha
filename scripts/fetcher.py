@@ -656,6 +656,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             start = end - timedelta(days=fetch_days)
 
             _bs_rows: list = []
+            _bs_oserror = [False]  # mutable flag — set by _do_bs_query on socket error
 
             def _do_bs_query():
                 # Use acquire(timeout) instead of `with _bs_lock` so that a stalled
@@ -681,16 +682,18 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                         result.append(rs.get_row_data())
                     return result, rs.fields
                 except OSError:
-                    # WinError 10038 / broken socket — reset so next caller gets
-                    # a fresh login instead of reusing the dead connection.
+                    # WinError 10038/10057 — broken/unconnected socket.
+                    # Signal the outer caller so it can set _hist_bs_failed.
+                    _bs_oserror[0] = True
                     _reset_baostock()
                     return [], []
                 finally:
                     _bs_lock.release()
 
             _bs_result = _call_with_timeout(_do_bs_query, timeout=60.0)
-            if _bs_result is None:
-                # Timed out — flag BaoStock as down so subsequent stocks skip it entirely
+            if _bs_result is None or _bs_oserror[0]:
+                # Timed out OR socket error — flag BaoStock as down so subsequent
+                # stocks skip Source 3 entirely (resets after _HIST_RETRY_SEC).
                 _hist_bs_failed = True; _hist_bs_failed_at = _time.time()
                 _reset_baostock()
             else:
