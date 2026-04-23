@@ -649,6 +649,10 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     # on timeout _reset_baostock() forces a fresh login for the next caller.
     try:
         bs = _get_baostock() if not _hist_bs_failed else None
+        if bs is None and not _hist_bs_failed:
+            # Login failed (server down or module unavailable) — flag so subsequent
+            # stocks skip Source 3 without retrying the login on every call.
+            _hist_bs_failed = True; _hist_bs_failed_at = _time.time()
         if bs is not None:
             prefix = _market_from_code(code)
             bs_code = f"{prefix}.{code}"
