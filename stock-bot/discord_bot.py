@@ -98,7 +98,7 @@ _HELP = """**筹码策略**
 `ca` 全档  |  `cah` 全档+排高位  |  `cabekh` 全档+BOLL+≤50+排科创+排高位
 修饰符：`b` BOLL  `e` 股价≤50  `k` 排科创  `h` 排高位  |  `ch` 筹码详情
 
-`z` 状态+推荐  |  `p` 推荐  |  `sch` 快捷命令  |  `fh` 因子/回测  |  💬 其他走AI对话"""
+`z` 状态+推荐  |  `sch` 快捷命令  |  `fh` 因子/回测  |  💬 其他走AI对话"""
 
 _FACTOR_HELP = """**因子 & 分析**
 `ic` 因子IC摘要  |  `ich` 因子列表
@@ -1201,8 +1201,8 @@ def _dispatch_inner(t: str) -> str | None:
     #     return _h_scan()
     # elif t in ("tn", "test-now", "testnow", "全量扫描"):
     #     return _h_test_now()
-    elif t in ("今日推荐", "推荐", "picks", "p"):
-        return _h_picks()
+    # elif t in ("今日推荐", "推荐", "picks", "p"):
+    #     return _h_picks()
     elif t.startswith("fx") and len(t) > 2 and (t[2:3].isdigit() or t[2:3] == " "):
         code = t[2:].strip()
         return _h_research(code)
