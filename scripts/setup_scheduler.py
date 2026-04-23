@@ -74,6 +74,8 @@ TASKS = [
     ("chip_CadScan",    "20:30", "cad_scan",       "筹码全档扫描 bekh+bekhm，用今日完整数据推送 📱", True),
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
     ("main_Night",      "22:30", "main_night",     "预热财务缓存（batch_financials），不推送",        False),
+    # ── 保活唤醒（填补 22:30-07:00 的睡眠空档，让 Discord bot 保持在线）────
+    ("bot_Keepalive",   "03:00", "keepalive",      "凌晨唤醒机器，让 Discord bot 重连",              False),
 ]
 
 
@@ -81,7 +83,10 @@ def _bat(slot: str) -> tuple[Path, str]:
     """Return (bat_path, bat_content) for a given slot key."""
     log = LOGS_DIR
 
-    if slot == "cad_scan":
+    if slot == "keepalive":
+        path = XHS_DIR / "run_keepalive.bat"
+        cmd  = f'echo keepalive {"{"}%DATE% %TIME%{"}"} >> "{log}\\keepalive.log" 2>&1'
+    elif slot == "cad_scan":
         path = XHS_DIR / "run_cad_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{CHIP_CAD}" --mods bekh bekhm >> "{log}\\chip_cad.log" 2>&1'
     elif slot == "main_night":
@@ -125,6 +130,7 @@ def _bat(slot: str) -> tuple[Path, str]:
         "perf_log":     "chip_PerfLog",
         "main_perf_log": "main_PerfLog",
         "monitor_scan": "main_Scan",
+        "keepalive":    "bot_Keepalive",
     }
     task_name = slot_names.get(slot, slot)
     notify_cmd = (f'"{PYTHON}" -X utf8 "{NOTIFY_FAIL}" "{task_name}"'
