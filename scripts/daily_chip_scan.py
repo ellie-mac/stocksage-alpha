@@ -156,19 +156,21 @@ def main() -> None:
 
     # 保存结构化选股结果（供 xhs/chip_writer.py 使用）
     latest_trade = _latest_trade_date()
+    scan_data = {
+        "date":         trade_date,
+        "generated_at": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "filter":       filter_label,
+        "tiers":        tier_data,
+        "all_picks":    all_picks,
+    }
+    dated_out = ROOT / "data" / f"chip_scan_{trade_date}.json"
+    dated_out.write_text(json.dumps(scan_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    saved_msg = f"chip_scan_{trade_date}.json"
     if trade_date == latest_trade or args.date is None:
         scan_out = ROOT / "data" / "chip_scan_latest.json"
-        scan_data = {
-            "date":         trade_date,
-            "generated_at": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "filter":       filter_label,
-            "tiers":        tier_data,
-            "all_picks":    all_picks,
-        }
         scan_out.write_text(json.dumps(scan_data, ensure_ascii=False, indent=2), encoding="utf-8")
-        dated_out = ROOT / "data" / f"chip_scan_{trade_date}.json"
-        dated_out.write_text(json.dumps(scan_data, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"[scan] 已保存 chip_scan_latest.json + chip_scan_{trade_date}.json（{len(all_picks)} 只）")
+        saved_msg += " + chip_scan_latest.json"
+    print(f"[scan] 已保存 {saved_msg}（{len(all_picks)} 只）")
 
     if not args.dry_run and not args.no_push:
         _push(title, body)
