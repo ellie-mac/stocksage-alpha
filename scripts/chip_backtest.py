@@ -108,50 +108,28 @@ def _fetch_chip_retry(date: str, pro, max_retries: int = 0) -> "pd.DataFrame":
 # Completion notifications
 # ---------------------------------------------------------------------------
 
-def _push_discord_dm(user_id: int, bot_token: str, text: str) -> None:
-    """Send a DM via Discord REST API."""
-    import urllib.request
-    headers = {"Authorization": f"Bot {bot_token}",
-               "Content-Type": "application/json"}
-    # 1. Create / get DM channel
-    payload = json.dumps({"recipient_id": str(user_id)}).encode()
-    req = urllib.request.Request(
-        "https://discord.com/api/v10/users/@me/channels",
-        data=payload, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            channel = json.loads(resp.read())
-        channel_id = channel["id"]
-    except Exception as e:
-        print(f"[discord] 建立DM频道失败: {e}")
-        return
-    # 2. Send message (split if > 1900 chars)
-    for chunk in [text[i:i+1900] for i in range(0, len(text), 1900)]:
-        payload = json.dumps({"content": chunk}).encode()
-        req = urllib.request.Request(
-            f"https://discord.com/api/v10/channels/{channel_id}/messages",
-            data=payload, headers=headers, method="POST")
-        try:
-            urllib.request.urlopen(req, timeout=10)
-        except Exception as e:
-            print(f"[discord] 发送失败: {e}")
-
-
 def _push_notify(title: str, body: str) -> None:
-    """Send completion notification to WeChat + Discord."""
+    """Send completion notification to WeChat + Discord webhook."""
     cfg = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
     sendkey = cfg.get("serverchan", {}).get("sendkey", "")
     configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
     send_wechat(title, body, sendkey)
 
-    bot_cfg = json.loads((ROOT / "stock-bot" / "config.json").read_text(encoding="utf-8"))
-    bot_token  = bot_cfg.get("discord", {}).get("bot_token", "")
-    allowed_ids = bot_cfg.get("discord", {}).get("allowed_ids", [])
-    if bot_token and allowed_ids:
-        discord_text = f"**{title}**\n```\n{body[:1500]}\n```"
-        for uid in allowed_ids:
-            _push_discord_dm(int(uid), bot_token, discord_text)
-        print("[notify] Discord DM 已发送")
+    webhook_url = cfg.get("discord", {}).get("webhook_url", "")
+    if webhook_url:
+        try:
+            import urllib.request
+            discord_text = f"**{title}**\n{body[:1900]}"
+            data = json.dumps({"content": discord_text}).encode("utf-8")
+            req = urllib.request.Request(
+                webhook_url, data=data,
+                headers={"Content-Type": "application/json",
+                         "User-Agent": "DiscordBot (stocksage-alpha, 1.0)"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                print(f"[discord] webhook 已发送 (HTTP {r.status})")
+        except Exception as e:
+            print(f"[discord] webhook 失败: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +208,49 @@ def _fetch_fwd_close(date: str, pro) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
+# Push helper
+# ---------------------------------------------------------------------------
+
+WIN_RANGE = {"T1": "≥95%", "T2": "90-95%", "T3": "85-90%", "T4": "75-85%", "T5": "65-75%"}
+
+def _do_push(output: list[dict], months: int, n_dates: int) -> None:
+    """Build clean markdown push and send."""
+    bare = {r["combo"]: r for r in output if r.get("mod", "") == "" and r.get("n_picks", 0) > 0}
+    n_periods = max((r.get("n_periods", 0) for r in bare.values()), default=0)
+
+    lines = [
+        f"## 筹码回测 {months}个月 · {n_periods}期",
+        "",
+        "| 层 | 获利盘 | 样本 | 期组合胜率 | 均涨10日 |",
+        "|---|---|---:|---:|---:|",
+    ]
+    best_tier, best_ret = None, -999
+    for tier in ["T1", "T2", "T3", "T4", "T5"]:
+        r = bare.get(tier)
+        if not r:
+            continue
+        pw  = r.get("port_win10d", 0)
+        pr  = r.get("port_avg10d", 0)
+        win_marker = " 🏆" if pr > best_ret else ""
+        lines.append(f"| {tier} | {WIN_RANGE[tier]} | {r['n_picks']}只 | {pw:.0f}% | {pr:+.2f}% |")
+        if pr > best_ret:
+            best_ret, best_tier = pr, tier
+
+    if best_tier:
+        bw = bare[best_tier].get("port_win10d", 0)
+        lines += [
+            "",
+            f"> 🏆 **{best_tier}（{WIN_RANGE[best_tier]}）** 最优：{n_periods}期胜率 {bw:.0f}%，均涨10日 {best_ret:+.2f}%",
+            f"> 注：6m_high 过滤已跳过；步长20日，共{n_periods}期",
+        ]
+
+    push_body  = "\n".join(lines)
+    push_title = f"筹码回测 {months}个月 最优{best_tier} {best_ret:+.2f}%"
+    print(f"\n{push_body}\n")
+    _push_notify(push_title, push_body)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -245,7 +266,18 @@ def main() -> None:
                         help="中期持有天数，默认10")
     parser.add_argument("--out",    type=str,
                         default=str(DATA / "chip_backtest_result.json"))
+    parser.add_argument("--push-only", action="store_true",
+                        help="只重新推送已有 JSON，不重跑回测")
     args = parser.parse_args()
+
+    if args.push_only:
+        out_path = Path(args.out)
+        if not out_path.exists():
+            print(f"[bt] 找不到 {out_path}，请先正常跑一次")
+            return
+        output = json.loads(out_path.read_text(encoding="utf-8"))
+        _do_push(output, months=args.months, n_dates=0)
+        return
 
     pro = _get_pro()
 
@@ -394,19 +426,7 @@ def main() -> None:
     out_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n结果已写入: {out_path}")
 
-    # ── Push notification ─────────────────────────────────────────────────
-    top_rows = [r for r in output if r.get("n_picks", 0) > 0]
-    table_lines = [f"{'组合':<10}{'picks':>6}{'win5d':>7}{'ret5d':>8}{'win10d':>8}{'ret10d':>8}"]
-    for r in top_rows:
-        table_lines.append(
-            f"{r['combo']:<10}{r['n_picks']:>6}"
-            f"{r['win5d']:>6.1f}%{r['avg_ret5d']:>+7.2f}%"
-            f"{r['win10d']:>7.1f}%{r['avg_ret10d']:>+7.2f}%"
-        )
-    table_lines.append(footer)
-    push_body = "\n".join(table_lines)
-    push_title = f"筹码策略回测完成 ({args.months}个月 {len(all_dates)}日)"
-    _push_notify(push_title, push_body)
+    _do_push(output, months=args.months, n_dates=len(all_dates))
 
 
 if __name__ == "__main__":

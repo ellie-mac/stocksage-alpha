@@ -1438,38 +1438,91 @@ def _execute_tool(name: str, inputs: dict) -> str:
 
 
 _CLAUDE_CODE_LOCK = threading.Lock()
+_PING_INTERVAL = 180  # seconds between keepalive pings
+
+
+def _claude_ping() -> None:
+    """Fire a fresh (no --continue) claude ping to keep the process warm."""
+    cmd = [
+        r"C:\Users\jiapeichen\.local\bin\claude.exe", "--print",
+        "--dangerously-skip-permissions",
+        ".",
+    ]
+    try:
+        proc = subprocess.Popen(
+            cmd, cwd=str(ROOT),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL, text=True,
+            encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        try:
+            proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        print(f"[keepalive] ping done rc={proc.returncode}", flush=True)
+    except Exception as e:
+        print(f"[keepalive] ping failed: {e}", flush=True)
+
+
+async def _keepalive_loop():
+    """Periodically ping Claude with a fresh session to keep its process warm."""
+    await asyncio.sleep(30)  # give bot a moment to fully start
+    while True:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_executor, _claude_ping)
+        await asyncio.sleep(_PING_INTERVAL)
 
 
 def _claude_code_dispatch(text: str) -> str:
     """
     Run Claude Code CLI in print mode for unattended Discord relay.
     Uses --continue to maintain conversation context across messages.
-    Requires no API key — uses the local Claude Code installation.
+    Uses Popen + taskkill /T to kill the entire process tree on timeout,
+    preventing the stdout-pipe hang caused by orphaned node.exe children.
     """
     cmd = [
-        "claude", "--print",
+        r"C:\Users\jiapeichen\.local\bin\claude.exe", "--print",
         "--dangerously-skip-permissions",
         "--continue",
         text,
     ]
-    print(f"[claude-code] running: {text[:80]!r}", flush=True)
     with _CLAUDE_CODE_LOCK:
+        print(f"[claude-code] running: {text[:80]!r}", flush=True)
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
                 cwd=str(ROOT),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
                 text=True,
-                timeout=300,
                 encoding="utf-8",
                 errors="replace",
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             )
-            output = result.stdout.strip()
+            try:
+                stdout, stderr = proc.communicate(timeout=300)
+            except subprocess.TimeoutExpired:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True,
+                )
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+                print(f"[claude-code] timeout (pid={proc.pid})", flush=True)
+                return "❌ 执行超时（5分钟），任务可能仍在后台运行"
+            output = stdout.strip()
             if not output:
-                output = result.stderr.strip() or "（完成，无输出）"
+                output = stderr.strip() or "（完成，无输出）"
+            print(f"[claude-code] done rc={proc.returncode}: {output[:120]!r}", flush=True)
             return output
-        except subprocess.TimeoutExpired:
-            return "❌ 执行超时（5分钟），任务可能仍在后台运行"
         except FileNotFoundError:
             return "❌ 找不到 claude 命令，请确认 Claude Code CLI 已安装并在 PATH 中"
         except Exception as e:
@@ -1485,14 +1538,18 @@ client  = discord.Client(intents=intents)
 @client.event
 async def on_ready():
     print(f"[StockSage] Logged in as {client.user} (id={client.user.id})", flush=True)
-    print(f"[StockSage] Claude Code relay: enabled (--print --continue)", flush=True)
+    print(f"[StockSage] Claude Code relay: enabled (--print --resume 1fa9125d)", flush=True)
     if not _allowed_ids():
         print("[StockSage] allowed_ids empty — accepting all users", flush=True)
+    asyncio.ensure_future(_keepalive_loop())
+    print(f"[StockSage] Keepalive loop started (interval={_PING_INTERVAL}s, fresh session)", flush=True)
 
 
 @client.event
 async def on_message(message: discord.Message):
     if message.author == client.user:
+        return
+    if message.author.bot or message.webhook_id is not None:
         return
 
     text    = (message.content or "").strip()

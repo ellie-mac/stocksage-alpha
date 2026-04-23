@@ -57,7 +57,8 @@ def _flush(rows: list[dict], path: str, append: bool) -> None:
     df.to_csv(path, mode=mode, header=header, index=False)
 
 
-def run_batch(max_stocks: int | None = None, resume: bool = True) -> None:
+def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
+    """Return number of stocks successfully written."""
     os.makedirs(os.path.dirname(BATCH_FILE), exist_ok=True)
 
     # Optionally resume from a previous interrupted run
@@ -84,6 +85,7 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> None:
     print(f"Stocks to process: {total}  (skipping {len(already_done)} already done)")
 
     buffer: list[dict] = []
+    n_done = 0
     flush_every = 100   # write to disk every N stocks
 
     for i, code in enumerate(pending):
@@ -96,6 +98,7 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> None:
             for out_col, candidates in METRIC_COLUMNS.items():
                 row[out_col] = _extract(df, candidates)
             buffer.append(row)
+            n_done += 1
 
         except Exception as e:
             print(f"  [skip] {code}: {type(e).__name__}: {e}")
@@ -111,7 +114,8 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> None:
     if buffer:
         _flush(buffer, BATCH_FILE, append=True)
 
-    print(f"\nDone. Output: {BATCH_FILE}")
+    print(f"\nDone. {n_done}/{total} stocks written. Output: {BATCH_FILE}")
+    return n_done
 
 
 def load() -> pd.DataFrame | None:
@@ -136,4 +140,7 @@ if __name__ == "__main__":
     parser.add_argument("--no-resume", action="store_true", help="Reprocess all stocks from scratch")
     args = parser.parse_args()
 
-    run_batch(max_stocks=args.max, resume=not args.no_resume)
+    n_done = run_batch(max_stocks=args.max, resume=not args.no_resume)
+    if args.max is None and n_done == 0:
+        print("[error] 0 stocks processed — likely network failure", flush=True)
+        sys.exit(1)

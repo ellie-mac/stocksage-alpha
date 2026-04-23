@@ -54,13 +54,13 @@ def _run_one(df_all, mods: str, trade_date: str, pro) -> tuple[dict, int]:
     for tier_name, min_win, max_win in TIER_ORDER:
         win_range = f"{min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{min_win:.0f}%"
 
-        result = screen(df_all, min_win, max_win=max_win, max_today_pct=5.0,
+        result = screen(df_all, min_win, max_win=max_win, max_today_pct=None,  # 5.0,
                         max_6m_ratio=None, six_month_high=None,
                         max_price=max_price, exclude_kcb=no_kcb)
 
         if max_6m_ratio is not None and not result.empty:
             six_m  = fetch_6m_high(result["ts_code"].tolist(), trade_date, pro)
-            result = screen(df_all, min_win, max_win=max_win, max_today_pct=5.0,
+            result = screen(df_all, min_win, max_win=max_win, max_today_pct=None,  # 5.0,
                             max_6m_ratio=max_6m_ratio, six_month_high=six_m,
                             max_price=max_price, exclude_kcb=no_kcb)
 
@@ -87,7 +87,12 @@ def _run_one(df_all, mods: str, trade_date: str, pro) -> tuple[dict, int]:
                                "industry": ind, "close": close, "winner_rate": win})
         saves[tier_name] = picks_list
 
-    prefix  = "chip_cadm" if "m" in mods else "chip_cad"
+    if "m" in mods:
+        prefix = "chip_cadm"
+    elif mods == "h":
+        prefix = "chip_cah"
+    else:
+        prefix = "chip_cad"
     payload = json.dumps({"date": trade_date, "mods": mods, "tiers": saves},
                          ensure_ascii=False, indent=2)
     dated   = ROOT / "data" / f"{prefix}_{trade_date}.json"
@@ -113,38 +118,58 @@ def _build_section(tier_name: str, picks: list[dict], label: str) -> str:
     return header + "\n" + "\n".join(rows)
 
 
-def _merged_push(cadm_saves: dict, cad_saves: dict, trade_date: str,
+def _merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_date: str,
                  sendkey: str, dry_run: bool) -> None:
-    """合并 cadm + cad 成一条推送：cadm 在前，cad 独有的在后。"""
+    """三段推送：cadm T1-T4（三者共有精华）→ cah独有 T1-T4 → cad独有（全档）。cadm T5 不推。"""
     date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
-    cadm_codes = {p["code"] for picks in cadm_saves.values() for p in picks}
-    cad_only: dict[str, list[dict]] = {}
-    for tier, picks in cad_saves.items():
-        unique = [p for p in picks if p["code"] not in cadm_codes]
-        cad_only[tier] = unique
+    top_tiers = [t for t in TIER_ORDER if t[0] in ("T1", "T2", "T3", "T4")]
 
-    cadm_total    = sum(len(v) for v in cadm_saves.values())
+    # cadm T1-T4：三筛俱过
+    cadm_top = {t: cadm_saves.get(t, []) for _, t in [(t[0], t[0]) for t in top_tiers]}
+    cadm_top = {t[0]: cadm_saves.get(t[0], []) for t in top_tiers}
+    cadm_top_total = sum(len(v) for v in cadm_top.values())
+
+    # cah独有：在 cah 但不在 cad（价格/科创/BOLL未过）
+    cad_codes = {p["code"] for picks in cad_saves.values() for p in picks}
+    cah_only: dict[str, list[dict]] = {
+        t[0]: [p for p in cah_saves.get(t[0], []) if p["code"] not in cad_codes]
+        for t in top_tiers
+    }
+    cah_only_total = sum(len(v) for v in cah_only.values())
+
+    # cad独有：在 cad 但不在 cadm（MACD未收敛）
+    cadm_codes = {p["code"] for picks in cadm_saves.values() for p in picks}
+    cad_only: dict[str, list[dict]] = {
+        t[0]: [p for p in cad_saves.get(t[0], []) if p["code"] not in cadm_codes]
+        for t in TIER_ORDER
+    }
     cad_only_total = sum(len(v) for v in cad_only.values())
 
     sections = []
 
-    if cadm_total:
-        sections.append(f"\n## ✅ cadm（BOLL+≤50+排科创+排高位+MACD收敛）共{cadm_total}只")
-        for tier_name, _, _ in TIER_ORDER:
-            s = _build_section(tier_name, cadm_saves.get(tier_name, []), "cadm")
+    if cadm_top_total:
+        sections.append(f"\n## ✅ 三筛俱过 T1-T4（cadm）共{cadm_top_total}只")
+        for t in top_tiers:
+            s = _build_section(t[0], cadm_top.get(t[0], []), "cadm")
+            if s:
+                sections.append(s)
+
+    if cah_only_total:
+        sections.append(f"\n## 🔍 cah独有 T1-T4（排高位通过，未过BOLL/价格/科创）共{cah_only_total}只")
+        for t in top_tiers:
+            s = _build_section(t[0], cah_only.get(t[0], []), "cah")
             if s:
                 sections.append(s)
 
     if cad_only_total:
-        sections.append(f"\n## 💡 cad独有（不满足MACD条件）共{cad_only_total}只")
-        for tier_name, _, _ in TIER_ORDER:
-            s = _build_section(tier_name, cad_only.get(tier_name, []), "cad only")
+        sections.append(f"\n## 💡 cad独有（BOLL等通过，MACD未收敛）共{cad_only_total}只")
+        for t in TIER_ORDER:
+            s = _build_section(t[0], cad_only.get(t[0], []), "cad")
             if s:
                 sections.append(s)
 
-    total_all = cadm_total + cad_only_total
     body  = "\n".join(sections) + "\n\n> ⚠️ 仅供参考，不构成投资建议"
-    title = f"筹码驱动 {date_fmt} cadm{cadm_total}只 + cad独有{cad_only_total}只"
+    title = f"筹码驱动 {date_fmt} 三筛:{cadm_top_total} cah独有:{cah_only_total} cad独有:{cad_only_total}"
     print(f"\n{title}\n")
     send_wechat(title, body, sendkey, dry_run=dry_run)
 
@@ -182,9 +207,10 @@ def main() -> None:
     # bekh + bekhm → 合并成一条推送；其他 mods 组合单独推送
     mods_list = [m.lower() for m in args.mods]
     if set(mods_list) == {"bekh", "bekhm"}:
+        cah_saves,  _ = _run_one(df_all, "h",     trade_date, pro)
         cadm_saves, _ = _run_one(df_all, "bekhm", trade_date, pro)
         cad_saves,  _ = _run_one(df_all, "bekh",  trade_date, pro)
-        _merged_push(cadm_saves, cad_saves, trade_date, sendkey, args.dry_run)
+        _merged_push(cah_saves, cadm_saves, cad_saves, trade_date, sendkey, args.dry_run)
     else:
         for mods_str in mods_list:
             saves, total = _run_one(df_all, mods_str, trade_date, pro)
