@@ -128,7 +128,18 @@ def _describe_cmdline(cmd: str) -> str:
         ("run_all_backtests.py","",                "⚙️ 回测编排脚本"),
         ("batch_financials.py","",                 "💾 财务数据预热"),
         ("build_universe.py", "",                  "🔧 重建股票池"),
+        ("generate_full_universe.py","",           "🔧 重建股票池"),
         ("chip_strategy.py",  "",                  "🪙 筹码策略扫描"),
+        ("daily_chip_scan.py","",                  "🪙 筹码全档扫描"),
+        ("chip_cad.py",       "",                  "🪙 筹码 CAD 扫描"),
+        ("run_cad_pipeline.py","",                 "🪙 筹码流水线"),
+        ("prefetch.py",       "--price",           "📥 价格缓存预热"),
+        ("prefetch.py",       "--market",          "📥 市场数据预热"),
+        ("prefetch.py",       "--concept",         "📥 概念 map 预热"),
+        ("prefetch.py",       "",                  "📥 数据预热"),
+        ("integrity_check.py","",                  "🔍 完整性检查"),
+        ("chip_perf_log.py",  "",                  "📊 筹码胜率记录"),
+        ("main_perf_log.py",  "",                  "📊 主策略胜率记录"),
         ("research.py",       "",                  "🔍 单股分析"),
     ]
     import re
@@ -189,9 +200,24 @@ def _h_status() -> str:
 
     proc_list = _get_python_procs()
     root_str = str(ROOT).replace("\\", "/").lower()
+    _SS_SCRIPTS = {
+        "monitor.py", "discord_bot.py", "discord_service.py",
+        "factor_analysis.py", "backtest.py", "etf_backtest.py",
+        "run_all_backtests.py", "batch_financials.py", "build_universe.py",
+        "generate_full_universe.py", "chip_strategy.py", "daily_chip_scan.py",
+        "chip_cad.py", "run_cad_pipeline.py", "prefetch.py", "research.py",
+        "integrity_check.py", "chip_perf_log.py", "main_perf_log.py",
+        "chip_backfill.py", "screener.py",
+    }
+    def _is_ss(cmd: str) -> bool:
+        c = cmd.replace("\\", "/").lower()
+        if root_str in c:
+            return True
+        return any(s in c for s in _SS_SCRIPTS)
+
     ss_procs, other_procs = [], []
     for pid, cmd in proc_list:
-        if root_str in cmd.replace("\\", "/").lower():
+        if _is_ss(cmd):
             ss_procs.append((pid, cmd))
         else:
             other_procs.append((pid, cmd))
