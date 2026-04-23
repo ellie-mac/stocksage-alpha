@@ -1189,8 +1189,8 @@ def _dispatch_inner(t: str) -> str | None:
         return _HELP
     elif t == "fh":
         return _FACTOR_HELP
-    elif t in ("状态", "status", "z"):
-        return _h_status()
+    # elif t in ("状态", "status", "z"):
+    #     return _h_status()
     elif t in ("q", "全局概览", "当前状态", "overview"):
         return _h_overview()
     # elif t in ("sug", "建议", "suggest", "你觉得呢"):
@@ -1261,49 +1261,21 @@ def _dispatch_inner(t: str) -> str | None:
     #     return _h_start_monitor()
     # elif t in ("kb", "终止回测", "kill backtest"):  # → sc 3
     #     return _h_kill_backtest()
-    elif t in ("br", "回测结果", "backtest result"):
-        return _h_backtest_result()
-    elif t in ("回测状态", "bs", "backtest status"):
-        try:
-            return _h_backtest_status()
-        except Exception as e:
-            return f"❌ bs 出错: {e}"
-    elif t.startswith("bte") or t in ("etf回测",):
-        import re
-        raw = t[3:].strip() if t.startswith("bte") else ""
-        m = re.match(r'^(\d+)', raw)
-        periods = int(m.group(1)) if m else 12
-        return _h_backtest_etf(periods=periods)
-    elif t.startswith("回测") or t.startswith("bt") or t.startswith("backtest"):
-        # bt / bt16 / bt16s / 回测 16期 smallcap
-        raw = t
-        for prefix in ("backtest", "回测", "bt"):
-            if raw.startswith(prefix):
-                raw = raw[len(prefix):].strip()
-                break
-        parts    = raw.split()
-        periods  = 16
-        universe = "main"
-        for p in parts:
-            p2 = p.replace("期", "")
-            if p2.isdigit():
-                periods = int(p2)
-            elif p in ("s", "small", "smallcap", "小盘"):
-                universe = "smallcap"
-            elif p in ("m", "main", "主"):
-                universe = "main"
-        import re
-        r = raw.replace("期", "")
-        m = re.match(r'^(\d+)([sm]?)$', r) or re.match(r'^([sm])(\d+)$', r)
-        if m:
-            g1, g2 = m.group(1), m.group(2)
-            if g1.isdigit():
-                periods  = int(g1)
-                universe = "smallcap" if g2 == "s" else "main"
-            else:
-                universe = "smallcap" if g1 == "s" else "main"
-                periods  = int(g2)
-        return _h_backtest(periods=periods, universe=universe)
+    # elif t in ("br", "回测结果", "backtest result"):
+    #     return _h_backtest_result()
+    # elif t in ("回测状态", "bs", "backtest status"):
+    #     try:
+    #         return _h_backtest_status()
+    #     except Exception as e:
+    #         return f"❌ bs 出错: {e}"
+    # elif t.startswith("bte") or t in ("etf回测",):
+    #     import re
+    #     raw = t[3:].strip() if t.startswith("bte") else ""
+    #     m = re.match(r'^(\d+)', raw)
+    #     periods = int(m.group(1)) if m else 12
+    #     return _h_backtest_etf(periods=periods)
+    # elif t.startswith("回测") or t.startswith("bt") or t.startswith("backtest"):
+    #     return _h_backtest(periods=16, universe="main")
 
     return None  # hand off to Claude
 
