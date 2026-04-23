@@ -20,6 +20,7 @@ _SPOT_RETRY_SEC = 300         # retry after 5 min (avoids permanent lock-out on 
 _HIST_RETRY_SEC = 1800        # retry failed price-history sources after 30 min
 _hist_em_failed = False;  _hist_em_failed_at: float = 0.0
 _hist_ts_failed = False;  _hist_ts_failed_at: float = 0.0
+_hist_tx_failed = False;  _hist_tx_failed_at: float = 0.0   # Tencent Finance
 _hist_tdx_failed = False; _hist_tdx_failed_at: float = 0.0
 _rt_tdx_failed   = False; _rt_tdx_failed_at: float   = 0.0
 
@@ -541,19 +542,22 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     with different `days` values share a single cache entry per stock.
 
     Source priority:
-      1. East Money  (stock_zh_a_hist)   — best adjusted (qfq) data
-      2. Tushare Pro (daily, adj=qfq)    — basic tier, reliable; data available 15:00-16:00
-      3. BaoStock                         — free, no V8; single-socket, Windows-fragile
-      4. 163/Netease (stock_zh_a_daily)  — V8-based
-      5. mootdx/通达信                   — binary TCP; unadjusted (last resort)
+      1. East Money  (stock_zh_a_hist)    — best adjusted (qfq) data
+      2. Tushare Pro (daily, adj=qfq)     — basic tier, reliable; data available 15:00-16:00
+      3. BaoStock                          — free, no V8; single-socket, Windows-fragile
+      4. Tencent Finance (stock_zh_a_hist_tx) — independent server (qq.com), qfq, no BJ
+      5. 163/Netease (stock_zh_a_daily)   — V8-based
+      6. mootdx/通达信                    — binary TCP; unadjusted (last resort)
     """
     global _hist_em_failed, _hist_em_failed_at
     global _hist_ts_failed, _hist_ts_failed_at
+    global _hist_tx_failed, _hist_tx_failed_at
     global _hist_tdx_failed, _hist_tdx_failed_at
     import time as _time
     _now = _time.time()
     if _hist_em_failed  and _now - _hist_em_failed_at  > _HIST_RETRY_SEC: _hist_em_failed  = False
     if _hist_ts_failed  and _now - _hist_ts_failed_at  > _HIST_RETRY_SEC: _hist_ts_failed  = False
+    if _hist_tx_failed  and _now - _hist_tx_failed_at  > _HIST_RETRY_SEC: _hist_tx_failed  = False
     if _hist_tdx_failed and _now - _hist_tdx_failed_at > _HIST_RETRY_SEC: _hist_tdx_failed = False
     fetch_days = max(days, _PRICE_FETCH_DAYS)
     cache_key = f"price_{code}_{fetch_days}"
@@ -704,7 +708,38 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
-    # ── Source 4: 163/Netease via stock_zh_a_daily (V8 — last resort) ───
+    # ── Source 4: Tencent Finance (stock_zh_a_hist_tx) ──────────────────
+    # Independent server (qq.com / gtimg.cn) — entirely separate from East Money.
+    # Returns qfq-adjusted OHLCV; does not support BJ exchange (8xx/43xxxx) stocks.
+    if not _hist_tx_failed:
+        try:
+            prefix = _market_from_code(code)
+            if prefix in ("sh", "sz"):
+                tx_sym = f"{prefix}{code}"
+                start_tx = (datetime.now() - timedelta(days=fetch_days + 50)).strftime("%Y%m%d")
+                end_tx   = datetime.now().strftime("%Y%m%d")
+                df = _call_with_timeout(
+                    ak.stock_zh_a_hist_tx, 30,
+                    symbol=tx_sym, start_date=start_tx, end_date=end_tx, adjust="qfq",
+                )
+                if df is not None and not df.empty:
+                    df = df.rename(columns={"amount": "volume"})
+                    df["date"] = pd.to_datetime(df["date"])
+                    df = df.sort_values("date").reset_index(drop=True)
+                    for col in ["open", "high", "low", "close", "volume"]:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors="coerce")
+                    df["change_pct"] = df["close"].pct_change() * 100
+                    df["change_amt"] = df["close"].diff()
+                    if not df.empty:
+                        cache.set_df(cache_key, df)
+                        if len(df) > days:
+                            return df.tail(days).reset_index(drop=True)
+                        return df
+        except Exception:
+            _hist_tx_failed = True; _hist_tx_failed_at = _time.time()
+
+    # ── Source 5: 163/Netease via stock_zh_a_daily (V8 — last resort) ───
     # Note: 163/Netease does not carry BJ exchange stocks; they will 404 silently.
     # BJ stocks (prefix="bj") should have been served by BaoStock above.
     try:
@@ -737,7 +772,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
-    # ── Source 5: mootdx / 通达信 (unadjusted — last resort) ─────────────
+    # ── Source 6: mootdx / 通达信 (unadjusted — last resort) ─────────────
     # WARNING: returns unadjusted prices. Price-based factors (momentum, MA, etc.)
     # may be slightly off for stocks with recent corporate actions.
     if not _hist_tdx_failed:
