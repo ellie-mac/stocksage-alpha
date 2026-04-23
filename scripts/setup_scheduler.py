@@ -75,7 +75,9 @@ TASKS = [
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
     ("main_Night",      "22:30", "main_night",     "预热财务缓存（batch_financials），不推送",        False),
     # ── 保活唤醒（填补 22:30-07:00 的睡眠空档，让 Discord bot 保持在线）────
-    ("bot_Keepalive",   "03:00", "keepalive",      "凌晨唤醒机器，让 Discord bot 重连",              False),
+    ("bot_Keepalive0",  "00:00", "keepalive",      "0:00 唤醒机器，让 Discord bot 重连",             False),
+    ("bot_Keepalive1",  "00:30", "keepalive",      "0:30 唤醒机器，让 Discord bot 重连",             False),
+    ("bot_Keepalive2",  "01:00", "keepalive",      "1:00 唤醒机器，让 Discord bot 重连",             False),
 ]
 
 
