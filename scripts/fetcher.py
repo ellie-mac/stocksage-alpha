@@ -66,6 +66,12 @@ _v8_initialised = threading.Event()
 _bs_module = None        # baostock module, None if unavailable
 _bs_lock = threading.Lock()
 
+# Rate-limit concurrent East Money price-history requests to avoid triggering
+# the global _hist_em_failed flag that would force all 5000+ stocks onto BaoStock.
+# 2 concurrent requests × ~0.5s each ≈ 4 req/s — well within EM's tolerance.
+_em_hist_sem = threading.Semaphore(2)   # East Money price-history concurrency cap
+_ts_hist_sem = threading.Semaphore(3)   # Tushare price-history concurrency cap
+
 
 def _get_baostock():
     """Return the logged-in baostock module, logging in once per process."""
@@ -560,65 +566,67 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
 
     # ── Source 1: East Money ─────────────────────────────────────────────
     if not _hist_em_failed:
-        try:
-            end = datetime.now()
-            start = end - timedelta(days=days)
-            df = ak.stock_zh_a_hist(
-                symbol=code,
-                period="daily",
-                start_date=start.strftime("%Y%m%d"),
-                end_date=end.strftime("%Y%m%d"),
-                adjust="qfq",
-            )
-            df.columns = [c.strip() for c in df.columns]
-            df = df.rename(columns={
-                "日期": "date", "开盘": "open", "收盘": "close",
-                "最高": "high", "最低": "low", "成交量": "volume",
-                "成交额": "amount", "振幅": "amplitude",
-                "涨跌幅": "change_pct", "涨跌额": "change_amt", "换手率": "turnover",
-            })
-            df["date"] = pd.to_datetime(df["date"])
-            df = df.sort_values("date").reset_index(drop=True)
-            cache.set_df(cache_key, df)
-            return df
-        except Exception:
-            _hist_em_failed = True; _hist_em_failed_at = _time.time()
+        with _em_hist_sem:   # max 2 concurrent EM requests — prevents rate-limit cascade
+            try:
+                end = datetime.now()
+                start = end - timedelta(days=days)
+                df = ak.stock_zh_a_hist(
+                    symbol=code,
+                    period="daily",
+                    start_date=start.strftime("%Y%m%d"),
+                    end_date=end.strftime("%Y%m%d"),
+                    adjust="qfq",
+                )
+                df.columns = [c.strip() for c in df.columns]
+                df = df.rename(columns={
+                    "日期": "date", "开盘": "open", "收盘": "close",
+                    "最高": "high", "最低": "low", "成交量": "volume",
+                    "成交额": "amount", "振幅": "amplitude",
+                    "涨跌幅": "change_pct", "涨跌额": "change_amt", "换手率": "turnover",
+                })
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.sort_values("date").reset_index(drop=True)
+                cache.set_df(cache_key, df)
+                return df
+            except Exception:
+                _hist_em_failed = True; _hist_em_failed_at = _time.time()
 
     # ── Source 2: Tushare Pro daily (adj=qfq) ────────────────────────────
     # Basic tier (120pts), 500 calls/min, data available ~15:00-16:00 each day.
     if not _hist_ts_failed:
-        try:
-            pro = _get_tushare_pro()
-            if pro is None:
+        with _ts_hist_sem:   # max 3 concurrent Tushare requests
+            try:
+                pro = _get_tushare_pro()
+                if pro is None:
+                    _hist_ts_failed = True; _hist_ts_failed_at = _time.time()
+                else:
+                    ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
+                    end_ts = datetime.now()
+                    start_ts = end_ts - timedelta(days=fetch_days + 10)
+                    df = pro.daily(
+                        ts_code=ts_code,
+                        adj="qfq",
+                        start_date=start_ts.strftime("%Y%m%d"),
+                        end_date=end_ts.strftime("%Y%m%d"),
+                        fields="trade_date,open,high,low,close,vol,amount,pct_chg,change",
+                    )
+                    if df is not None and not df.empty:
+                        df = df.rename(columns={
+                            "trade_date": "date", "vol": "volume",
+                            "pct_chg": "change_pct", "change": "change_amt",
+                        })
+                        df["date"] = pd.to_datetime(df["date"])
+                        df = df.sort_values("date").reset_index(drop=True)
+                        for col in ["open", "high", "low", "close", "volume", "change_pct", "change_amt"]:
+                            if col in df.columns:
+                                df[col] = pd.to_numeric(df[col], errors="coerce")
+                        if not df.empty:
+                            cache.set_df(cache_key, df)
+                            if len(df) > days:
+                                return df.tail(days).reset_index(drop=True)
+                            return df
+            except Exception:
                 _hist_ts_failed = True; _hist_ts_failed_at = _time.time()
-            else:
-                ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
-                end_ts = datetime.now()
-                start_ts = end_ts - timedelta(days=fetch_days + 10)
-                df = pro.daily(
-                    ts_code=ts_code,
-                    adj="qfq",
-                    start_date=start_ts.strftime("%Y%m%d"),
-                    end_date=end_ts.strftime("%Y%m%d"),
-                    fields="trade_date,open,high,low,close,vol,amount,pct_chg,change",
-                )
-                if df is not None and not df.empty:
-                    df = df.rename(columns={
-                        "trade_date": "date", "vol": "volume",
-                        "pct_chg": "change_pct", "change": "change_amt",
-                    })
-                    df["date"] = pd.to_datetime(df["date"])
-                    df = df.sort_values("date").reset_index(drop=True)
-                    for col in ["open", "high", "low", "close", "volume", "change_pct", "change_amt"]:
-                        if col in df.columns:
-                            df[col] = pd.to_numeric(df[col], errors="coerce")
-                    if not df.empty:
-                        cache.set_df(cache_key, df)
-                        if len(df) > days:
-                            return df.tail(days).reset_index(drop=True)
-                        return df
-        except Exception:
-            _hist_ts_failed = True; _hist_ts_failed_at = _time.time()
 
     # ── Source 3: BaoStock (free, no V8, reliable) ───────────────────────
     # BaoStock's Python client is NOT thread-safe: all concurrent callers share
