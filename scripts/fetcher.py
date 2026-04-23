@@ -21,6 +21,7 @@ _HIST_RETRY_SEC = 1800        # retry failed price-history sources after 30 min
 _hist_em_failed = False;  _hist_em_failed_at: float = 0.0
 _hist_ts_failed = False;  _hist_ts_failed_at: float = 0.0
 _hist_tx_failed = False;  _hist_tx_failed_at: float = 0.0   # Tencent Finance
+_hist_bs_failed = False;  _hist_bs_failed_at: float = 0.0   # BaoStock
 _hist_tdx_failed = False; _hist_tdx_failed_at: float = 0.0
 _rt_tdx_failed   = False; _rt_tdx_failed_at: float   = 0.0
 
@@ -552,12 +553,14 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     global _hist_em_failed, _hist_em_failed_at
     global _hist_ts_failed, _hist_ts_failed_at
     global _hist_tx_failed, _hist_tx_failed_at
+    global _hist_bs_failed, _hist_bs_failed_at
     global _hist_tdx_failed, _hist_tdx_failed_at
     import time as _time
     _now = _time.time()
     if _hist_em_failed  and _now - _hist_em_failed_at  > _HIST_RETRY_SEC: _hist_em_failed  = False
     if _hist_ts_failed  and _now - _hist_ts_failed_at  > _HIST_RETRY_SEC: _hist_ts_failed  = False
     if _hist_tx_failed  and _now - _hist_tx_failed_at  > _HIST_RETRY_SEC: _hist_tx_failed  = False
+    if _hist_bs_failed  and _now - _hist_bs_failed_at  > _HIST_RETRY_SEC: _hist_bs_failed  = False
     if _hist_tdx_failed and _now - _hist_tdx_failed_at > _HIST_RETRY_SEC: _hist_tdx_failed = False
     fetch_days = max(days, _PRICE_FETCH_DAYS)
     cache_key = f"price_{code}_{fetch_days}"
@@ -645,7 +648,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     # We wrap the query in _call_with_timeout so rs.next() cannot block forever:
     # on timeout _reset_baostock() forces a fresh login for the next caller.
     try:
-        bs = _get_baostock()
+        bs = _get_baostock() if not _hist_bs_failed else None
         if bs is not None:
             prefix = _market_from_code(code)
             bs_code = f"{prefix}.{code}"
@@ -687,7 +690,8 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
 
             _bs_result = _call_with_timeout(_do_bs_query, timeout=60.0)
             if _bs_result is None:
-                # Timed out — connection likely stale; reset for next caller
+                # Timed out — flag BaoStock as down so subsequent stocks skip it entirely
+                _hist_bs_failed = True; _hist_bs_failed_at = _time.time()
                 _reset_baostock()
             else:
                 rows, _bs_fields = _bs_result
