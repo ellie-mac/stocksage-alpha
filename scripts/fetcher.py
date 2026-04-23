@@ -570,13 +570,15 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             try:
                 end = datetime.now()
                 start = end - timedelta(days=days)
-                df = ak.stock_zh_a_hist(
-                    symbol=code,
-                    period="daily",
+                df = _call_with_timeout(
+                    ak.stock_zh_a_hist, 25,
+                    symbol=code, period="daily",
                     start_date=start.strftime("%Y%m%d"),
                     end_date=end.strftime("%Y%m%d"),
                     adjust="qfq",
                 )
+                if df is None:
+                    raise RuntimeError("timeout")
                 df.columns = [c.strip() for c in df.columns]
                 df = df.rename(columns={
                     "日期": "date", "开盘": "open", "收盘": "close",
@@ -707,12 +709,14 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     # BJ stocks (prefix="bj") should have been served by BaoStock above.
     try:
         prefix = _market_from_code(code)
+        sym4 = f"{prefix}{code}"
         if not _v8_initialised.is_set():
             with _v8_lock:
-                df = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust="qfq")
-                _v8_initialised.set()
+                df = _call_with_timeout(ak.stock_zh_a_daily, 30, symbol=sym4, adjust="qfq")
+                if df is not None:
+                    _v8_initialised.set()
         else:
-            df = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust="qfq")
+            df = _call_with_timeout(ak.stock_zh_a_daily, 30, symbol=sym4, adjust="qfq")
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]

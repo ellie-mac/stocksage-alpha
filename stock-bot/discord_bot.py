@@ -136,11 +136,20 @@ def _describe_cmdline(cmd: str) -> str:
         if script in cmd:
             if not arg_pattern or re.search(arg_pattern, cmd):
                 return label
-    # Fallback: show last two path components + first meaningful arg
+    # Fallback: skip executable + flags (e.g. -X utf8) to find actual script
     parts = cmd.split()
-    script_part = parts[1] if len(parts) > 1 else parts[0]
-    script_name = script_part.replace("\\", "/").split("/")[-1]
-    first_arg   = next((p for p in parts[2:] if not p.startswith("-X")), "")
+    script_part = ""
+    i = 1
+    while i < len(parts):
+        if parts[i].startswith("-") and i + 1 < len(parts):
+            i += 2  # skip flag + its value
+        elif parts[i].startswith("-"):
+            i += 1
+        else:
+            script_part = parts[i]
+            break
+    script_name = script_part.replace("\\", "/").split("/")[-1] if script_part else "python"
+    first_arg   = next((p for p in parts[i+1:] if not p.startswith("-")), "") if script_part else ""
     return f"🐍 {script_name} {first_arg}".strip()
 
 
@@ -175,30 +184,42 @@ def _get_python_procs() -> list[tuple[str, str]]:
 
 
 def _h_status() -> str:
+    import time
     lines = [f"**系统状态** @ {datetime.now():%Y-%m-%d %H:%M:%S}\n"]
 
     proc_list = _get_python_procs()
-    procs = []
+    root_str = str(ROOT).replace("\\", "/").lower()
+    ss_procs, other_procs = [], []
     for pid, cmd in proc_list:
-        desc = _describe_cmdline(cmd)
-        procs.append(f"  `PID {pid}` {desc}")
+        if root_str in cmd.replace("\\", "/").lower():
+            ss_procs.append((pid, cmd))
+        else:
+            other_procs.append((pid, cmd))
 
-    if procs:
-        lines.append(f"**Python 进程 ({len(procs)}):**")
-        lines.extend(procs)
+    if ss_procs:
+        lines.append("**StockSage 进程:**")
+        for pid, cmd in ss_procs:
+            lines.append(f"  {_describe_cmdline(cmd)}  `PID {pid}`")
     else:
-        lines.append("无运行中的 Python 进程")
+        lines.append("❌ 无 StockSage 进程运行")
+
+    if other_procs:
+        lines.append("\n**其他 Python 进程（无关）:**")
+        for pid, cmd in other_procs:
+            desc = _describe_cmdline(cmd)
+            lines.append(f"  _(无关)_ {desc}  `PID {pid}`")
 
     log_path = LOGS / "monitor_loop.log"
     if log_path.exists():
-        tail = log_path.read_bytes()[-3000:].decode("utf-8", errors="replace")
-        last = [l for l in tail.splitlines() if l.strip()][-5:]
-        lines.append("\n**Monitor 最近日志:**")
+        age = int((time.time() - log_path.stat().st_mtime) / 60)
+        tail = log_path.read_bytes()[-2000:].decode("utf-8", errors="replace")
+        last = [l for l in tail.splitlines() if l.strip()][-3:]
+        lines.append(f"\n**Monitor 日志**（{age} 分钟前更新）:")
         lines.append("```")
         lines.extend(last)
         lines.append("```")
     else:
-        lines.append("\nmonitor_loop.log 不存在（monitor 可能未运行）")
+        lines.append("\n❌ monitor_loop.log 不存在")
     return "\n".join(lines)
 
 
