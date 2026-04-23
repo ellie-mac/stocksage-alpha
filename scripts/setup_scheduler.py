@@ -28,6 +28,7 @@ MONITOR       = SCRIPTS   / "monitor.py"
 BATCH_FIN     = SCRIPTS   / "tools" / "batch_financials.py"
 GEN_UNIVERSE  = SCRIPTS   / "tools" / "generate_full_universe.py"
 CHIP_CAD      = SCRIPTS   / "chip_cad.py"
+CAD_PIPELINE  = SCRIPTS   / "run_cad_pipeline.py"
 NOTIFY_FAIL   = SCRIPTS   / "notify_failure.py"
 
 # ── Old tasks (remove only) ───────────────────────────────────────────────────
@@ -90,7 +91,7 @@ def _bat(slot: str) -> tuple[Path, str]:
         cmd  = f'echo keepalive {"{"}%DATE% %TIME%{"}"} >> "{log}\\keepalive.log" 2>&1'
     elif slot == "cad_scan":
         path = XHS_DIR / "run_cad_scan.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{CHIP_CAD}" --mods bekh bekhm >> "{log}\\chip_cad.log" 2>&1'
+        cmd  = f'"{PYTHON}" -X utf8 "{CAD_PIPELINE}" >> "{log}\\cad_pipeline.log" 2>&1'
     elif slot == "main_night":
         path = XHS_DIR / "run_main_night.bat"
         notify = (f'"{PYTHON}" -X utf8 "{NOTIFY_FAIL}" "main_Night"'
@@ -122,7 +123,7 @@ def _bat(slot: str) -> tuple[Path, str]:
 
     # Each slot gets a human-readable name for failure notifications
     slot_names = {
-        "cad_scan":     "chip_CadScan",
+        "cad_scan":     "chip_CadPipeline",
         "main_night":   "main_Night",
         "chip_night":   "chip_Night",
         "chip_premarket": "chip_Premarket",
