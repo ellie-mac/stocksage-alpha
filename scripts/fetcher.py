@@ -692,13 +692,17 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
 
             _bs_result = _call_with_timeout(_do_bs_query, timeout=60.0)
             if _bs_result is None or _bs_oserror[0]:
-                # Timed out OR socket error — flag BaoStock as down so subsequent
-                # stocks skip Source 3 entirely (resets after _HIST_RETRY_SEC).
+                # Timed out OR Python-level socket error — flag BaoStock as down.
                 _hist_bs_failed = True; _hist_bs_failed_at = _time.time()
                 _reset_baostock()
             else:
                 rows, _bs_fields = _bs_result
-                if rows:
+                if not rows and not _bs_fields:
+                    # BaoStock returned empty rows AND empty fields: server-side failure
+                    # (BSERR_RECVSOCK_FAIL — send_msg returned None after connection drop).
+                    # Flag it so subsequent stocks skip Source 3 without re-attempting.
+                    _hist_bs_failed = True; _hist_bs_failed_at = _time.time()
+                elif rows:
                     df = pd.DataFrame(rows, columns=_bs_fields)
                     df = df.rename(columns={"turn": "turnover", "pctChg": "change_pct"})
                     df["date"] = pd.to_datetime(df["date"])
