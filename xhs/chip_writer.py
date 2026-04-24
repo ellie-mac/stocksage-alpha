@@ -25,7 +25,9 @@ XHS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 SCAN_PATH = ROOT / "data" / "chip_scan_latest.json"
+CAH_PATH  = ROOT / "data" / "chip_cah_latest.json"
 CAD_PATH  = ROOT / "data" / "chip_cad_latest.json"
+CADM_PATH = ROOT / "data" / "chip_cadm_latest.json"
 
 # 超出计划时间多少分钟后跳过（防止补跑）
 MAX_DELAY = {"morning": 60, "midday": 40, "evening": 90}
@@ -60,24 +62,50 @@ def _in_window(slot: str) -> bool:
 
 
 def _load_scan() -> dict:
-    """优先读 chip_cad_latest.json（bekh过滤），fallback 到全量 chip_scan_latest.json。"""
-    if CAD_PATH.exists():
-        raw = json.loads(CAD_PATH.read_text(encoding="utf-8"))
+    """取 CAH ∩ CAD ∩ CADM 三者 T1-T4 交集；三者缺任一则 fallback 到仅 CAD。"""
+    cah_data  = json.loads(CAH_PATH.read_text(encoding="utf-8"))  if CAH_PATH.exists()  else None
+    cad_data  = json.loads(CAD_PATH.read_text(encoding="utf-8"))  if CAD_PATH.exists()  else None
+    cadm_data = json.loads(CADM_PATH.read_text(encoding="utf-8")) if CADM_PATH.exists() else None
+
+    if cah_data and cad_data and cadm_data:
+        date = cad_data.get("date", datetime.now().strftime("%Y%m%d"))
+        tiers_out: dict[str, list] = {}
+        for tier_key in ("T1", "T2", "T3", "T4"):
+            cah_codes  = {p["code"] for p in cah_data.get("tiers",  {}).get(tier_key, [])}
+            cad_codes  = {p["code"] for p in cad_data.get("tiers",  {}).get(tier_key, [])}
+            cadm_codes = {p["code"] for p in cadm_data.get("tiers", {}).get(tier_key, [])}
+            common     = cah_codes & cad_codes & cadm_codes
+            cad_lookup = {p["code"]: p for p in cad_data.get("tiers", {}).get(tier_key, [])}
+            tiers_out[tier_key] = [cad_lookup[c] for c in common if c in cad_lookup]
+            print(f"[load_scan] {tier_key}: CAH={len(cah_codes)} CAD={len(cad_codes)} "
+                  f"CADM={len(cadm_codes)} 交集={len(tiers_out[tier_key])}")
+
         all_picks = []
-        for tier_key, picks in raw.get("tiers", {}).items():
+        for tier_key, picks in tiers_out.items():
             for p in picks:
                 p2 = dict(p)
                 p2["tier"] = tier_key
                 all_picks.append(p2)
+
         if all_picks:
-            return {
-                "date":      raw.get("date", datetime.now().strftime("%Y%m%d")),
-                "all_picks": all_picks,
-                "tiers":     raw.get("tiers", {}),
-                "filter":    raw.get("mods", ""),
-            }
+            return {"date": date, "all_picks": all_picks,
+                    "tiers": tiers_out, "filter": "CAH∩CAD∩CADM"}
+        print("[load_scan] 三者交集为空，fallback 到仅 CAD")
+
+    # fallback: cad only
+    if cad_data:
+        all_picks = []
+        for tier_key, picks in cad_data.get("tiers", {}).items():
+            for p in picks:
+                p2 = dict(p); p2["tier"] = tier_key
+                all_picks.append(p2)
+        if all_picks:
+            return {"date": cad_data.get("date", datetime.now().strftime("%Y%m%d")),
+                    "all_picks": all_picks, "tiers": cad_data.get("tiers", {}),
+                    "filter": cad_data.get("mods", "")}
+
     if not SCAN_PATH.exists():
-        print(f"[chip_writer] 找不到 {SCAN_PATH} 和 {CAD_PATH}")
+        print(f"[chip_writer] 找不到任何筹码数据文件")
         return {}
     return json.loads(SCAN_PATH.read_text(encoding="utf-8"))
 
@@ -179,7 +207,7 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
     lines.append(f"今日共选出 **{total}只**（{flt}）\n")
 
     for tier_key, tier_range in [("T1","≥95%"),("T2","90-95%"),
-                                  ("T3","85-90%"),("T4","75-85%"),("T5","65-75%")]:
+                                  ("T3","85-90%"),("T4","75-85%")]:
         picks = all_tiers.get(tier_key, [])
         if not picks:
             continue

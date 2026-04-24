@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Chip strategy backtest: test all tier × modifier combos over historical dates.
+Chip strategy backtest (CAH, T1–T4): winner-rate tiers with 6m-high filter.
 
-Tiers  : T1 ≥95%, T2 90-95%, T3 85-90%, T4 75-85%, T5 65-75%
-Modifiers: none / e (price≤50) / k (no 科创板) / ek (both)
-= 20 combos total
+Tiers  : T1 ≥95%, T2 90-95%, T3 85-90%, T4 75-85%
+Filter : CAH — close/6m_high < 0.9 (距半年高点 ≥ 10%)
 
 For each sampled trade date:
   1. Fetch chip data (cyq_perf + daily) — Tushare, cached 23h
-  2. Apply screen() for each combo  (6m_high skipped for speed)
-  3. Fetch forward daily prices at D+5 and D+10 (trading days)
-  4. Compute per-pick forward returns
+  2. Fetch 6-month high (bi-weekly sampling, cached 90d)
+  3. Apply screen() for each tier with h-filter
+  4. Fetch forward daily prices at D+5 and D+10 (trading days)
+  5. Compute per-pick and per-period forward returns
 
 Output: summary table (stdout) + data/chip_backtest_result.json
 
@@ -37,7 +37,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import cache as _cache
 import fetcher as _fetcher
-from chip_strategy import _get_pro, fetch_chip_data, screen, load_names
+from chip_strategy import _get_pro, fetch_chip_data, screen, load_names, fetch_6m_high, _chip_cache_key
 from common import send_wechat, configure_pushplus
 
 # ---------------------------------------------------------------------------
@@ -49,14 +49,10 @@ TIERS = {
     "T2": (90, 95),
     "T3": (85, 90),
     "T4": (75, 85),
-    "T5": (65, 75),
 }
 
 MODS = {
-    "":   dict(max_price=None, exclude_kcb=False),
-    "e":  dict(max_price=50.0, exclude_kcb=False),
-    "k":  dict(max_price=None, exclude_kcb=True),
-    "ek": dict(max_price=50.0, exclude_kcb=True),
+    "": dict(max_price=None, exclude_kcb=False),
 }
 
 COMBOS: list[dict] = []
@@ -211,28 +207,30 @@ def _fetch_fwd_close(date: str, pro) -> dict[str, float]:
 # Push helper
 # ---------------------------------------------------------------------------
 
-WIN_RANGE = {"T1": "≥95%", "T2": "90-95%", "T3": "85-90%", "T4": "75-85%", "T5": "65-75%"}
+WIN_RANGE = {"T1": "≥95%", "T2": "90-95%", "T3": "85-90%", "T4": "75-85%"}
 
-def _do_push(output: list[dict], months: int, n_dates: int) -> None:
-    """Build clean markdown push and send."""
+def _do_push(output: list[dict], months: int, n_dates: int, step: int = 20) -> None:
+    """Build clean markdown push with main-strategy comparison and send."""
     bare = {r["combo"]: r for r in output if r.get("mod", "") == "" and r.get("n_picks", 0) > 0}
     n_periods = max((r.get("n_periods", 0) for r in bare.values()), default=0)
 
     lines = [
-        f"## 筹码回测 {months}个月 · {n_periods}期",
+        f"## 筹码 CAH 回测 · {months}个月 · {n_periods}期",
         "",
         "| 层 | 获利盘 | 样本 | 期组合胜率 | 均涨10日 |",
         "|---|---|---:|---:|---:|",
     ]
     best_tier, best_ret = None, -999
-    for tier in ["T1", "T2", "T3", "T4", "T5"]:
+    for tier in ["T1", "T2", "T3", "T4"]:
         r = bare.get(tier)
         if not r:
             continue
-        pw  = r.get("port_win10d", 0)
-        pr  = r.get("port_avg10d", 0)
-        win_marker = " 🏆" if pr > best_ret else ""
-        lines.append(f"| {tier} | {WIN_RANGE[tier]} | {r['n_picks']}只 | {pw:.0f}% | {pr:+.2f}% |")
+        pw = r.get("port_win10d", 0)
+        pr = r.get("port_avg10d", 0)
+        np_ = r.get("n_picks", 0)
+        nper = r.get("n_periods", 1) or 1
+        avg_n = round(np_ / nper)
+        lines.append(f"| {tier} | {WIN_RANGE[tier]} | ~{avg_n}只/期 | {pw:.0f}% | {pr:+.2f}% |")
         if pr > best_ret:
             best_ret, best_tier = pr, tier
 
@@ -241,11 +239,38 @@ def _do_push(output: list[dict], months: int, n_dates: int) -> None:
         lines += [
             "",
             f"> 🏆 **{best_tier}（{WIN_RANGE[best_tier]}）** 最优：{n_periods}期胜率 {bw:.0f}%，均涨10日 {best_ret:+.2f}%",
-            f"> 注：6m_high 过滤已跳过；步长20日，共{n_periods}期",
+            f"> 过滤：CAH（距半年高点≥10%）；步长{step}日，共{n_periods}期",
+        ]
+
+    # Main strategy comparison
+    main_stats: dict = {}
+    main_path = DATA / "backtest_main_16p.json"
+    if main_path.exists():
+        try:
+            md = json.loads(main_path.read_text(encoding="utf-8"))
+            main_stats = md.get("stats", {})
+        except Exception:
+            pass
+
+    if main_stats and best_tier:
+        mw = main_stats.get("win_rate_pct", 0)
+        mr = main_stats.get("mean_period_ret_pct", 0)
+        mn = main_stats.get("n_periods", 0)
+        chip_bw = bare[best_tier].get("port_win10d", 0)
+        best_np = bare[best_tier].get("n_picks", 0)
+        best_nper = bare[best_tier].get("n_periods", 1) or 1
+        best_avg_n = round(best_np / best_nper)
+        lines += [
+            "",
+            "### vs 主策略",
+            "| 策略 | 期组合胜率 | 均涨10日 | 期数 | 均选股/期 |",
+            "|---|---:|---:|---:|---:|",
+            f"| 筹码 {best_tier}（CAH） | {chip_bw:.0f}% | {best_ret:+.2f}% | {n_periods} | ~{best_avg_n}只 |",
+            f"| 主策略 | {mw:.0f}% | {mr:+.3f}% | {mn} | ~141只 |",
         ]
 
     push_body  = "\n".join(lines)
-    push_title = f"筹码回测 {months}个月 最优{best_tier} {best_ret:+.2f}%"
+    push_title = f"筹码CAH回测 {months}个月 最优{best_tier} {best_ret:+.2f}%"
     print(f"\n{push_body}\n")
     _push_notify(push_title, push_body)
 
@@ -276,7 +301,7 @@ def main() -> None:
             print(f"[bt] 找不到 {out_path}，请先正常跑一次")
             return
         output = json.loads(out_path.read_text(encoding="utf-8"))
-        _do_push(output, months=args.months, n_dates=0)
+        _do_push(output, months=args.months, n_dates=0, step=args.step)
         return
 
     pro = _get_pro()
@@ -305,13 +330,19 @@ def main() -> None:
 
         print(f"  [{i+1}/{len(all_dates)}] {date}  fwd5={d5}  fwd10={d10}", flush=True)
 
-        # Historical data never changes — refresh cache TTL if file exists but 23h expired
+        # Historical chip data never changes — use 30d TTL
         _BT_TTL = 30 * 24 * 3600
-        cache_key = f"chip_data_{date}"
-        stale = _cache.get(cache_key, _BT_TTL)
-        if stale is not None and _cache.get(cache_key, 23 * 3600) is None:
-            _cache.set(cache_key, stale)  # refresh timestamp so fetch_chip_data sees a hit
-        cache_hit = _cache.get(cache_key, 23 * 3600) is not None
+        new_key = _chip_cache_key(date, "ts")   # what fetch_chip_data actually looks for
+        old_key = f"chip_data_{date}"           # legacy format written by earlier runs
+
+        # Migrate old-format cache → new format so fetch_chip_data finds it on first pass
+        if _cache.get(new_key, _BT_TTL) is None:
+            old_data = _cache.get(old_key, _BT_TTL)
+            if old_data is not None:
+                _cache.set(new_key, old_data)
+                print(f"  [cache] migrated {old_key} → {new_key}", flush=True)
+
+        cache_hit = _cache.get(new_key, _BT_TTL) is not None
         df = _fetch_chip_retry(date, pro)
         if not cache_hit and not df.empty:
             # cyq_perf: 10 calls/hour hard limit → throttle to ~7/hour to be safe
@@ -319,6 +350,9 @@ def main() -> None:
         if df.empty:
             print(f"    no chip data, skip")
             continue
+
+        # Fetch 6-month high for CAH filter (cached 90d, cheap on re-runs)
+        six_m = fetch_6m_high(df["ts_code"].tolist(), date, pro)
 
         # Merge names
         if names:
@@ -337,15 +371,15 @@ def main() -> None:
             print(f"    no forward data, skip")
             continue
 
-        # Apply each combo's screen
+        # Apply each combo's screen with CAH h-filter
         for combo in COMBOS:
             result = screen(
                 df,
                 min_win=combo["min_win"],
                 max_win=combo["max_win"],
                 max_today_pct=5.0,
-                max_6m_ratio=None,        # skip 6m_high for speed
-                six_month_high=None,
+                max_6m_ratio=0.9,         # CAH: 距半年高点 ≥ 10%
+                six_month_high=six_m,
                 max_price=combo["max_price"],
                 exclude_kcb=combo["exclude_kcb"],
             )
@@ -416,7 +450,7 @@ def main() -> None:
             port_win10d=round(port_win10d, 1), port_avg10d=round(port_avg10d, 3),
         ))
 
-    footer = (f"注：6m_high 过滤已跳过（回测提速）；max_today_pct=5%\n"
+    footer = (f"注：CAH（距半年高点≥10%）；max_today_pct=5%\n"
               f"采样 {len(all_dates)} 个交易日  步长 {args.step}d  回测区间 {args.months}个月")
     print("=" * 80)
     print(f"\n{footer}")
@@ -426,7 +460,7 @@ def main() -> None:
     out_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n结果已写入: {out_path}")
 
-    _do_push(output, months=args.months, n_dates=len(all_dates))
+    _do_push(output, months=args.months, n_dates=len(all_dates), step=args.step)
 
 
 if __name__ == "__main__":

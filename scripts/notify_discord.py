@@ -77,6 +77,7 @@ def send_discord(webhook_url: str, task: str, desc: str, status: str = "") -> No
 
 
 def main() -> None:
+    import time
     task   = sys.argv[1] if len(sys.argv) > 1 else "未知任务"
     desc   = sys.argv[2] if len(sys.argv) > 2 else ""
     status = sys.argv[3] if len(sys.argv) > 3 else ""
@@ -87,10 +88,18 @@ def main() -> None:
         print("[notify_discord] webhook_url 未配置，跳过", flush=True)
         return
 
-    try:
-        send_discord(url, task, desc, status)
-    except Exception as e:
-        print(f"[notify_discord] 发送失败: {e}", flush=True)
+    delays = [5, 15, 30]  # retry delays in seconds
+    for attempt, delay in enumerate([0] + delays, 1):
+        if delay:
+            time.sleep(delay)
+        try:
+            send_discord(url, task, desc, status)
+            return
+        except Exception as e:
+            if attempt <= len(delays):
+                print(f"[notify_discord] 发送失败（第{attempt}次），{delays[attempt-1]}s后重试: {e}", flush=True)
+            else:
+                print(f"[notify_discord] 发送失败（已重试{len(delays)}次），放弃: {e}", flush=True)
 
 
 if __name__ == "__main__":

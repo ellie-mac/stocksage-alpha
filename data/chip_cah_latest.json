@@ -1,0 +1,940 @@
+{
+  "date": "20260423",
+  "mods": "h",
+  "tiers": {
+    "T1": [
+      {
+        "code": "600986",
+        "name": "浙文互联",
+        "industry": "互联网",
+        "close": 12.13,
+        "winner_rate": 96.2554332998
+      }
+    ],
+    "T2": [
+      {
+        "code": "688678",
+        "name": "福立旺",
+        "industry": "元器件",
+        "close": 23.56,
+        "winner_rate": 93.902305972
+      },
+      {
+        "code": "603061",
+        "name": "DR金海通",
+        "industry": "半导体",
+        "close": 246.44,
+        "winner_rate": 92.0783106057
+      },
+      {
+        "code": "601138",
+        "name": "工业富联",
+        "industry": "通信设备",
+        "close": 67.92,
+        "winner_rate": 91.6271926947
+      },
+      {
+        "code": "300854",
+        "name": "中兰环保",
+        "industry": "环境保护",
+        "close": 29.57,
+        "winner_rate": 91.6148751662
+      },
+      {
+        "code": "301075",
+        "name": "多瑞医药",
+        "industry": "化学制药",
+        "close": 75.0,
+        "winner_rate": 90.1581815901
+      }
+    ],
+    "T3": [
+      {
+        "code": "605060",
+        "name": "联德股份",
+        "industry": "机械基件",
+        "close": 62.11,
+        "winner_rate": 89.7031353884
+      },
+      {
+        "code": "301232",
+        "name": "飞沃科技",
+        "industry": "机械基件",
+        "close": 223.43,
+        "winner_rate": 89.619696964
+      },
+      {
+        "code": "301486",
+        "name": "致尚科技",
+        "industry": "元器件",
+        "close": 205.45,
+        "winner_rate": 89.604045619
+      },
+      {
+        "code": "301548",
+        "name": "崇德科技",
+        "industry": "机械基件",
+        "close": 84.03,
+        "winner_rate": 88.5722182291
+      },
+      {
+        "code": "600821",
+        "name": "金开新能",
+        "industry": "新型电力",
+        "close": 9.58,
+        "winner_rate": 87.4781833003
+      },
+      {
+        "code": "301338",
+        "name": "凯格精机",
+        "industry": "专用机械",
+        "close": 180.61,
+        "winner_rate": 87.2214374207
+      },
+      {
+        "code": "301181",
+        "name": "标榜股份",
+        "industry": "汽车配件",
+        "close": 47.26,
+        "winner_rate": 86.8464642526
+      },
+      {
+        "code": "000751",
+        "name": "锌业股份",
+        "industry": "铅锌",
+        "close": 6.74,
+        "winner_rate": 86.0205046653
+      },
+      {
+        "code": "603132",
+        "name": "金徽股份",
+        "industry": "铅锌",
+        "close": 18.94,
+        "winner_rate": 85.6751192929
+      }
+    ],
+    "T4": [
+      {
+        "code": "600310",
+        "name": "广西能源",
+        "industry": "水力发电",
+        "close": 5.28,
+        "winner_rate": 84.716490175
+      },
+      {
+        "code": "300373",
+        "name": "扬杰科技",
+        "industry": "半导体",
+        "close": 82.16,
+        "winner_rate": 84.3989601559
+      },
+      {
+        "code": "000722",
+        "name": "湖南发展",
+        "industry": "水力发电",
+        "close": 15.63,
+        "winner_rate": 84.2181004124
+      },
+      {
+        "code": "003035",
+        "name": "南网能源",
+        "industry": "新型电力",
+        "close": 9.18,
+        "winner_rate": 83.4326321111
+      },
+      {
+        "code": "688229",
+        "name": "博睿数据",
+        "industry": "软件服务",
+        "close": 94.04,
+        "winner_rate": 83.4159362899
+      },
+      {
+        "code": "300881",
+        "name": "盛德鑫泰",
+        "industry": "钢加工",
+        "close": 47.65,
+        "winner_rate": 83.2296850048
+      },
+      {
+        "code": "300570",
+        "name": "太辰光",
+        "industry": "通信设备",
+        "close": 135.03,
+        "winner_rate": 82.8447538025
+      },
+      {
+        "code": "002922",
+        "name": "伊戈尔",
+        "industry": "电气设备",
+        "close": 41.11,
+        "winner_rate": 82.7591786776
+      },
+      {
+        "code": "301529",
+        "name": "福赛科技",
+        "industry": "汽车配件",
+        "close": 119.21,
+        "winner_rate": 82.6630958288
+      },
+      {
+        "code": "300196",
+        "name": "长海股份",
+        "industry": "玻璃",
+        "close": 19.86,
+        "winner_rate": 82.6510382001
+      },
+      {
+        "code": "300788",
+        "name": "中信出版",
+        "industry": "出版业",
+        "close": 39.23,
+        "winner_rate": 82.1001165139
+      },
+      {
+        "code": "301628",
+        "name": "强达电路",
+        "industry": "元器件",
+        "close": 110.67,
+        "winner_rate": 80.2923477277
+      },
+      {
+        "code": "688432",
+        "name": "有研硅",
+        "industry": "半导体",
+        "close": 15.46,
+        "winner_rate": 80.137318203
+      },
+      {
+        "code": "688233",
+        "name": "神工股份",
+        "industry": "半导体",
+        "close": 81.97,
+        "winner_rate": 79.9864599817
+      },
+      {
+        "code": "301251",
+        "name": "威尔高",
+        "industry": "元器件",
+        "close": 64.3,
+        "winner_rate": 79.2657008656
+      },
+      {
+        "code": "600151",
+        "name": "航天机电",
+        "industry": "汽车配件",
+        "close": 15.33,
+        "winner_rate": 79.2206668696
+      },
+      {
+        "code": "002862",
+        "name": "实丰文化",
+        "industry": "文教休闲",
+        "close": 17.5,
+        "winner_rate": 79.2180335816
+      },
+      {
+        "code": "601020",
+        "name": "华钰矿业",
+        "industry": "铅锌",
+        "close": 32.56,
+        "winner_rate": 79.1925050133
+      },
+      {
+        "code": "603815",
+        "name": "交建股份",
+        "industry": "建筑工程",
+        "close": 7.24,
+        "winner_rate": 78.9465716661
+      },
+      {
+        "code": "002745",
+        "name": "木林森",
+        "industry": "元器件",
+        "close": 8.88,
+        "winner_rate": 78.8359710508
+      },
+      {
+        "code": "301662",
+        "name": "宏工科技",
+        "industry": "专用机械",
+        "close": 155.73,
+        "winner_rate": 78.7342783559
+      },
+      {
+        "code": "301518",
+        "name": "长华化学",
+        "industry": "化工原料",
+        "close": 42.24,
+        "winner_rate": 78.7296448634
+      },
+      {
+        "code": "600780",
+        "name": "通宝能源",
+        "industry": "火力发电",
+        "close": 7.28,
+        "winner_rate": 78.6744347937
+      },
+      {
+        "code": "300852",
+        "name": "四会富仕",
+        "industry": "元器件",
+        "close": 47.53,
+        "winner_rate": 78.5820370252
+      },
+      {
+        "code": "300763",
+        "name": "锦浪科技",
+        "industry": "电气设备",
+        "close": 96.45,
+        "winner_rate": 78.4574037503
+      },
+      {
+        "code": "301162",
+        "name": "国能日新",
+        "industry": "软件服务",
+        "close": 71.19,
+        "winner_rate": 78.3950794757
+      },
+      {
+        "code": "688148",
+        "name": "芳源股份",
+        "industry": "电气设备",
+        "close": 9.53,
+        "winner_rate": 78.0761676922
+      },
+      {
+        "code": "601016",
+        "name": "节能风电",
+        "industry": "新型电力",
+        "close": 4.48,
+        "winner_rate": 78.0573306133
+      },
+      {
+        "code": "002478",
+        "name": "常宝股份",
+        "industry": "钢加工",
+        "close": 11.33,
+        "winner_rate": 77.6496085049
+      },
+      {
+        "code": "300855",
+        "name": "图南股份",
+        "industry": "小金属",
+        "close": 40.34,
+        "winner_rate": 76.0665886601
+      },
+      {
+        "code": "603130",
+        "name": "云中马",
+        "industry": "纺织",
+        "close": 48.23,
+        "winner_rate": 76.0054217195
+      },
+      {
+        "code": "600841",
+        "name": "动力新科",
+        "industry": "汽车配件",
+        "close": 9.75,
+        "winner_rate": 75.7520433512
+      },
+      {
+        "code": "301580",
+        "name": "爱迪特",
+        "industry": "医疗保健",
+        "close": 78.03,
+        "winner_rate": 75.7161677895
+      },
+      {
+        "code": "603730",
+        "name": "岱美股份",
+        "industry": "汽车配件",
+        "close": 10.06,
+        "winner_rate": 75.6479904877
+      },
+      {
+        "code": "000767",
+        "name": "晋控电力",
+        "industry": "火力发电",
+        "close": 4.15,
+        "winner_rate": 75.3871931762
+      },
+      {
+        "code": "688283",
+        "name": "坤恒顺维",
+        "industry": "电器仪表",
+        "close": 47.3,
+        "winner_rate": 75.1066114403
+      }
+    ],
+    "T5": [
+      {
+        "code": "002490",
+        "name": "山东墨龙",
+        "industry": "化工机械",
+        "close": 9.77,
+        "winner_rate": 74.5879593252
+      },
+      {
+        "code": "603019",
+        "name": "中科曙光",
+        "industry": "IT设备",
+        "close": 91.68,
+        "winner_rate": 74.5333087
+      },
+      {
+        "code": "301252",
+        "name": "同星科技",
+        "industry": "机械基件",
+        "close": 36.99,
+        "winner_rate": 74.280445903
+      },
+      {
+        "code": "600726",
+        "name": "华电能源",
+        "industry": "火力发电",
+        "close": 5.27,
+        "winner_rate": 73.9421884493
+      },
+      {
+        "code": "301446",
+        "name": "福事特",
+        "industry": "机械基件",
+        "close": 38.73,
+        "winner_rate": 73.8131224895
+      },
+      {
+        "code": "300991",
+        "name": "创益通",
+        "industry": "元器件",
+        "close": 48.99,
+        "winner_rate": 73.692624813
+      },
+      {
+        "code": "688330",
+        "name": "宏力达",
+        "industry": "电气设备",
+        "close": 49.45,
+        "winner_rate": 73.5344901639
+      },
+      {
+        "code": "603005",
+        "name": "晶方科技",
+        "industry": "半导体",
+        "close": 31.69,
+        "winner_rate": 73.4812803714
+      },
+      {
+        "code": "301469",
+        "name": "恒达新材",
+        "industry": "造纸",
+        "close": 36.04,
+        "winner_rate": 73.4224096826
+      },
+      {
+        "code": "688248",
+        "name": "南网科技",
+        "industry": "电气设备",
+        "close": 59.61,
+        "winner_rate": 72.8703166719
+      },
+      {
+        "code": "300058",
+        "name": "蓝色光标",
+        "industry": "广告包装",
+        "close": 19.0,
+        "winner_rate": 72.773595492
+      },
+      {
+        "code": "301281",
+        "name": "科源制药",
+        "industry": "化学制药",
+        "close": 39.19,
+        "winner_rate": 72.740961492
+      },
+      {
+        "code": "300671",
+        "name": "富满微",
+        "industry": "半导体",
+        "close": 45.81,
+        "winner_rate": 72.7028034288
+      },
+      {
+        "code": "301517",
+        "name": "陕西华达",
+        "industry": "元器件",
+        "close": 70.02,
+        "winner_rate": 72.6495343076
+      },
+      {
+        "code": "600331",
+        "name": "宏达股份",
+        "industry": "农药化肥",
+        "close": 16.93,
+        "winner_rate": 72.5946613973
+      },
+      {
+        "code": "300593",
+        "name": "新雷能",
+        "industry": "电气设备",
+        "close": 29.86,
+        "winner_rate": 72.2365331471
+      },
+      {
+        "code": "301577",
+        "name": "美信科技",
+        "industry": "元器件",
+        "close": 65.35,
+        "winner_rate": 72.2340573134
+      },
+      {
+        "code": "301408",
+        "name": "华人健康",
+        "industry": "医药商业",
+        "close": 20.94,
+        "winner_rate": 72.2114785361
+      },
+      {
+        "code": "600343",
+        "name": "航天动力",
+        "industry": "机械基件",
+        "close": 36.38,
+        "winner_rate": 72.1257937593
+      },
+      {
+        "code": "300461",
+        "name": "田中精机",
+        "industry": "专用机械",
+        "close": 59.09,
+        "winner_rate": 71.9707721498
+      },
+      {
+        "code": "603533",
+        "name": "掌阅科技",
+        "industry": "互联网",
+        "close": 26.84,
+        "winner_rate": 71.958412363
+      },
+      {
+        "code": "605358",
+        "name": "立昂微",
+        "industry": "半导体",
+        "close": 38.31,
+        "winner_rate": 71.9430924162
+      },
+      {
+        "code": "600703",
+        "name": "三安光电",
+        "industry": "半导体",
+        "close": 15.51,
+        "winner_rate": 71.6896238219
+      },
+      {
+        "code": "301178",
+        "name": "天亿马",
+        "industry": "软件服务",
+        "close": 54.23,
+        "winner_rate": 71.5435308937
+      },
+      {
+        "code": "301225",
+        "name": "恒勃股份",
+        "industry": "汽车配件",
+        "close": 110.2,
+        "winner_rate": 71.4147565823
+      },
+      {
+        "code": "002498",
+        "name": "汉缆股份",
+        "industry": "电气设备",
+        "close": 9.09,
+        "winner_rate": 71.0719337056
+      },
+      {
+        "code": "300014",
+        "name": "亿纬锂能",
+        "industry": "电气设备",
+        "close": 71.87,
+        "winner_rate": 71.0347650665
+      },
+      {
+        "code": "300017",
+        "name": "网宿科技",
+        "industry": "软件服务",
+        "close": 18.9,
+        "winner_rate": 70.8869044711
+      },
+      {
+        "code": "301115",
+        "name": "联检科技",
+        "industry": "建筑工程",
+        "close": 20.77,
+        "winner_rate": 70.7734852349
+      },
+      {
+        "code": "601233",
+        "name": "桐昆股份",
+        "industry": "化纤",
+        "close": 20.28,
+        "winner_rate": 70.7705312017
+      },
+      {
+        "code": "002757",
+        "name": "南兴股份",
+        "industry": "专用机械",
+        "close": 22.38,
+        "winner_rate": 70.6001494813
+      },
+      {
+        "code": "301045",
+        "name": "天禄科技",
+        "industry": "元器件",
+        "close": 40.26,
+        "winner_rate": 70.5586284615
+      },
+      {
+        "code": "688256",
+        "name": "寒武纪",
+        "industry": "半导体",
+        "close": 1323.0,
+        "winner_rate": 70.2039801869
+      },
+      {
+        "code": "300619",
+        "name": "金银河",
+        "industry": "专用机械",
+        "close": 46.06,
+        "winner_rate": 70.1387166119
+      },
+      {
+        "code": "300257",
+        "name": "开山股份",
+        "industry": "机械基件",
+        "close": 28.88,
+        "winner_rate": 70.0701103314
+      },
+      {
+        "code": "002452",
+        "name": "长高电新",
+        "industry": "电气设备",
+        "close": 11.21,
+        "winner_rate": 69.632214514
+      },
+      {
+        "code": "002871",
+        "name": "伟隆股份",
+        "industry": "机械基件",
+        "close": 18.08,
+        "winner_rate": 69.6183827113
+      },
+      {
+        "code": "300737",
+        "name": "科顺股份",
+        "industry": "其他建材",
+        "close": 6.8,
+        "winner_rate": 69.6098420795
+      },
+      {
+        "code": "300567",
+        "name": "精测电子",
+        "industry": "电器仪表",
+        "close": 132.5,
+        "winner_rate": 69.5786874946
+      },
+      {
+        "code": "688182",
+        "name": "灿勤科技",
+        "industry": "通信设备",
+        "close": 31.5,
+        "winner_rate": 69.5591866678
+      },
+      {
+        "code": "000531",
+        "name": "穗恒运Ａ",
+        "industry": "火力发电",
+        "close": 7.19,
+        "winner_rate": 69.3041435061
+      },
+      {
+        "code": "300504",
+        "name": "天邑股份",
+        "industry": "通信设备",
+        "close": 16.1,
+        "winner_rate": 69.2522659639
+      },
+      {
+        "code": "688779",
+        "name": "五矿新能",
+        "industry": "电气设备",
+        "close": 10.96,
+        "winner_rate": 69.1181959944
+      },
+      {
+        "code": "600638",
+        "name": "新黄浦",
+        "industry": "区域地产",
+        "close": 6.48,
+        "winner_rate": 69.0067476016
+      },
+      {
+        "code": "603226",
+        "name": "菲林格尔",
+        "industry": "家居用品",
+        "close": 38.78,
+        "winner_rate": 68.5724382936
+      },
+      {
+        "code": "301230",
+        "name": "泓博医药",
+        "industry": "生物制药",
+        "close": 42.78,
+        "winner_rate": 68.5505633286
+      },
+      {
+        "code": "002064",
+        "name": "华峰化学",
+        "industry": "化纤",
+        "close": 11.36,
+        "winner_rate": 68.4878535811
+      },
+      {
+        "code": "300568",
+        "name": "星源材质",
+        "industry": "化工原料",
+        "close": 15.35,
+        "winner_rate": 68.440543476
+      },
+      {
+        "code": "301555",
+        "name": "惠柏新材",
+        "industry": "化工原料",
+        "close": 36.11,
+        "winner_rate": 68.418904004
+      },
+      {
+        "code": "600497",
+        "name": "驰宏锌锗",
+        "industry": "铅锌",
+        "close": 9.11,
+        "winner_rate": 68.3287737017
+      },
+      {
+        "code": "301333",
+        "name": "诺思格",
+        "industry": "医疗保健",
+        "close": 67.1,
+        "winner_rate": 68.319837026
+      },
+      {
+        "code": "002438",
+        "name": "江苏神通",
+        "industry": "机械基件",
+        "close": 16.93,
+        "winner_rate": 68.1999847079
+      },
+      {
+        "code": "688172",
+        "name": "燕东微",
+        "industry": "半导体",
+        "close": 40.48,
+        "winner_rate": 68.1607102884
+      },
+      {
+        "code": "603067",
+        "name": "振华股份",
+        "industry": "化工原料",
+        "close": 37.66,
+        "winner_rate": 68.1040023883
+      },
+      {
+        "code": "300766",
+        "name": "每日互动",
+        "industry": "互联网",
+        "close": 38.86,
+        "winner_rate": 68.0440825284
+      },
+      {
+        "code": "603059",
+        "name": "倍加洁",
+        "industry": "日用化工",
+        "close": 35.51,
+        "winner_rate": 67.9478269477
+      },
+      {
+        "code": "688549",
+        "name": "中巨芯-U",
+        "industry": "元器件",
+        "close": 9.74,
+        "winner_rate": 67.8682440444
+      },
+      {
+        "code": "601112",
+        "name": "振石股份",
+        "industry": "玻璃",
+        "close": 20.19,
+        "winner_rate": 67.8375572458
+      },
+      {
+        "code": "301291",
+        "name": "明阳电气",
+        "industry": "电气设备",
+        "close": 56.31,
+        "winner_rate": 67.7398148956
+      },
+      {
+        "code": "002001",
+        "name": "新 和 成",
+        "industry": "化学制药",
+        "close": 34.74,
+        "winner_rate": 67.6978781543
+      },
+      {
+        "code": "300762",
+        "name": "上海瀚讯",
+        "industry": "通信设备",
+        "close": 41.4,
+        "winner_rate": 67.438491841
+      },
+      {
+        "code": "688316",
+        "name": "青云科技-U",
+        "industry": "软件服务",
+        "close": 76.85,
+        "winner_rate": 67.2380944635
+      },
+      {
+        "code": "600098",
+        "name": "广州发展",
+        "industry": "火力发电",
+        "close": 7.22,
+        "winner_rate": 67.1780782954
+      },
+      {
+        "code": "300207",
+        "name": "欣旺达",
+        "industry": "电气设备",
+        "close": 29.13,
+        "winner_rate": 67.011858103
+      },
+      {
+        "code": "300867",
+        "name": "圣元环保",
+        "industry": "环境保护",
+        "close": 21.01,
+        "winner_rate": 66.9389673194
+      },
+      {
+        "code": "688612",
+        "name": "威迈斯",
+        "industry": "汽车配件",
+        "close": 32.29,
+        "winner_rate": 66.9045052276
+      },
+      {
+        "code": "002518",
+        "name": "科士达",
+        "industry": "电气设备",
+        "close": 49.13,
+        "winner_rate": 66.7866413126
+      },
+      {
+        "code": "600406",
+        "name": "国电南瑞",
+        "industry": "电气设备",
+        "close": 26.95,
+        "winner_rate": 66.7154618928
+      },
+      {
+        "code": "600378",
+        "name": "昊华科技",
+        "industry": "化工原料",
+        "close": 34.16,
+        "winner_rate": 66.6110471209
+      },
+      {
+        "code": "000819",
+        "name": "岳阳兴长",
+        "industry": "石油加工",
+        "close": 16.67,
+        "winner_rate": 66.6079015206
+      },
+      {
+        "code": "301040",
+        "name": "中环海陆",
+        "industry": "机械基件",
+        "close": 32.73,
+        "winner_rate": 66.5936311396
+      },
+      {
+        "code": "300827",
+        "name": "上能电气",
+        "industry": "电气设备",
+        "close": 38.96,
+        "winner_rate": 66.38529505
+      },
+      {
+        "code": "002637",
+        "name": "赞宇科技",
+        "industry": "日用化工",
+        "close": 12.32,
+        "winner_rate": 66.2207869701
+      },
+      {
+        "code": "301638",
+        "name": "南网数字",
+        "industry": "软件服务",
+        "close": 28.46,
+        "winner_rate": 66.0625721141
+      },
+      {
+        "code": "600163",
+        "name": "中闽能源",
+        "industry": "新型电力",
+        "close": 6.68,
+        "winner_rate": 65.5692645225
+      },
+      {
+        "code": "605133",
+        "name": "嵘泰股份",
+        "industry": "汽车配件",
+        "close": 32.72,
+        "winner_rate": 65.5020036302
+      },
+      {
+        "code": "300277",
+        "name": "汽轮科技",
+        "industry": "机械基件",
+        "close": 20.05,
+        "winner_rate": 65.4625854866
+      },
+      {
+        "code": "603861",
+        "name": "白云电器",
+        "industry": "电气设备",
+        "close": 17.23,
+        "winner_rate": 65.3404434647
+      },
+      {
+        "code": "300602",
+        "name": "飞荣达",
+        "industry": "元器件",
+        "close": 34.55,
+        "winner_rate": 65.2853785258
+      },
+      {
+        "code": "000636",
+        "name": "风华高科",
+        "industry": "元器件",
+        "close": 22.16,
+        "winner_rate": 65.2155782777
+      },
+      {
+        "code": "300943",
+        "name": "春晖智控",
+        "industry": "机械基件",
+        "close": 29.54,
+        "winner_rate": 65.0048614294
+      }
+    ]
+  }
+}

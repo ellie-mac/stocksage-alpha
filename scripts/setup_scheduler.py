@@ -229,7 +229,7 @@ def register():
                 f"$t.Repetition.Interval = '{interval}';"
                 f"$t.Repetition.Duration = '{duration}';"
                 f"$s = New-ScheduledTaskSettingsSet -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Hours 1);"
-                f"$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest;"
+                f"$p = New-ScheduledTaskPrincipal -UserId \"$env:USERDOMAIN\\$env:USERNAME\" -LogonType S4U -RunLevel Highest;"
                 f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
             )
         else:
@@ -237,7 +237,7 @@ def register():
                 f"$a = New-ScheduledTaskAction -Execute '\"{bat_path}\"';"
                 f"$t = New-ScheduledTaskTrigger -Daily -At '{time_str}';"
                 f"$s = New-ScheduledTaskSettingsSet -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Hours 2);"
-                f"$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest;"
+                f"$p = New-ScheduledTaskPrincipal -UserId \"$env:USERDOMAIN\\$env:USERNAME\" -LogonType S4U -RunLevel Highest;"
                 f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
             )
         result = subprocess.run(
