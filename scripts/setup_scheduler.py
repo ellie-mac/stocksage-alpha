@@ -132,6 +132,7 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
         path = TASKS_DIR / "run_main_night.bat"
         content = (
             f'@echo off\n'
+            f'chcp 65001 > nul\n'
             f'cd /d "{REPO_ROOT}"\n'
             f'mkdir "{LOGS_DIR}" 2>nul\n'
             f'"{PYTHON}" -X utf8 "{GEN_UNIVERSE}" >> "{log}\\universe_main.log" 2>&1\n'
@@ -180,11 +181,15 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
     elif slot == "integrity_check":
         path = TASKS_DIR / "run_integrity_check.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{INTEGRITY_CHECK}" >> "{log}\\integrity_check.log" 2>&1'
+    elif slot == "gc_scan":
+        path = TASKS_DIR / "run_gc_scan.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{GOLDEN_CROSS_SCAN}" --push >> "{log}\\gc_scan.log" 2>&1'
     else:
         raise ValueError(f"Unknown slot: {slot}")
 
     content = (
         f'@echo off\n'
+        f'chcp 65001 > nul\n'
         f'cd /d "{REPO_ROOT}"\n'
         f'mkdir "{LOGS_DIR}" 2>nul\n'
         f'{cmd}\n'
