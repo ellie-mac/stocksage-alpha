@@ -30,6 +30,7 @@ BATCH_FIN     = SCRIPTS   / "tools" / "batch_financials.py"
 GEN_UNIVERSE  = SCRIPTS   / "tools" / "generate_full_universe.py"
 CHIP_CAD          = SCRIPTS   / "chip_cad.py"
 CAD_PIPELINE      = SCRIPTS   / "run_cad_pipeline.py"
+GOLDEN_CROSS_SCAN = SCRIPTS   / "golden_cross_scan.py"
 PREFETCH          = SCRIPTS   / "prefetch.py"
 INTEGRITY_CHECK   = SCRIPTS   / "integrity_check.py"
 NOTIFY_FAIL       = SCRIPTS   / "notify_failure.py"
@@ -85,6 +86,7 @@ TASKS = [
     ("main_PerfLog",    "17:20", "main_perf_log",   "主策略昨日选股今日胜率对比 📱",                  True),
     ("chip_Night",      "18:00", "chip_night",      "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
     ("main_Scan",       "18:30", "monitor_scan",    "主策略扫盘，更新 latest_picks.json，推送 📱",    True),
+    ("gc_Scan",         "19:30", "gc_scan",         "金叉策略扫描（全A股8项指标共振）推送 📱",         True),
     ("chip_CadScan",    "20:30", "cad_scan",        "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱",    True),
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
     ("main_Night",      "22:30", "main_night",      "预热财务缓存（batch_financials），不推送",        False),

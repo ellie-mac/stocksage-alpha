@@ -24,10 +24,11 @@ ROOT    = Path(__file__).resolve().parent.parent
 XHS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-SCAN_PATH = ROOT / "data" / "chip_scan_latest.json"
-CAH_PATH  = ROOT / "data" / "chip_cah_latest.json"
-CAD_PATH  = ROOT / "data" / "chip_cad_latest.json"
-CADM_PATH = ROOT / "data" / "chip_cadm_latest.json"
+SCAN_PATH       = ROOT / "data" / "chip_scan_latest.json"
+CAH_PATH        = ROOT / "data" / "chip_cah_latest.json"
+CAD_PATH        = ROOT / "data" / "chip_cad_latest.json"
+CADM_PATH       = ROOT / "data" / "chip_cadm_latest.json"
+MAIN_PICKS_PATH = ROOT / "data" / "preview_picks.json"
 
 # 超出计划时间多少分钟后跳过（防止补跑）
 MAX_DELAY = {"morning": 60, "midday": 40, "evening": 90}
@@ -108,6 +109,31 @@ def _load_scan() -> dict:
         print(f"[chip_writer] 找不到任何筹码数据文件")
         return {}
     return json.loads(SCAN_PATH.read_text(encoding="utf-8"))
+
+
+def _load_main_picks() -> list[dict]:
+    if not MAIN_PICKS_PATH.exists():
+        return []
+    return json.loads(MAIN_PICKS_PATH.read_text(encoding="utf-8")).get("picks", [])
+
+
+def _fmt_main_section(main_picks: list[dict], chip_win: float, chip_avg: float,
+                      prices: dict[str, dict]) -> list[str]:
+    """主策略 vs 筹码对比区块。"""
+    mp_list = [{"code": p["code"], "name": p["name"],
+                "industry": p.get("industry", ""), "tier": "main"}
+               for p in main_picks]
+    ms = _calc_stats(mp_list, prices)
+    out = ["", "**【主策略 5只对比】**  "]
+    if ms["results"]:
+        out.append(f"主策略 胜率{ms['win_rate']:.0f}%  均{ms['avg_ret']:+.2f}%"
+                   f"  |  筹码 胜率{chip_win:.0f}%  均{chip_avg:+.2f}%  ")
+        for r in ms["results"]:
+            out.append(f"{r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
+    else:
+        for p in main_picks:
+            out.append(f"{p['code']} {p['name']} {p.get('industry', '')}  ")
+    return out
 
 
 def _fetch_prices(codes: list[str]) -> dict[str, dict]:
@@ -192,7 +218,7 @@ def _fmt_date(date: str) -> str:
 
 def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
     """早报：全部筹码选股按档位列出"""
-    if not _in_window("morning"):
+    if not force and not _in_window("morning"):
         return
     data = _load_scan()
     if not data:
@@ -201,17 +227,32 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
     date      = data.get("date", datetime.now().strftime("%Y%m%d"))
     all_tiers = data.get("tiers", {})
     total     = sum(len(v) for v in all_tiers.values())
-    flt       = data.get("filter", "")
 
-    lines = [f"📊 筹码早报 {_fmt_date(date)}"]
-    lines.append(f"今日共选出 **{total}只**（{flt}）\n")
+    _TIER_LABEL = {
+        "T1": "极强 ≥95%",
+        "T2": "强势 90-95%",
+        "T3": "稳健 85-90%",
+        "T4": "潜力 75-85%",
+    }
 
-    for tier_key, tier_range in [("T1","≥95%"),("T2","90-95%"),
-                                  ("T3","85-90%"),("T4","75-85%")]:
+    main_picks = _load_main_picks()
+    chip_total = sum(len(all_tiers.get(k, [])) for k in _TIER_LABEL)
+
+    lines: list[str] = []
+
+    if main_picks:
+        lines.append(f"**【主策略精选 {len(main_picks)}只】**  ")
+        for p in main_picks:
+            price_s = f"¥{float(p['price']):.2f}" if p.get("price") else ""
+            lines.append(f"{p['code']} {p['name']} {p.get('industry', '')} {price_s}  ")
+        lines.append("")
+
+    lines.append(f"**【筹码策略 {chip_total}只】**  ")
+    for tier_key, tier_label in _TIER_LABEL.items():
         picks = all_tiers.get(tier_key, [])
         if not picks:
             continue
-        lines.append(f"**【{tier_key} {tier_range}】{len(picks)}只**")
+        lines.append(f"**{tier_key} {tier_label}（{len(picks)}只）**  ")
         for p in picks:
             close_s = f"¥{float(p['close']):.2f}" if p.get("close") and not __import__("math").isnan(float(p["close"])) else ""
             lines.append(f"{p['code']} {p['name']} {p['industry']} {close_s}  ")
@@ -220,7 +261,7 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
     lines.append("⚠️ 仅供参考，不构成投资建议")
     lines.append("#量化记录 #筹码分布 #数据实验 #记录帖")
 
-    title = f"筹码早报 {_fmt_date(date)}（{total}只）"
+    title = f"量化早报 {_fmt_date(date)}"
     body  = "\n".join(lines)
     print(f"\n{title}\n{body}")
     if not dry_run:
@@ -228,8 +269,8 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
 
 
 def cmd_midday(dry_run: bool = False, force: bool = False) -> None:
-    """午间快报：涨跌幅 Top5、胜率、收益率、下午重点"""
-    if not _in_window("midday"):
+    """午间快报：主策略 + 筹码涨跌 Top5 + 下午关注"""
+    if not force and not _in_window("midday"):
         return
     data = _load_scan()
     if not data:
@@ -241,40 +282,49 @@ def cmd_midday(dry_run: bool = False, force: bool = False) -> None:
         print("[midday] 无选股")
         return
 
-    codes  = [p["code"] for p in picks]
-    s      = _fetch_with_retry(codes, picks, slot="midday")
-    if not s["results"]:
-        print("[midday] 行情获取失败，发送无数据版本")
-        title = f"筹码午报 {_fmt_date(date)}（行情暂不可用）"
-        body  = (f"📈 午间快报 {_fmt_date(date)} 11:30\n"
-                 f"筹码选股 {len(picks)} 只（行情数据暂时不可用，请自行查看）\n"
-                 f"\n⚠️ 仅供参考，不构成投资建议\n#量化记录 #筹码分布 #数据实验")
-        if not dry_run:
-            _push(title, body)
-        return
+    codes = [p["code"] for p in picks]
+    s     = _fetch_with_retry(codes, picks, slot="midday")
 
-    lines = [f"📈 午间快报 {_fmt_date(date)} 11:30"]
-    lines.append(f"筹码选股 {s['n_total']} 只")
-    lines.append(f"**胜率 {s['win_rate']:.0f}%**（{s['n_win']}/{s['n_total']}只盈利）  "
-                 f"**综合涨幅 {s['avg_ret']:+.2f}%**\n")
+    main_picks = _load_main_picks()
+    mp_list = [{"code": p["code"], "name": p["name"],
+                "industry": p.get("industry", ""), "tier": "main"}
+               for p in main_picks]
+    ms = _calc_stats(mp_list, _fetch_prices([p["code"] for p in main_picks])) if main_picks else None
 
-    lines.append("**涨幅前五：**")
-    for i, r in enumerate(s["top5"], 1):
-        lines.append(f"{i}. {r['code']} {r['name']} **{r['change_pct']:+.2f}%**  ")
+    lines: list[str] = []
 
-    watch_up = s["watch_up"]
-    watch_dn = s["watch_dn"]
-    if watch_up or watch_dn:
-        lines.append("\n**下午可关注：**")
-        for r in watch_up[:5]:
-            lines.append(f"• {r['code']} {r['name']} {r['change_pct']:+.2f}% 温和上涨可跟踪  ")
-        for r in watch_dn[:2]:
-            lines.append(f"• {r['code']} {r['name']} {r['change_pct']:+.2f}% 回调中，筹码仍健康  ")
+    # ── 主策略精选 ─────────────────────────────────────────────────────────────
+    if ms and ms["results"]:
+        lines.append(f"**【主策略精选 {len(main_picks)}只】  胜率 {ms['win_rate']:.0f}%  均 {ms['avg_ret']:+.2f}%**  ")
+        for r in sorted(ms["results"], key=lambda x: x["change_pct"], reverse=True):
+            lines.append(f"{r['code']} {r['name']} **{r['change_pct']:+.2f}%**  ")
+        lines.append("")
+    elif main_picks:
+        lines.append(f"**【主策略精选 {len(main_picks)}只】**  ")
+        for p in main_picks:
+            price_s = f"¥{float(p['price']):.2f}" if p.get("price") else ""
+            lines.append(f"{p['code']} {p['name']} {price_s}  ")
+        lines.append("")
+
+    # ── 筹码策略 ───────────────────────────────────────────────────────────────
+    if s["results"]:
+        lines.append(f"**【筹码策略 {s['n_total']}只】  胜率 {s['win_rate']:.0f}%  均 {s['avg_ret']:+.2f}%**  ")
+        lines.append("\n涨幅前五：  ")
+        for i, r in enumerate(s["top5"], 1):
+            lines.append(f"{i}. {r['code']} {r['name']} **{r['change_pct']:+.2f}%**  ")
+        if s["watch_up"] or s["watch_dn"]:
+            lines.append("\n下午关注：  ")
+            for r in s["watch_up"][:3]:
+                lines.append(f"• {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
+            for r in s["watch_dn"][:2]:
+                lines.append(f"• {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
+    else:
+        lines.append(f"**【筹码策略 {len(picks)}只】**  （行情暂不可用）  ")
 
     lines.append("\n⚠️ 仅供参考，不构成投资建议")
     lines.append("#量化记录 #筹码分布 #数据实验")
 
-    title = f"筹码午报 {_fmt_date(date)}（胜率{s['win_rate']:.0f}% 均{s['avg_ret']:+.2f}%）"
+    title = f"午间快报 {_fmt_date(date)}"
     body  = "\n".join(lines)
     print(f"\n{title}\n{body}")
     if not dry_run:
@@ -299,7 +349,7 @@ def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
     s      = _fetch_with_retry(codes, picks, slot="evening")
     if not s["results"]:
         print("[evening] 行情获取失败，发送无数据版本")
-        title = f"筹码收盘 {_fmt_date(date)}（行情暂不可用）"
+        title = f"收盘总结 {_fmt_date(date)}"
         body  = (f"📊 收盘总结 {_fmt_date(date)}\n"
                  f"筹码选股 {len(picks)} 只（行情数据暂时不可用，请自行查看）\n"
                  f"\n⚠️ 仅供参考，不构成投资建议\n#量化记录 #筹码分布 #数据实验 #记录帖")
@@ -330,10 +380,15 @@ def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
         codes = " ".join(f"{r['code']}{r['name']}" for r in s["nan_stocks"])
         lines.append(f"\n⚠️ 行情缺失（停牌/数据异常）：{codes}")
 
+    main_picks = _load_main_picks()
+    if main_picks:
+        mp_prices = _fetch_prices([p["code"] for p in main_picks])
+        lines += _fmt_main_section(main_picks, s["win_rate"], s["avg_ret"], mp_prices)
+
     lines.append("\n⚠️ 仅供参考，不构成投资建议")
     lines.append("#量化记录 #筹码分布 #数据实验 #记录帖")
 
-    title = f"筹码收盘 {_fmt_date(date)}（胜率{s['win_rate']:.0f}% 均{s['avg_ret']:+.2f}%）"
+    title = f"收盘总结 {_fmt_date(date)}"
     body  = "\n".join(lines)
     print(f"\n{title}\n{body}")
     if not dry_run:
