@@ -28,6 +28,8 @@ MAIN_PERF_LOG = SCRIPTS   / "main_perf_log.py"
 MONITOR       = SCRIPTS   / "monitor.py"
 BATCH_FIN     = SCRIPTS   / "tools" / "batch_financials.py"
 GEN_UNIVERSE  = SCRIPTS   / "tools" / "generate_full_universe.py"
+GC_PERF_LOG       = SCRIPTS   / "gc_perf_log.py"
+DAILY_PERF_LOG    = SCRIPTS   / "daily_perf_log.py"
 CHIP_CAD          = SCRIPTS   / "chip_cad.py"
 CAD_PIPELINE      = SCRIPTS   / "run_cad_pipeline.py"
 GOLDEN_CROSS_SCAN = SCRIPTS   / "golden_cross_scan.py"
@@ -59,6 +61,8 @@ OLD_TASKS = [
     "ss_ChipMorning", "ss_ChipMidday", "ss_ChipEvening",
     "ss_ChipPerfLog", "ss_CadScan", "ss_CadmScan", "ss_MainMorning", "ss_MonitorScan",
     "chip_CadmScan",
+    # replaced by daily_PerfLog
+    "gc_PerfLog", "chip_PerfLog", "main_PerfLog",
     # old prefetch task names (in case of re-registration)
     "price_Warm",
     # bot keepalive tasks (replaced by in-process keepalive thread)
@@ -82,8 +86,7 @@ TASKS = [
     ("market_Warm",     "15:35", "market_warm",     "预热市场数据：CSI300/PE/申万/停牌表，不推送",    False),
     ("price_Prefetch",  "15:45", "price_prefetch",  "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
-    ("chip_PerfLog",    "17:15", "perf_log",        "三者共有/cah独有/cad独有 T1-T4 胜率对比 📱",     True),
-    ("main_PerfLog",    "17:20", "main_perf_log",   "主策略昨日选股今日胜率对比 📱",                  True),
+    ("daily_PerfLog",   "16:00", "daily_perf_log",  "主策略+筹码+金叉三合一收盘胜率 📱",              True),
     ("chip_Night",      "18:00", "chip_night",      "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
     ("main_Scan",       "18:30", "monitor_scan",    "主策略扫盘，更新 latest_picks.json，推送 📱",    True),
     ("gc_Scan",         "19:30", "gc_scan",         "金叉策略扫描（全A股8项指标共振）推送 📱",         True),
@@ -160,6 +163,12 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
         phase = slot.split("_")[1]
         path  = TASKS_DIR / f"run_chip_{phase}.bat"
         cmd   = f'"{PYTHON}" -X utf8 "{CHIP_WRITER}" {phase} >> "{log}\\chip_writer_{phase}.log" 2>&1'
+    elif slot == "daily_perf_log":
+        path = TASKS_DIR / "run_daily_perf_log.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{DAILY_PERF_LOG}" --force >> "{log}\\daily_perf_log.log" 2>&1'
+    elif slot == "gc_perf_log":
+        path = TASKS_DIR / "run_gc_perf_log.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{GC_PERF_LOG}" --force >> "{log}\\gc_perf_log.log" 2>&1'
     elif slot == "perf_log":
         path = TASKS_DIR / "run_chip_perf_log.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{PERF_LOG}" --force >> "{log}\\chip_perf_log.log" 2>&1'

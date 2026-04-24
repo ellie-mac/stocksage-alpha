@@ -308,27 +308,25 @@ def _push_results(data: dict) -> None:
         "布林中轨金叉":"布林",
     }
 
-    # G0-G3 列股票（每档最多20只）；G4/G5 只显示数量
-    DETAIL_TIERS  = {"G0": "8信号", "G1": "7信号", "G2": "6信号", "G3": "5信号"}
-    SUMMARY_TIERS = {"G4": "4信号", "G5": "3信号"}
+    # G0-G2 列股票（每档最多20只）
+    DETAIL_TIERS  = {"G0": "8信号", "G1": "7信号", "G2": "6信号"}
+    # SUMMARY_TIERS = {"G3": "5信号", "G4": "4信号", "G5": "3信号"}
 
-    lines = [f"📡 金叉扫描 {date_s}"]
+    lines = []
 
     for t, label in DETAIL_TIERS.items():
         picks = tiers.get(t, [])
         if not picks:
             continue
         lines.append(f"\n**【{t} {label}  {len(picks)}只】**  ")
-        for p in picks[:20]:
+        for p in picks:
             sig_s = "·".join(_SIG_SHORT.get(s, s) for s in p["signals"])
             lines.append(f"{p['code']} {p['name']} ¥{p['close']:.2f}  `{sig_s}`  ")
-        if len(picks) > 20:
-            lines.append(f"  …另{len(picks)-20}只  ")
 
-    summary_parts = [f"{label} {len(tiers.get(t,[]))}只"
-                     for t, label in SUMMARY_TIERS.items() if tiers.get(t)]
-    if summary_parts:
-        lines.append("\n" + "  |  ".join(summary_parts) + "（未展开）  ")
+    # summary_parts = [f"{label} {len(tiers.get(t,[]))}只"
+    #                  for t, label in SUMMARY_TIERS.items() if tiers.get(t)]
+    # if summary_parts:
+    #     lines.append("\n" + "  |  ".join(summary_parts) + "（未展开）  ")
 
     lines.append("\n⚠️ 仅供参考，不构成投资建议")
     lines.append("#量化记录 #技术指标 #金叉共振 #数据实验")
@@ -342,11 +340,19 @@ def _push_results(data: dict) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="金叉策略扫描")
-    ap.add_argument("--push",    action="store_true",  help="推送微信")
-    ap.add_argument("--no-push", dest="push", action="store_false")
-    ap.add_argument("--dry-run", action="store_true",  help="不写文件、不推送")
+    ap.add_argument("--push",      action="store_true",  help="推送微信")
+    ap.add_argument("--no-push",   dest="push", action="store_false")
+    ap.add_argument("--dry-run",   action="store_true",  help="不写文件、不推送")
+    ap.add_argument("--push-only", action="store_true",  help="仅推送已保存的结果，不重新扫描")
     ap.set_defaults(push=False)
     args = ap.parse_args()
+    if args.push_only:
+        if not OUT_LATEST.exists():
+            print("[golden_cross] 找不到 golden_cross_latest.json，请先运行扫描")
+            return
+        data = json.loads(OUT_LATEST.read_text(encoding="utf-8"))
+        _push_results(data)
+        return
     run_scan(push=args.push, dry_run=args.dry_run)
 
 

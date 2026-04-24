@@ -29,6 +29,7 @@ CAH_PATH        = ROOT / "data" / "chip_cah_latest.json"
 CAD_PATH        = ROOT / "data" / "chip_cad_latest.json"
 CADM_PATH       = ROOT / "data" / "chip_cadm_latest.json"
 MAIN_PICKS_PATH = ROOT / "data" / "preview_picks.json"
+GC_PATH         = ROOT / "data" / "golden_cross_latest.json"
 
 # 超出计划时间多少分钟后跳过（防止补跑）
 MAX_DELAY = {"morning": 60, "midday": 40, "evening": 90}
@@ -115,6 +116,41 @@ def _load_main_picks() -> list[dict]:
     if not MAIN_PICKS_PATH.exists():
         return []
     return json.loads(MAIN_PICKS_PATH.read_text(encoding="utf-8")).get("picks", [])
+
+
+def _load_gc_picks() -> dict:
+    if not GC_PATH.exists():
+        return {}
+    return json.loads(GC_PATH.read_text(encoding="utf-8"))
+
+
+def _fmt_gc_section(gc_data: dict, prices: dict[str, dict] | None = None) -> list[str]:
+    """金叉共振区块：G0+G1（8/7信号）。"""
+    if not gc_data:
+        return []
+    tiers = gc_data.get("tiers", {})
+    _LABELS = {"G0": "8信号", "G1": "7信号"}
+    total = sum(len(tiers.get(t, [])) for t in _LABELS)
+    if total == 0:
+        return []
+
+    out = ["", f"**【金叉共振 {total}只】**  "]
+    for t, label in _LABELS.items():
+        picks = tiers.get(t, [])
+        if not picks:
+            continue
+        out.append(f"**{t} {label}（{len(picks)}只）**  ")
+        for p in picks[:10]:
+            pct_s = ""
+            if prices:
+                pr = prices.get(p["code"])
+                if pr:
+                    pct_s = f" **{pr['change_pct']:+.2f}%**"
+            out.append(f"{p['code']} {p['name']}{pct_s}  ")
+        if len(picks) > 10:
+            out.append(f"  ……共{len(picks)}只  ")
+        out.append("")
+    return out
 
 
 def _fmt_main_section(main_picks: list[dict], chip_win: float, chip_avg: float,
@@ -258,6 +294,9 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
             lines.append(f"{p['code']} {p['name']} {p['industry']} {close_s}  ")
         lines.append("")
 
+    gc_data = _load_gc_picks()
+    lines += _fmt_gc_section(gc_data)
+
     lines.append("⚠️ 仅供参考，不构成投资建议")
     lines.append("#量化记录 #筹码分布 #数据实验 #记录帖")
 
@@ -320,6 +359,11 @@ def cmd_midday(dry_run: bool = False, force: bool = False) -> None:
                 lines.append(f"• {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
     else:
         lines.append(f"**【筹码策略 {len(picks)}只】**  （行情暂不可用）  ")
+
+    gc_data = _load_gc_picks()
+    gc_codes = [p["code"] for t in ("G0","G1") for p in gc_data.get("tiers", {}).get(t, [])]
+    gc_prices = _fetch_prices(gc_codes) if gc_codes else {}
+    lines += _fmt_gc_section(gc_data, gc_prices)
 
     lines.append("\n⚠️ 仅供参考，不构成投资建议")
     lines.append("#量化记录 #筹码分布 #数据实验")
@@ -384,6 +428,11 @@ def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
     if main_picks:
         mp_prices = _fetch_prices([p["code"] for p in main_picks])
         lines += _fmt_main_section(main_picks, s["win_rate"], s["avg_ret"], mp_prices)
+
+    gc_data = _load_gc_picks()
+    gc_codes = [p["code"] for t in ("G0","G1") for p in gc_data.get("tiers", {}).get(t, [])]
+    gc_prices = _fetch_prices(gc_codes) if gc_codes else {}
+    lines += _fmt_gc_section(gc_data, gc_prices)
 
     lines.append("\n⚠️ 仅供参考，不构成投资建议")
     lines.append("#量化记录 #筹码分布 #数据实验 #记录帖")
