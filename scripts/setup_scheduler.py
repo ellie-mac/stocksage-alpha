@@ -245,15 +245,17 @@ def register():
                 f"$t.Repetition.Interval = '{interval}';"
                 f"$t.Repetition.Duration = '{duration}';"
                 f"$s = New-ScheduledTaskSettingsSet -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Hours 1);"
-                f"$p = New-ScheduledTaskPrincipal -UserId \"$env:USERDOMAIN\\$env:USERNAME\" -LogonType S4U -RunLevel Highest;"
+                f"$u = if ($env:USERDOMAIN -eq 'WORKGROUP') {{$env:COMPUTERNAME}} else {{$env:USERDOMAIN}};"
+                f"$p = New-ScheduledTaskPrincipal -UserId \"$u\\$env:USERNAME\" -LogonType S4U -RunLevel Highest;"
                 f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
             )
         else:
             ps = (
                 f"$a = New-ScheduledTaskAction -Execute '\"{bat_path}\"';"
                 f"$t = New-ScheduledTaskTrigger -Daily -At '{time_str}';"
-                f"$s = New-ScheduledTaskSettingsSet -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Hours 2);"
-                f"$p = New-ScheduledTaskPrincipal -UserId \"$env:USERDOMAIN\\$env:USERNAME\" -LogonType S4U -RunLevel Highest;"
+                f"$s = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 2);"
+                f"$u = if ($env:USERDOMAIN -eq 'WORKGROUP') {{$env:COMPUTERNAME}} else {{$env:USERDOMAIN}};"
+                f"$p = New-ScheduledTaskPrincipal -UserId \"$u\\$env:USERNAME\" -LogonType S4U -RunLevel Highest;"
                 f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
             )
         result = subprocess.run(
