@@ -1,0 +1,8 @@
+{
+  "feishu": {
+    "app_id": "cli_a965cf8dc8789cd5",
+    "app_secret": "EHW8vgvKO8GwKelrqQIdqeBPQU1ji0v1",
+    "allowed_open_ids": [],
+    "notify_chat_id": ""
+  }
+}
