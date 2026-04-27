@@ -998,7 +998,7 @@ def main() -> None:
 
     event_handler = (
         lark.EventDispatcherHandler.builder("", "")
-        .register(lark.im.v1.P2ImMessageReceiveV1, _on_message_receive)
+        .register_p2_im_message_receive_v1(_on_message_receive)
         .build()
     )
 
