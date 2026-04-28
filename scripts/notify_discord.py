@@ -138,7 +138,7 @@ def _try_feishu(task: str, desc: str, status: str) -> None:
     cfg_path = ROOT / "stock-bot" / "feishu_config.json"
     if not cfg_path.exists():
         return
-    cfg     = json.loads(cfg_path.read_text(encoding="utf-8")).get("feishu", {})
+    cfg     = json.loads(cfg_path.read_text(encoding="utf-8-sig")).get("feishu", {})
     app_id  = cfg.get("app_id", "")
     secret  = cfg.get("app_secret", "")
     chat_id = cfg.get("notify_chat_id", "")
