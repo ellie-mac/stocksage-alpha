@@ -202,6 +202,7 @@ def _describe_cmdline(cmd: str) -> str:
         ("monitor.py",         "--test-now",           "Monitor 全市场扫描"),
         ("monitor.py",         "",                     "Monitor（单次）"),
         ("feishu_bot.py",      "",                     "Feishu Bot"),
+        ("lark_bot.py",        "",                     "Lark Bot"),
         ("discord_bot.py",     "",                     "Discord Bot"),
         ("factor_analysis.py", "--universe.*smallcap", "IC回测 小盘"),
         ("factor_analysis.py", "--universe.*etf",      "IC回测 ETF"),
@@ -237,7 +238,7 @@ def _h_status() -> str:
     proc_list = _get_python_procs()
     root_str = str(ROOT).replace("\\", "/").lower()
     _SS = {
-        "monitor.py", "feishu_bot.py", "discord_bot.py",
+        "monitor.py", "feishu_bot.py", "lark_bot.py", "discord_bot.py",
         "factor_analysis.py", "backtest.py", "etf_backtest.py",
         "batch_financials.py", "build_universe.py", "chip_strategy.py",
         "daily_chip_scan.py", "chip_cad.py", "run_cad_pipeline.py",
@@ -912,6 +913,8 @@ def _dispatch_sync(t: str) -> str | None:
         return _FACTOR_HELP
     if t in ("状态", "status", "z"):
         return _h_status()
+    if t in ("重启", "重启monitor", "重启 monitor", "restart monitor", "r"):
+        return _h_restart()
     if t in ("ic", "因子ic", "因子IC"):
         try: return _h_ic()
         except Exception as e: return f"❌ ic 出错: {e}"
