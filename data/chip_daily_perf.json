@@ -453,5 +453,12 @@
       "total_win_rate": 20.4,
       "total_avg_ret": -1.72
     }
+  },
+  {
+    "date": "20260428",
+    "logged": "2026-04-28T20:26:17",
+    "total_n": 0,
+    "total_win_rate": null,
+    "total_avg_ret": null
   }
 ]
