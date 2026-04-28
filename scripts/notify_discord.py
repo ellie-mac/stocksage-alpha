@@ -44,7 +44,7 @@ def _remaining_today(after_name: str, plain: bool = False) -> str:
         idx = names.index(after_name)
     except ValueError:
         idx = -1
-    fmt = "  {t} {n} — {desc}" if plain else "  `{t}` {n} — {desc}"
+    fmt = "{t} {n} — {desc}" if plain else "  `{t}` {n} — {desc}"
     remaining = [
         fmt.format(t=t, n=n, desc=desc)
         for i, (n, t, desc) in enumerate(_SCHEDULE)
