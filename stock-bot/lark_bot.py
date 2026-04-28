@@ -288,6 +288,9 @@ def _h_picks() -> str:
     items = data.get("results", [])
     ts    = data.get("timestamp") or data.get("date", "")
     date_ = ts[:10] if ts else "?"
+    today = datetime.now().strftime("%Y-%m-%d")
+    if date_ != today:
+        return f"今日暂无推荐信号 (上次: {date_})"
     lines = [f"今日推荐 ({date_})\n"]
     for i, s in enumerate(items[:10], 1):
         name  = s.get("name") or s.get("code", "?")
