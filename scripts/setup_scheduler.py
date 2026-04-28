@@ -21,7 +21,7 @@ PYTHON    = sys.executable
 LOGS_DIR  = SCRIPTS / "logs"
 
 # ── Script paths ─────────────────────────────────────────────────────────────
-FEISHU_BOT    = REPO_ROOT / "stock-bot" / "feishu_bot.py"
+FEISHU_BOT    = REPO_ROOT / "stock-bot" / "lark_bot.py"
 DISCORD_BOT   = REPO_ROOT / "stock-bot" / "discord_bot.py"
 BOT_LOGS      = REPO_ROOT / "stock-bot"
 CHIP_WRITER   = XHS_DIR   / "chip_writer.py"
@@ -44,7 +44,7 @@ NOTIFY_DISCORD    = SCRIPTS   / "notify_discord.py"
 # ── Bot startup tasks (At Logon trigger) ─────────────────────────────────────
 BOT_TASKS = [
     # (name, script, log_file)
-    ("StockSage_FeishuBot",   FEISHU_BOT,  BOT_LOGS / "feishu_bot.log"),
+    ("StockSage_LarkBot",     FEISHU_BOT,  BOT_LOGS / "lark_bot.log"),
     ("StockSage_DiscordBot",  DISCORD_BOT, BOT_LOGS / "discord_bot.log"),
 ]
 
@@ -93,6 +93,8 @@ OLD_TASKS = [
     "price_Warm",
     # bot keepalive tasks (replaced by in-process keepalive thread)
     "bot_Keepalive0", "bot_Keepalive1", "bot_Keepalive2",
+    # renamed to StockSage_LarkBot
+    "StockSage_FeishuBot",
 ]
 
 # ── Scheduled tasks ───────────────────────────────────────────────────────────
