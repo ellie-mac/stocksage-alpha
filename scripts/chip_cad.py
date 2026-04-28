@@ -179,6 +179,7 @@ def main() -> None:
     parser.add_argument("--mods", nargs="+", default=["bekh", "bekhm"],
                         help="一个或多个修饰符组合，数据只加载一次")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--date", default="", help="回填日期 YYYYMMDD，默认最新交易日")
     args = parser.parse_args()
 
     cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
@@ -186,7 +187,7 @@ def main() -> None:
     configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
 
     pro        = _get_pro()
-    query_date = _latest_trade_date()
+    query_date = args.date or _latest_trade_date()
     df_all     = fetch_chip_data(query_date, pro)
 
     if df_all.empty:
