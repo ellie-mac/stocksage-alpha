@@ -160,14 +160,16 @@ def send_feishu(chat_id: str, token: str, task: str, desc: str, status: str) -> 
     print(f"[notify_feishu] 已发送: {task}/{status or 'ok'}", flush=True)
 
 
-def _try_feishu(task: str, desc: str, status: str) -> None:
+def _feishu_cfg() -> tuple[str, str, str]:
     cfg_path = ROOT / "stock-bot" / "feishu_config.json"
     if not cfg_path.exists():
-        return
+        return "", "", ""
     cfg     = json.loads(cfg_path.read_text(encoding="utf-8-sig")).get("feishu", {})
-    app_id  = cfg.get("app_id", "")
-    secret  = cfg.get("app_secret", "")
-    chat_id = cfg.get("notify_chat_id", "")
+    return cfg.get("app_id", ""), cfg.get("app_secret", ""), cfg.get("notify_chat_id", "")
+
+
+def _try_feishu(task: str, desc: str, status: str) -> None:
+    app_id, secret, chat_id = _feishu_cfg()
     if not (app_id and secret and chat_id):
         return
     try:
@@ -175,6 +177,33 @@ def _try_feishu(task: str, desc: str, status: str) -> None:
         send_feishu(chat_id, token, task, desc, status)
     except Exception as e:
         print(f"[notify_feishu] 发送失败: {e}", flush=True)
+
+
+def push_feishu_content(text: str) -> None:
+    """Push plain-text content to the Feishu notify chat. Best-effort, never raises."""
+    app_id, secret, chat_id = _feishu_cfg()
+    if not (app_id and secret and chat_id):
+        return
+    try:
+        token = _feishu_token(app_id, secret)
+        body = json.dumps({
+            "receive_id": chat_id,
+            "msg_type":   "text",
+            "content":    json.dumps({"text": text}),
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            data=body,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            resp = json.loads(r.read().decode("utf-8"))
+        if resp.get("code") != 0:
+            print(f"[notify_feishu] 内容推送失败: {resp}", flush=True)
+        else:
+            print("[notify_feishu] 内容推送成功", flush=True)
+    except Exception as e:
+        print(f"[notify_feishu] 内容推送失败: {e}", flush=True)
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -195,24 +224,23 @@ def main() -> None:
 
     _update_failures(task, status)
 
-    cfg = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-    url = cfg.get("discord", {}).get("webhook_url", "")
-
-    delays = [5, 15, 30]
-    if url:
-        for attempt, delay in enumerate([0] + delays, 1):
-            if delay:
-                time.sleep(delay)
-            try:
-                send_discord(url, task, desc, status)
-                break
-            except Exception as e:
-                if attempt <= len(delays):
-                    print(f"[notify_discord] 失败({attempt}次), {delays[attempt-1]}s后重试: {e}", flush=True)
-                else:
-                    print(f"[notify_discord] 放弃: {e}", flush=True)
-    else:
-        print("[notify_discord] webhook_url 未配置，跳过", flush=True)
+    # cfg = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
+    # url = cfg.get("discord", {}).get("webhook_url", "")
+    # delays = [5, 15, 30]
+    # if url:
+    #     for attempt, delay in enumerate([0] + delays, 1):
+    #         if delay:
+    #             time.sleep(delay)
+    #         try:
+    #             send_discord(url, task, desc, status)
+    #             break
+    #         except Exception as e:
+    #             if attempt <= len(delays):
+    #                 print(f"[notify_discord] 失败({attempt}次), {delays[attempt-1]}s后重试: {e}", flush=True)
+    #             else:
+    #                 print(f"[notify_discord] 放弃: {e}", flush=True)
+    # else:
+    #     print("[notify_discord] webhook_url 未配置，跳过", flush=True)
 
     _try_feishu(task, desc, status)
 

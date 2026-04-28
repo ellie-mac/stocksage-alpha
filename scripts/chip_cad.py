@@ -172,6 +172,12 @@ def _merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_date:
     title = f"筹码驱动 {date_fmt} 三筛:{cadm_top_total} cah独有:{cah_only_total} cad独有:{cad_only_total}"
     print(f"\n{title}\n")
     send_wechat(title, body, sendkey, dry_run=dry_run)
+    if not dry_run:
+        try:
+            from notify_discord import push_feishu_content
+            push_feishu_content(f"{title}\n{body}")
+        except Exception:
+            pass
 
 
 def main() -> None:

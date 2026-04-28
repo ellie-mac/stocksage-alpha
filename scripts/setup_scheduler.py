@@ -281,10 +281,13 @@ def register():
             )
         else:
             exec_hours = 4 if slot in ("monitor_scan", "chip_night") else 2
+            # cad_scan fires at 20:30 — omit StartWhenAvailable to prevent
+            # immediate trigger on first registration (no prior run time recorded).
+            swa = "" if slot == "cad_scan" else " -StartWhenAvailable"
             ps = (
                 f"$a = New-ScheduledTaskAction -Execute '\"{bat_path}\"';"
                 f"$t = New-ScheduledTaskTrigger -Daily -At '{time_str}';"
-                f"$s = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours {exec_hours});"
+                f"$s = New-ScheduledTaskSettingsSet -WakeToRun{swa} -ExecutionTimeLimit (New-TimeSpan -Hours {exec_hours});"
                 f"$u = if ($env:USERDOMAIN -eq 'WORKGROUP') {{$env:COMPUTERNAME}} else {{$env:USERDOMAIN}};"
                 f"$p = New-ScheduledTaskPrincipal -UserId \"$u\\$env:USERNAME\" -LogonType S4U -RunLevel Highest;"
                 f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
