@@ -291,7 +291,7 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
         lines.append(f"**{tier_key} {tier_label}（{len(picks)}只）**  ")
         for p in picks:
             close_s = f"¥{float(p['close']):.2f}" if p.get("close") and not __import__("math").isnan(float(p["close"])) else ""
-            lines.append(f"{p['code']} {p['name']} {p['industry']} {close_s}  ")
+            lines.append(f"{p['code']} {p['name']} {p.get('industry', '')} {close_s}  ")
         lines.append("")
 
     gc_data = _load_gc_picks()

@@ -51,11 +51,11 @@ def main() -> None:
     print(f"[notify] 发送失败通知: {title}", flush=True)
     send_wechat(title, body, sendkey)
 
-    if webhook_url:
-        try:
-            _send_discord(webhook_url, task, detail)
-        except Exception as e:
-            print(f"[notify] Discord 发送失败: {e}", flush=True)
+    # if webhook_url:
+    #     try:
+    #         _send_discord(webhook_url, task, detail)
+    #     except Exception as e:
+    #         print(f"[notify] Discord 发送失败: {e}", flush=True)
 
 
 if __name__ == "__main__":
