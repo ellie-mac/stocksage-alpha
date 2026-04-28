@@ -210,18 +210,22 @@ def _build_name_maps() -> tuple[dict[str, str], dict[str, str]]:
     return names, inds
 
 
-def run_scan(push: bool = False, dry_run: bool = False) -> dict:
+def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") -> dict:
     import fetcher as _fetcher
 
     universe  = _load_universe()
     name_map, ind_map = _build_name_maps()
-    date = datetime.now().strftime("%Y%m%d")
+    date = as_of_date or datetime.now().strftime("%Y%m%d")
 
     def _fetch_and_score(code: str) -> Optional[dict]:
         try:
             df = _fetcher.get_price_history(code, days=90)
             if df is None or df.empty:
                 return None
+            if as_of_date:
+                df = df[df["date"] <= as_of_date]
+                if df.empty:
+                    return None
             score, signals = _score_stock(df)
             if score < 3:
                 return None
@@ -344,6 +348,7 @@ def main() -> None:
     ap.add_argument("--no-push",   dest="push", action="store_false")
     ap.add_argument("--dry-run",   action="store_true",  help="不写文件、不推送")
     ap.add_argument("--push-only", action="store_true",  help="仅推送已保存的结果，不重新扫描")
+    ap.add_argument("--date",      default="",           help="回填日期 YYYYMMDD，默认当日")
     ap.set_defaults(push=False)
     args = ap.parse_args()
     if args.push_only:
@@ -353,7 +358,7 @@ def main() -> None:
         data = json.loads(OUT_LATEST.read_text(encoding="utf-8"))
         _push_results(data)
         return
-    run_scan(push=args.push, dry_run=args.dry_run)
+    run_scan(push=args.push, dry_run=args.dry_run, as_of_date=args.date)
 
 
 if __name__ == "__main__":
