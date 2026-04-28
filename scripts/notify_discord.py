@@ -37,15 +37,16 @@ _SCHEDULE = [
 ]
 
 
-def _remaining_today(after_name: str) -> str:
+def _remaining_today(after_name: str, plain: bool = False) -> str:
     now = datetime.now().strftime("%H:%M")
     names = [n for n, _, _ in _SCHEDULE]
     try:
         idx = names.index(after_name)
     except ValueError:
         idx = -1
+    fmt = "  {t} {n} — {desc}" if plain else "  `{t}` {n} — {desc}"
     remaining = [
-        f"  `{t}` {n} — {desc}"
+        fmt.format(t=t, n=n, desc=desc)
         for i, (n, t, desc) in enumerate(_SCHEDULE)
         if i > idx and t > now
     ]
@@ -111,7 +112,7 @@ def send_feishu(chat_id: str, token: str, task: str, desc: str, status: str) -> 
     if desc:
         lines.append(desc)
     if status not in ("started", "failed"):
-        lines.append(_remaining_today(task))
+        lines.append(_remaining_today(task, plain=True))
     text = "\n".join(lines)
 
     body = json.dumps({
