@@ -48,6 +48,13 @@ BOT_TASKS = [
     ("StockSage_DiscordBot",  DISCORD_BOT, BOT_LOGS / "discord_bot.log"),
 ]
 
+# ── Watchdog tasks (periodic repeat) ─────────────────────────────────────────
+FEISHU_BOTS_DIR = Path.home() / "repos" / "feishu-bots"
+WATCHDOG_TASKS = [
+    # (name, ps_script, repeat_minutes)
+    ("StockSage_LarkAgent_Watchdog", FEISHU_BOTS_DIR / "watchdog.ps1", 5),
+]
+
 
 def _bot_bat(name: str, script: Path, log: Path) -> tuple[Path, str]:
     bat_path = TASKS_DIR / f"run_{name.lower().replace('stocksage_', '')}.bat"
@@ -95,6 +102,8 @@ OLD_TASKS = [
     "bot_Keepalive0", "bot_Keepalive1", "bot_Keepalive2",
     # renamed to StockSage_LarkBot
     "StockSage_FeishuBot",
+    # renamed to StockSage_LarkAgent_Watchdog
+    "StockSage_CCConnect_Watchdog",
 ]
 
 # ── Scheduled tasks ───────────────────────────────────────────────────────────
@@ -323,6 +332,30 @@ def register():
         mark = "✅" if result.returncode == 0 else "❌"
         err  = f"  失败: {result.stderr.strip()}" if result.returncode != 0 else ""
         print(f"{mark}  AtLogon  {bot_name}{err}")
+
+    # ── Watchdog tasks (Repeat every N min) ──────────────────────────────────
+    print()
+    print("注册 Watchdog 任务...")
+    for wname, wscript, wmin in WATCHDOG_TASKS:
+        if not wscript.exists():
+            print(f"⚠️   {wname}: 脚本不存在 {wscript}，跳过")
+            continue
+        ps = (
+            f"$a = New-ScheduledTaskAction -Execute 'powershell.exe'"
+            f" -Argument '-NonInteractive -ExecutionPolicy Bypass -File \"{wscript}\"';"
+            f"$t = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes {wmin}) -Once -At (Get-Date);"
+            f"$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 1);"
+            f"$u = if ($env:USERDOMAIN -eq 'WORKGROUP') {{$env:COMPUTERNAME}} else {{$env:USERDOMAIN}};"
+            f"$p = New-ScheduledTaskPrincipal -UserId \"$u\\$env:USERNAME\" -LogonType S4U -RunLevel Highest;"
+            f"Register-ScheduledTask -TaskName '{wname}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
+        )
+        result = subprocess.run(
+            ["powershell", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True,
+        )
+        mark = "✅" if result.returncode == 0 else "❌"
+        err  = f"  失败: {result.stderr.strip()}" if result.returncode != 0 else ""
+        print(f"{mark}  {wmin}min  {wname}{err}")
 
     print()
     print("完成。各脚本内置超时检查，超出窗口自动跳过。")
