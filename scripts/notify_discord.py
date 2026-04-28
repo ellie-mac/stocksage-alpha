@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """
-notify_discord.py — 发送定时任务完成通知（Discord Webhook）
+notify_discord.py — 发送定时任务通知（Discord Webhook + 飞书）
 
 用法：
-    python -X utf8 scripts/notify_discord.py "任务名" "描述"
+    python -X utf8 scripts/notify_discord.py "任务名" "描述" [status]
+    status: "" = 完成, "started" = 开始, "failed" = 失败
 """
 from __future__ import annotations
 
 import json
 import sys
+import time
 import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# 与 setup_scheduler.py 中 TASKS 保持一致（仅用于播报剩余任务）
 _SCHEDULE = [
     ("chip_Premarket",  "07:00", "筹码盘前兜底"),
     ("main_Morning",    "07:10", "主策略盘前兜底"),
@@ -37,14 +38,12 @@ _SCHEDULE = [
 
 
 def _remaining_today(after_name: str) -> str:
-    """Return a list of tasks scheduled after the completed one."""
     now = datetime.now().strftime("%H:%M")
     names = [n for n, _, _ in _SCHEDULE]
     try:
         idx = names.index(after_name)
     except ValueError:
         idx = -1
-
     remaining = [
         f"  `{t}` {n} — {desc}"
         for i, (n, t, desc) in enumerate(_SCHEDULE)
@@ -55,13 +54,20 @@ def _remaining_today(after_name: str) -> str:
     return "📋 剩余任务:\n" + "\n".join(remaining)
 
 
+# ── Discord ───────────────────────────────────────────────────────────────────
+
 def send_discord(webhook_url: str, task: str, desc: str, status: str = "") -> None:
-    icon = "❌" if status == "failed" else "✅"
-    word = "失败" if status == "failed" else "完成"
+    if status == "started":
+        icon, word = "🚀", "开始"
+    elif status == "failed":
+        icon, word = "❌", "失败"
+    else:
+        icon, word = "✅", "完成"
+
     lines = [f"{icon} **{task}** {word}"]
     if desc:
         lines.append(desc)
-    if status != "failed":
+    if status not in ("started", "failed"):
         lines.append(_remaining_today(task))
     content = "\n".join(lines)
 
@@ -74,33 +80,104 @@ def send_discord(webhook_url: str, task: str, desc: str, status: str = "") -> No
         },
     )
     with urllib.request.urlopen(req, timeout=10) as r:
-        print(f"[notify_discord] 已发送: {task} (HTTP {r.status})", flush=True)
+        print(f"[notify_discord] 已发送: {task}/{status or 'ok'} (HTTP {r.status})", flush=True)
 
+
+# ── Feishu ────────────────────────────────────────────────────────────────────
+
+def _feishu_token(app_id: str, app_secret: str) -> str:
+    data = json.dumps({"app_id": app_id, "app_secret": app_secret}).encode("utf-8")
+    req = urllib.request.Request(
+        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        data=data,
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        resp = json.loads(r.read().decode("utf-8"))
+    if resp.get("code") != 0:
+        raise RuntimeError(f"feishu token error: {resp}")
+    return resp["tenant_access_token"]
+
+
+def send_feishu(chat_id: str, token: str, task: str, desc: str, status: str) -> None:
+    if status == "started":
+        icon, word = "🚀", "开始"
+    elif status == "failed":
+        icon, word = "❌", "失败"
+    else:
+        icon, word = "✅", "完成"
+
+    lines = [f"{icon} {task} {word}"]
+    if desc:
+        lines.append(desc)
+    if status not in ("started", "failed"):
+        lines.append(_remaining_today(task))
+    text = "\n".join(lines)
+
+    body = json.dumps({
+        "receive_id": chat_id,
+        "msg_type":   "text",
+        "content":    json.dumps({"text": text}),
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+        data=body,
+        headers={
+            "Content-Type":  "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        resp = json.loads(r.read().decode("utf-8"))
+    if resp.get("code") != 0:
+        raise RuntimeError(f"feishu send error: {resp}")
+    print(f"[notify_feishu] 已发送: {task}/{status or 'ok'}", flush=True)
+
+
+def _try_feishu(task: str, desc: str, status: str) -> None:
+    cfg_path = ROOT / "stock-bot" / "feishu_config.json"
+    if not cfg_path.exists():
+        return
+    cfg     = json.loads(cfg_path.read_text(encoding="utf-8")).get("feishu", {})
+    app_id  = cfg.get("app_id", "")
+    secret  = cfg.get("app_secret", "")
+    chat_id = cfg.get("notify_chat_id", "")
+    if not (app_id and secret and chat_id):
+        return
+    try:
+        token = _feishu_token(app_id, secret)
+        send_feishu(chat_id, token, task, desc, status)
+    except Exception as e:
+        print(f"[notify_feishu] 发送失败: {e}", flush=True)
+
+
+# ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    import time
     task   = sys.argv[1] if len(sys.argv) > 1 else "未知任务"
     desc   = sys.argv[2] if len(sys.argv) > 2 else ""
     status = sys.argv[3] if len(sys.argv) > 3 else ""
 
     cfg = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
     url = cfg.get("discord", {}).get("webhook_url", "")
-    if not url:
-        print("[notify_discord] webhook_url 未配置，跳过", flush=True)
-        return
 
-    delays = [5, 15, 30]  # retry delays in seconds
-    for attempt, delay in enumerate([0] + delays, 1):
-        if delay:
-            time.sleep(delay)
-        try:
-            send_discord(url, task, desc, status)
-            return
-        except Exception as e:
-            if attempt <= len(delays):
-                print(f"[notify_discord] 发送失败（第{attempt}次），{delays[attempt-1]}s后重试: {e}", flush=True)
-            else:
-                print(f"[notify_discord] 发送失败（已重试{len(delays)}次），放弃: {e}", flush=True)
+    delays = [5, 15, 30]
+    if url:
+        for attempt, delay in enumerate([0] + delays, 1):
+            if delay:
+                time.sleep(delay)
+            try:
+                send_discord(url, task, desc, status)
+                break
+            except Exception as e:
+                if attempt <= len(delays):
+                    print(f"[notify_discord] 失败({attempt}次), {delays[attempt-1]}s后重试: {e}", flush=True)
+                else:
+                    print(f"[notify_discord] 放弃: {e}", flush=True)
+    else:
+        print("[notify_discord] webhook_url 未配置，跳过", flush=True)
+
+    _try_feishu(task, desc, status)
 
 
 if __name__ == "__main__":

@@ -118,12 +118,14 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
         "integrity_check": "integrity_Check",
     }
     task_name = task_name_override or slot_names.get(slot, slot)
-    notify_cmd      = (f'"{PYTHON}" -X utf8 "{NOTIFY_FAIL}" "{task_name}"'
-                       f' >> "{log}\\notify_failure.log" 2>&1')
-    discord_ok_cmd  = (f'"{PYTHON}" -X utf8 "{NOTIFY_DISCORD}" "{task_name}" "{desc}"'
-                       f' >> "{log}\\notify_discord.log" 2>&1')
-    discord_fail_cmd = (f'"{PYTHON}" -X utf8 "{NOTIFY_DISCORD}" "{task_name}" "{desc}" "failed"'
-                        f' >> "{log}\\notify_discord.log" 2>&1')
+    notify_cmd        = (f'"{PYTHON}" -X utf8 "{NOTIFY_FAIL}" "{task_name}"'
+                         f' >> "{log}\\notify_failure.log" 2>&1')
+    discord_start_cmd = (f'"{PYTHON}" -X utf8 "{NOTIFY_DISCORD}" "{task_name}" "{desc}" "started"'
+                         f' >> "{log}\\notify_discord.log" 2>&1')
+    discord_ok_cmd    = (f'"{PYTHON}" -X utf8 "{NOTIFY_DISCORD}" "{task_name}" "{desc}"'
+                         f' >> "{log}\\notify_discord.log" 2>&1')
+    discord_fail_cmd  = (f'"{PYTHON}" -X utf8 "{NOTIFY_DISCORD}" "{task_name}" "{desc}" "failed"'
+                         f' >> "{log}\\notify_discord.log" 2>&1')
 
     if slot == "keepalive":
         path = TASKS_DIR / "run_keepalive.bat"
@@ -138,6 +140,7 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
             f'chcp 65001 > nul\n'
             f'cd /d "{REPO_ROOT}"\n'
             f'mkdir "{LOGS_DIR}" 2>nul\n'
+            f'{discord_start_cmd}\n'
             f'"{PYTHON}" -X utf8 "{GEN_UNIVERSE}" >> "{log}\\universe_main.log" 2>&1\n'
             f'if errorlevel 1 (\n'
             f'    {notify_cmd}\n'
@@ -201,6 +204,7 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
         f'chcp 65001 > nul\n'
         f'cd /d "{REPO_ROOT}"\n'
         f'mkdir "{LOGS_DIR}" 2>nul\n'
+        f'{discord_start_cmd}\n'
         f'{cmd}\n'
         f'if errorlevel 1 (\n'
         f'    {notify_cmd}\n'
@@ -250,10 +254,11 @@ def register():
                 f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
             )
         else:
+            exec_hours = 4 if slot == "monitor_scan" else 2
             ps = (
                 f"$a = New-ScheduledTaskAction -Execute '\"{bat_path}\"';"
                 f"$t = New-ScheduledTaskTrigger -Daily -At '{time_str}';"
-                f"$s = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 2);"
+                f"$s = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours {exec_hours});"
                 f"$u = if ($env:USERDOMAIN -eq 'WORKGROUP') {{$env:COMPUTERNAME}} else {{$env:USERDOMAIN}};"
                 f"$p = New-ScheduledTaskPrincipal -UserId \"$u\\$env:USERNAME\" -LogonType S4U -RunLevel Highest;"
                 f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
