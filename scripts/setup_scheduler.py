@@ -49,7 +49,7 @@ BOT_TASKS = [
 ]
 
 # ── Watchdog tasks (periodic repeat) ─────────────────────────────────────────
-FEISHU_BOTS_DIR = Path.home() / "repos" / "feishu-bots"
+FEISHU_BOTS_DIR = Path.home() / "repos" / "lark-agent"
 WATCHDOG_TASKS = [
     # (name, ps_script, repeat_minutes)
     ("StockSage_LarkAgent_Watchdog", FEISHU_BOTS_DIR / "watchdog.ps1", 5),
