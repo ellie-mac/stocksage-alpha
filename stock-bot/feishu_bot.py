@@ -59,7 +59,7 @@ _CFG_CACHE: dict | None = None
 def _cfg() -> dict:
     global _CFG_CACHE
     if _CFG_CACHE is None:
-        _CFG_CACHE = json.loads((BOT_DIR / "feishu_config.json").read_text(encoding="utf-8"))
+        _CFG_CACHE = json.loads((BOT_DIR / "feishu_config.json").read_text(encoding="utf-8-sig"))
     return _CFG_CACHE
 
 def _fs_cfg() -> dict:
