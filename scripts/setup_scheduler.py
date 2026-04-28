@@ -21,6 +21,9 @@ PYTHON    = sys.executable
 LOGS_DIR  = SCRIPTS / "logs"
 
 # ── Script paths ─────────────────────────────────────────────────────────────
+FEISHU_BOT    = REPO_ROOT / "stock-bot" / "feishu_bot.py"
+DISCORD_BOT   = REPO_ROOT / "stock-bot" / "discord_bot.py"
+BOT_LOGS      = REPO_ROOT / "stock-bot"
 CHIP_WRITER   = XHS_DIR   / "chip_writer.py"
 DAILY_SCAN    = SCRIPTS   / "daily_chip_scan.py"
 PERF_LOG      = SCRIPTS   / "chip_perf_log.py"
@@ -37,6 +40,29 @@ PREFETCH          = SCRIPTS   / "prefetch.py"
 INTEGRITY_CHECK   = SCRIPTS   / "integrity_check.py"
 NOTIFY_FAIL       = SCRIPTS   / "notify_failure.py"
 NOTIFY_DISCORD    = SCRIPTS   / "notify_discord.py"
+
+# ── Bot startup tasks (At Logon trigger) ─────────────────────────────────────
+BOT_TASKS = [
+    # (name, script, log_file)
+    ("StockSage_FeishuBot",   FEISHU_BOT,  BOT_LOGS / "feishu_bot.log"),
+    ("StockSage_DiscordBot",  DISCORD_BOT, BOT_LOGS / "discord_bot.log"),
+]
+
+
+def _bot_bat(name: str, script: Path, log: Path) -> tuple[Path, str]:
+    bat_path = TASKS_DIR / f"run_{name.lower().replace('stocksage_', '')}.bat"
+    content = (
+        f'@echo off\n'
+        f'chcp 65001 > nul\n'
+        f'cd /d "{REPO_ROOT}"\n'
+        f':loop\n'
+        f'"{PYTHON}" -X utf8 "{script}" >> "{log}" 2>&1\n'
+        f'echo [%date% %time%] {name} exited, restarting in 10s... >> "{log}" 2>&1\n'
+        f'timeout /t 10 /nobreak > nul\n'
+        f'goto loop\n'
+    )
+    return bat_path, content
+
 
 # ── Old tasks (remove only) ───────────────────────────────────────────────────
 OLD_TASKS = [
@@ -271,6 +297,28 @@ def register():
         err  = f"  失败: {result.stderr.strip()}" if result.returncode != 0 else ""
         print(f"{mark}  {time_str}  {name:<35}  {desc}{err}")
 
+    # ── Bot startup tasks (At Logon) ──────────────────────────────────────────
+    print()
+    print("注册 Bot 开机自启任务...")
+    for bot_name, bot_script, bot_log in BOT_TASKS:
+        bat_path, bat_content = _bot_bat(bot_name, bot_script, bot_log)
+        bat_path.write_text(bat_content, encoding="utf-8")
+        ps = (
+            f"$a = New-ScheduledTaskAction -Execute '\"{bat_path}\"';"
+            f"$t = New-ScheduledTaskTrigger -AtLogOn;"
+            f"$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 0);"
+            f"$u = if ($env:USERDOMAIN -eq 'WORKGROUP') {{$env:COMPUTERNAME}} else {{$env:USERDOMAIN}};"
+            f"$p = New-ScheduledTaskPrincipal -UserId \"$u\\$env:USERNAME\" -LogonType Interactive -RunLevel Highest;"
+            f"Register-ScheduledTask -TaskName '{bot_name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
+        )
+        result = subprocess.run(
+            ["powershell", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True,
+        )
+        mark = "✅" if result.returncode == 0 else "❌"
+        err  = f"  失败: {result.stderr.strip()}" if result.returncode != 0 else ""
+        print(f"{mark}  AtLogon  {bot_name}{err}")
+
     print()
     print("完成。各脚本内置超时检查，超出窗口自动跳过。")
 
@@ -288,11 +336,15 @@ def write_bats():
             print(f"✅  {name:<35}  → {key}")
         else:
             print(f"↩  {name:<35}  → {key} (覆写)")
+    for bot_name, bot_script, bot_log in BOT_TASKS:
+        bat_path, bat_content = _bot_bat(bot_name, bot_script, bot_log)
+        bat_path.write_text(bat_content, encoding="utf-8")
+        print(f"✅  {bot_name:<35}  → {bat_path.name}")
     print("\n完成。Windows定时任务无需重新注册（bat文件路径未变）。")
 
 
 def remove():
-    all_names = [n for n, _, _, _, _ in TASKS] + OLD_TASKS
+    all_names = [n for n, _, _, _, _ in TASKS] + OLD_TASKS + [n for n, _, _ in BOT_TASKS]
     for name in all_names:
         result = subprocess.run(
             f'schtasks /delete /tn "{name}" /f',
