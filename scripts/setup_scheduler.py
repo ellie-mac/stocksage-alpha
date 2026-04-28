@@ -308,7 +308,7 @@ def register():
             f"$t = New-ScheduledTaskTrigger -AtLogOn;"
             f"$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 0);"
             f"$u = if ($env:USERDOMAIN -eq 'WORKGROUP') {{$env:COMPUTERNAME}} else {{$env:USERDOMAIN}};"
-            f"$p = New-ScheduledTaskPrincipal -UserId \"$u\\$env:USERNAME\" -LogonType Interactive -RunLevel Highest;"
+            f"$p = New-ScheduledTaskPrincipal -UserId \"$u\\$env:USERNAME\" -LogonType S4U -RunLevel Highest;"
             f"Register-ScheduledTask -TaskName '{bot_name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
         )
         result = subprocess.run(
