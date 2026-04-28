@@ -118,7 +118,7 @@ _HELP = """\
   ca 全档 | cah 全档+排高位 | cabekh 全档+BOLL+≤50+排科创+排高位
   修饰符：b BOLL  e 股价≤50  k 排科创  h 排高位  | ch 筹码详情
 
-  z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
+  gc 金叉共振 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
 
 _FACTOR_HELP = """\
 因子 & 分析
@@ -293,6 +293,35 @@ def _h_picks() -> str:
         name  = s.get("name") or s.get("code", "?")
         score = s.get("composite", s.get("score", 0))
         lines.append(f"{i}. {name}  (得分 {score:.3f})")
+    return "\n".join(lines)
+
+
+def _h_gc() -> str:
+    gc_path = ROOT / "data" / "golden_cross_latest.json"
+    if not gc_path.exists():
+        return "golden_cross_latest.json 不存在。"
+    data   = json.loads(gc_path.read_text(encoding="utf-8"))
+    tiers  = data.get("tiers", {})
+    date_  = data.get("date", "?")
+    date_s = f"{date_[4:6]}/{date_[6:]}" if len(date_) == 8 else date_
+    _SIG_SHORT = {
+        "MACD金叉": "MACD", "KDJ金叉": "KDJ", "RSI金叉": "RSI",
+        "MA5/10金叉": "5/10", "MA10/20金叉": "10/20",
+        "量能金叉": "量", "OBV金叉": "OBV", "布林中轨金叉": "布林",
+    }
+    TIERS = {"G0": "8信号", "G1": "7信号", "G2": "6信号"}
+    total = sum(len(tiers.get(t, [])) for t in TIERS)
+    lines = [f"金叉共振 {date_s}  共{total}只\n"]
+    for t, label in TIERS.items():
+        picks = tiers.get(t, [])
+        if not picks:
+            continue
+        lines.append(f"{t} {label}  {len(picks)}只")
+        for p in picks:
+            sig_s = "·".join(_SIG_SHORT.get(s, s) for s in p.get("signals", []))
+            lines.append(f"  {p['code']} {p['name']} ¥{p['close']:.2f}  {sig_s}")
+    if not total:
+        lines.append("今日无金叉共振信号")
     return "\n".join(lines)
 
 
@@ -895,6 +924,8 @@ def _dispatch_sync(t: str) -> str | None:
         return _SC_LIST
     if t == "ch":
         return _CHIP_LIST
+    if t in ("gc", "金叉"):
+        return _h_gc()
     if t == "cad" or t.startswith("cad"):
         mods = (t[4:].strip().replace(" ", "") or "bekhm") if t.startswith("cadm") else \
                (t[3:].strip().replace(" ", "") or "bekh")

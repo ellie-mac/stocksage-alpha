@@ -268,7 +268,7 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
         "T1": "极强 ≥95%",
         "T2": "强势 90-95%",
         "T3": "稳健 85-90%",
-        "T4": "潜力 75-85%",
+        # "T4": "潜力 75-85%",
     }
 
     main_picks = _load_main_picks()
