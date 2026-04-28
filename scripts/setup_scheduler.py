@@ -280,7 +280,7 @@ def register():
                 f"Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null"
             )
         else:
-            exec_hours = 4 if slot == "monitor_scan" else 2
+            exec_hours = 4 if slot in ("monitor_scan", "chip_night") else 2
             ps = (
                 f"$a = New-ScheduledTaskAction -Execute '\"{bat_path}\"';"
                 f"$t = New-ScheduledTaskTrigger -Daily -At '{time_str}';"
