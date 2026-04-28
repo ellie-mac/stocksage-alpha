@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+_FAILURES_PATH = ROOT / "data" / "task_failures.json"
 
 _SCHEDULE = [
     ("chip_Premarket",  "07:00", "筹码盘前兜底"),
@@ -35,6 +36,25 @@ _SCHEDULE = [
     ("chip_CadScan",    "20:30", "筹码扫描推送 📱"),
     ("main_Night",      "22:30", "财务缓存预热"),
 ]
+
+
+def _load_failures() -> dict:
+    try:
+        return json.loads(_FAILURES_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_failures(d: dict) -> None:
+    _FAILURES_PATH.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _pending_retries_line(plain: bool = False) -> str:
+    failures = _load_failures()
+    if not failures:
+        return ""
+    names = " · ".join(failures.keys())
+    return f"⚠️ 待重跑: {names}"
 
 
 def _remaining_today(after_name: str, plain: bool = False) -> str:
@@ -68,6 +88,9 @@ def send_discord(webhook_url: str, task: str, desc: str, status: str = "") -> No
     lines = [f"{icon} **{task}** {word}"]
     if desc:
         lines.append(desc)
+    retry_line = _pending_retries_line()
+    if retry_line:
+        lines.append(retry_line)
     if status not in ("started", "failed"):
         lines.append(_remaining_today(task))
     content = "\n".join(lines)
@@ -111,6 +134,9 @@ def send_feishu(chat_id: str, token: str, task: str, desc: str, status: str) -> 
     lines = [f"{icon} {task} {word}"]
     if desc:
         lines.append(desc)
+    retry_line = _pending_retries_line(plain=True)
+    if retry_line:
+        lines.append(retry_line)
     if status not in ("started", "failed"):
         lines.append(_remaining_today(task, plain=True))
     text = "\n".join(lines)
@@ -154,10 +180,21 @@ def _try_feishu(task: str, desc: str, status: str) -> None:
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
+def _update_failures(task: str, status: str) -> None:
+    failures = _load_failures()
+    if status == "failed":
+        failures[task] = datetime.now().strftime("%H:%M")
+    elif task in failures:
+        del failures[task]
+    _save_failures(failures)
+
+
 def main() -> None:
     task   = sys.argv[1] if len(sys.argv) > 1 else "未知任务"
     desc   = sys.argv[2] if len(sys.argv) > 2 else ""
     status = sys.argv[3] if len(sys.argv) > 3 else ""
+
+    _update_failures(task, status)
 
     cfg = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
     url = cfg.get("discord", {}).get("webhook_url", "")
