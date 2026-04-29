@@ -237,6 +237,23 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
 
     results.sort(key=lambda x: (-x["gc_score"], -x.get("freshness", 0.0), x["code"]))
 
+    # event_log — log every scan result for IC analysis and audit
+    try:
+        import event_log as _elog
+        _rows = [{"date": date, "strategy": "golden_cross", "code": r["code"],
+                  "signal_type": "gc_scan",
+                  "price": r.get("close"),
+                  "score": float(r.get("gc_score", 0)),
+                  "details": {"name": r.get("name"), "gc_score": r.get("gc_score"),
+                               "freshness": r.get("freshness"),
+                               "signals": r.get("signals", []),
+                               "industry": r.get("industry", "")}}
+                 for r in results]
+        if _rows:
+            _elog.log_events(_rows)
+    except Exception:
+        pass
+
     tiers: dict[str, list] = {t: [] for t in _TIER_MIN}
     for r in results:
         sc = r["gc_score"]

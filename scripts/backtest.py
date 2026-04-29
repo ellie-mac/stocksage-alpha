@@ -137,9 +137,28 @@ def _composite_score(stock_scores: dict,
     return float(weighted_sum / weight_total)
 
 
+def _compute_regime_lambda(end_px: float, ma60: float, prior_ret: float) -> float:
+    """Continuous bullishness λ ∈ [0, 1]: 0 = fully bearish, 1 = fully bullish.
+
+    Combines trend_strength (price distance from MA60) and 20d momentum.
+    Mapping: raw ≤ -8 → λ=0, raw ≥ +8 → λ=1, linear in between.
+    """
+    trend_str = (end_px / ma60 - 1) * 100.0 if ma60 > 0 else 0.0
+    raw = trend_str * 0.6 + prior_ret * 0.4
+    return max(0.0, min(1.0, (raw + 8.0) / 16.0))
+
+
+def _interpolate_weights(wt_a: dict, wt_b: dict, lam: float) -> dict:
+    """Linear interpolation between two factor-weight dicts at position λ."""
+    all_keys = set(wt_a) | set(wt_b)
+    return {k: round((1.0 - lam) * wt_a.get(k, 0.0) + lam * wt_b.get(k, 0.0), 4)
+            for k in all_keys}
+
+
 def _detect_regime(regime_close: Optional[pd.Series],
                    price_offset: int,
-                   weights_table: Optional[dict] = None) -> tuple[str, float, dict]:
+                   weights_table: Optional[dict] = None,
+                   use_lambda: bool = True) -> tuple[str, float, dict, float]:
     """
     Detect market regime at the cross-section date.
 
@@ -156,11 +175,12 @@ def _detect_regime(regime_close: Optional[pd.Series],
       prior_ret > +6%   -> EXTREME_BULL (55% exposure, momentum weights)
 
     weights_table: regime-name -> factor-weights dict.  Defaults to REGIME_WEIGHTS (main strategy).
-    Returns (regime_name, exposure, factor_weights).
+    Returns (regime_name, exposure, factor_weights, regime_lambda).
+    factor_weights is λ-interpolated between BEAR and EXTREME_BULL endpoints for smooth transitions.
     """
     if weights_table is None:
         weights_table = REGIME_WEIGHTS
-    default = ("NORMAL", REGIME_EXPOSURE["NORMAL"], weights_table["NORMAL"])
+    default = ("NORMAL", REGIME_EXPOSURE["NORMAL"], weights_table["NORMAL"], 0.5)
     if regime_close is None:
         return default
 
@@ -177,8 +197,13 @@ def _detect_regime(regime_close: Optional[pd.Series],
     ma60_end   = len(regime_close) - price_offset
     ma60       = float(regime_close.iloc[ma60_start:ma60_end].mean())
     if end_px < ma60:
-        # Structural downtrend: near-cash, use crisis weights for the small deployed portion
-        return "BEAR", REGIME_EXPOSURE["BEAR"], weights_table["BEAR"]
+        if use_lambda:
+            lam = _compute_regime_lambda(end_px, ma60, -10.0)
+            wts = _interpolate_weights(weights_table["BEAR"], weights_table["EXTREME_BULL"], lam)
+        else:
+            lam = 0.0
+            wts = weights_table["BEAR"]
+        return "BEAR", REGIME_EXPOSURE["BEAR"], wts, lam
 
     # --- Layer 2: prior-20d return (tactical) ---
     start_px = float(regime_close.iloc[-(price_offset + lookback + 1)])
@@ -198,7 +223,13 @@ def _detect_regime(regime_close: Optional[pd.Series],
     else:
         r = "NORMAL"
 
-    return r, REGIME_EXPOSURE[r], weights_table[r]
+    if use_lambda:
+        lam = _compute_regime_lambda(end_px, ma60, prior_ret)
+        wts = _interpolate_weights(weights_table["BEAR"], weights_table["EXTREME_BULL"], lam)
+    else:
+        lam = 0.5
+        wts = weights_table[r]
+    return r, REGIME_EXPOSURE[r], wts, lam
 
 
 def _precompute_regimes(
@@ -207,7 +238,8 @@ def _precompute_regimes(
     step: int,
     weights_table: dict,
     min_duration: int = 2,
-) -> list[tuple[str, float, dict]]:
+    use_lambda: bool = True,
+) -> list[tuple[str, float, dict, float]]:
     """
     Pre-compute regime for every period with causal minimum-duration smoothing.
 
@@ -219,7 +251,7 @@ def _precompute_regimes(
     Causal direction: oldest→newest = high-index→low-index.
     """
     raw = [
-        _detect_regime(regime_close, i * step, weights_table)
+        _detect_regime(regime_close, i * step, weights_table, use_lambda=use_lambda)
         for i in range(n_periods)
     ]
     if len(raw) <= 2:
@@ -265,6 +297,7 @@ def run_backtest(
     sector_neutral: bool = True, # demean scores within each sector before ranking
     weights_table: Optional[dict] = None,  # regime->weights map; None = REGIME_WEIGHTS (main)
     min_liquidity_wan: float = 0.0,  # min avg daily trading amount in 万元; 0 = disabled
+    use_lambda: bool = True,    # λ-interpolated regime weights; False = step-function
 ) -> dict:
     """
     Run a long-only quantile portfolio backtest.
@@ -307,10 +340,11 @@ def run_backtest(
     # Pre-compute (and smooth) all regimes before entering the period loop.
     if use_regime:
         pre_regimes = _precompute_regimes(regime_close, n_periods, step,
-                                          weights_table or REGIME_WEIGHTS)
+                                          weights_table or REGIME_WEIGHTS,
+                                          use_lambda=use_lambda)
     else:
         wt = (weights_table or REGIME_WEIGHTS)["NORMAL"]
-        pre_regimes = [("NORMAL", REGIME_EXPOSURE["NORMAL"], wt)] * n_periods
+        pre_regimes = [("NORMAL", REGIME_EXPOSURE["NORMAL"], wt, 0.5)] * n_periods
 
     # Pre-fetch shared spot data (used by sector_sympathy factor)
     _spot_df = fetcher._get_spot_df()
@@ -349,8 +383,8 @@ def run_backtest(
             }
 
             # Use pre-computed (smoothed) regime for this period
-            regime_name, exposure, regime_wts = pre_regimes[period_idx]
-            print(f"    Regime: {regime_name} ({exposure:.0%})  asof={asof_date}")
+            regime_name, exposure, regime_wts, regime_lam = pre_regimes[period_idx]
+            print(f"    Regime: {regime_name} ({exposure:.0%}) λ={regime_lam:.2f}  asof={asof_date}")
 
             period_rows: list[dict] = []
             per_period_timeout = len(codes) * 60  # 60s budget per stock
@@ -455,6 +489,7 @@ def run_backtest(
                 "n_valid":         len(df_period),
                 "exposure":        round(exposure, 2),
                 "regime":          regime_name,
+                "regime_lambda":   round(regime_lam, 3),
                 "portfolio_ret":   round(port_ret, 3),
                 "basket_ret":      round(basket_ret - txn_cost_pct, 3),
                 "benchmark_ret":   bench_ret,

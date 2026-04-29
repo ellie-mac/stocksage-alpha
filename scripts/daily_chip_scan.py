@@ -150,6 +150,23 @@ def main() -> None:
         sections.append(header + "  \n" + "\n".join(rows))
         tier_data[tier_key] = tier_picks
 
+    # event_log — log scan picks for IC analysis and audit
+    try:
+        import sys as _sys; _sys.path.insert(0, str(ROOT / "scripts"))
+        import event_log as _elog
+        _rows = [{"date": trade_date, "strategy": "chip", "code": p["code"],
+                  "signal_type": "chip_scan",
+                  "price": p.get("close"),
+                  "score": p.get("winner_rate"),
+                  "details": {"name": p.get("name"), "tier": p.get("tier"),
+                               "winner_rate": p.get("winner_rate"),
+                               "industry": p.get("industry", "")}}
+                 for p in all_picks]
+        if _rows:
+            _elog.log_events(_rows)
+    except Exception:
+        pass
+
     title = f"筹码全档 {trade_date}（{filter_label}）"
     body  = "\n\n".join(sections)
     print(f"\n{title}\n{body}")

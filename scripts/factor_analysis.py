@@ -832,13 +832,15 @@ def run_analysis(
     max_workers: int = 8,
     rolling: int = 1,
     step: int = 20,
+    winsorize: bool = True,
 ) -> dict:
     """Run factor IC analysis across the test universe.
 
     rolling > 1: delegates to _run_rolling() for multi-period ICIR analysis.
     """
     if rolling > 1:
-        return _run_rolling(codes, forward_days, group, max_workers, rolling, step)
+        return _run_rolling(codes, forward_days, group, max_workers, rolling, step,
+                            winsorize=winsorize)
 
     print(f"Running IC analysis: {len(codes)} stocks, {forward_days}d forward, group={group}")
 
@@ -1065,6 +1067,35 @@ def _walk_forward_oos(
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Lightweight regime label (no backtest.py import to avoid circular dependency)
+# ---------------------------------------------------------------------------
+
+def _fast_regime_label(market_df: Optional[pd.DataFrame], price_offset: int) -> str:
+    """Return regime name for a given price_offset without importing backtest.py."""
+    try:
+        if market_df is None or len(market_df) < price_offset + 62:
+            return "UNKNOWN"
+        close = pd.to_numeric(market_df["close"], errors="coerce").dropna().reset_index(drop=True)
+        end_px   = float(close.iloc[-(price_offset + 1)])
+        ma60_end = len(close) - price_offset
+        ma60_start = max(0, ma60_end - 60)
+        ma60 = float(close.iloc[ma60_start:ma60_end].mean())
+        if end_px < ma60:
+            return "BEAR"
+        start_px = float(close.iloc[-(price_offset + 21)])
+        if start_px <= 0:
+            return "NORMAL"
+        prior_ret = (end_px / start_px - 1) * 100
+        if prior_ret < -6:   return "CRISIS"
+        if prior_ret < -3:   return "CAUTION"
+        if prior_ret > 6:    return "EXTREME_BULL"
+        if prior_ret > 3.5:  return "BULL"
+        return "NORMAL"
+    except Exception:
+        return "UNKNOWN"
+
+
 # Rolling IC runner
 # ---------------------------------------------------------------------------
 
@@ -1075,6 +1106,7 @@ def _run_rolling(
     max_workers: int,
     n_periods: int,
     step: int,
+    winsorize: bool = True,
 ) -> dict:
     """
     Run n_periods cross-sectional IC evaluations, each shifted `step` trading days
@@ -1129,6 +1161,7 @@ def _run_rolling(
     # period_ics[factor][period_idx] = ic_value
     period_ics: dict[str, list[float]] = {}
     period_meta: list[dict] = []
+    period_regimes: list[str] = []    # regime label per period (parallel to period_ics lists)
 
     # Reuse a single thread pool across all periods to avoid repeated creation overhead
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -1210,7 +1243,8 @@ def _run_rolling(
             forward_ret = df["forward_ret"]
             factor_cols = [c for c in df.columns
                            if c not in ("code", "forward_ret") and not c.startswith("_")]
-            df = _winsorize_and_fill(df, factor_cols)
+            if winsorize:
+                df = _winsorize_and_fill(df, factor_cols)
 
             period_ic: dict[str, float] = {}
             for factor in factor_cols:
@@ -1222,10 +1256,14 @@ def _run_rolling(
                     ic, _ = spearman_ic(scores, forward_ret)
                     period_ic[factor] = ic
 
+            period_regime = _fast_regime_label(_shared.get("market_df"), price_offset)
+            period_regimes.append(period_regime)
+
             period_meta.append({
                 "period":        period_idx + 1,
                 "price_offset":  price_offset,
                 "asof_date":     asof_date,
+                "regime":        period_regime,
                 "universe_src":  universe_src,
                 "n_stocks":      len(results),
                 "errors":        errors,
@@ -1300,6 +1338,20 @@ def _run_rolling(
         print(f"  Walk-forward OOS: {oos_analysis['n_oos_points']} test pts, "
               f"IS↔OOS rank-corr = {oos_analysis['is_oos_rank_corr']:.3f}")
 
+    # Per-regime IC breakdown: group periods by regime, compute mean IC per factor per regime
+    regime_ic_breakdown: dict[str, dict[str, Optional[float]]] = {}
+    if period_regimes:
+        from collections import defaultdict
+        regime_buckets: dict[str, list[int]] = defaultdict(list)
+        for idx, reg in enumerate(period_regimes):
+            if idx < len(list(period_ics.values())[0]) if period_ics else 0:
+                regime_buckets[reg].append(idx)
+        for reg, idxs in sorted(regime_buckets.items()):
+            regime_ic_breakdown[reg] = {}
+            for factor, ic_list in period_ics.items():
+                vals = [ic_list[i] for i in idxs if i < len(ic_list) and not np.isnan(ic_list[i])]
+                regime_ic_breakdown[reg][factor] = round(float(np.mean(vals)), 4) if vals else None
+
     return {
         "meta": {
             "n_stocks":    len(codes),
@@ -1313,6 +1365,7 @@ def _run_rolling(
         "cost_breakeven":         cost_be,
         "factor_redundancy":      factor_redundancy,
         "oos_analysis":           oos_analysis,
+        "regime_ic_breakdown":    regime_ic_breakdown,
         "period_detail":          period_meta,
     }
 

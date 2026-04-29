@@ -132,6 +132,24 @@ def run_hot_scan(top_pct: float = 5.0, cah: bool = False, push: bool = False) ->
 
     results.sort(key=lambda x: -x["score"])
     date_str = datetime.now().strftime("%Y%m%d")
+
+    # event_log — log top picks for IC analysis and audit
+    try:
+        import sys as _sys; _sys.path.insert(0, str(SCRIPTS))
+        import event_log as _elog
+        _date = datetime.now().strftime("%Y-%m-%d")
+        _rows = [{"date": _date, "strategy": "hot_scan", "code": r["code"],
+                  "signal_type": "hot_scan",
+                  "price": r.get("close"),
+                  "score": r.get("score"),
+                  "details": {"name": r.get("name"), "rank": r.get("rank"),
+                               "rank_pct": r.get("rank_pct"), "momentum": r.get("momentum"),
+                               "change_pct": r.get("change_pct")}}
+                 for r in results[:30]]
+        if _rows:
+            _elog.log_events(_rows)
+    except Exception:
+        pass
     output   = {"date": date_str, "top_pct": top_pct, "cah": cah, "picks": results[:30]}
 
     OUT_LATEST.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")

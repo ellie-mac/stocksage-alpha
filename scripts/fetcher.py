@@ -1021,16 +1021,18 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
     return None
 
 
+_FUND_FLOW_MAX_DAYS = 20
+
 def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
     """
     Fetch per-stock order-flow breakdown (large / medium / small orders).
     Used as an institutional money-flow proxy.
-    Cached for 5 minutes — fund flow changes rapidly intraday.
+    Always fetches _FUND_FLOW_MAX_DAYS rows so the cache key is days-agnostic.
     """
-    cache_key = f"fundflow_{code}_{days}"
-    cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY // 12)
+    cache_key = f"fundflow_{code}"
+    cached = cache.get_df(cache_key, cache.smart_price_ttl())
     if cached is not None:
-        return cached
+        return cached.tail(days).reset_index(drop=True)
     try:
         market = _market_from_code(code)
         if not _v8_initialised.is_set():
@@ -1043,9 +1045,9 @@ def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
-        df = df.tail(days).reset_index(drop=True)
+        df = df.tail(_FUND_FLOW_MAX_DAYS).reset_index(drop=True)
         cache.set_df(cache_key, df)
-        return df
+        return df.tail(days).reset_index(drop=True)
     except Exception:
         return None
 

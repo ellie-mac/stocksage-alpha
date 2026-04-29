@@ -40,12 +40,14 @@ PREFETCH          = SCRIPTS   / "prefetch.py"
 INTEGRITY_CHECK   = SCRIPTS   / "integrity_check.py"
 NOTIFY_FAIL       = SCRIPTS   / "notify_failure.py"
 NOTIFY_DISCORD    = SCRIPTS   / "notify_discord.py"
+HOT_RANK_LOGGER   = SCRIPTS   / "tools" / "hot_rank_logger.py"
+HOT_SCAN          = SCRIPTS   / "hot_scan.py"
 
 # ── Bot startup tasks (At Logon trigger) ─────────────────────────────────────
 BOT_TASKS = [
     # (name, script, log_file)
     ("StockSage_LarkBot",     FEISHU_BOT,  BOT_LOGS / "lark_bot.log"),
-    ("StockSage_DiscordBot",  DISCORD_BOT, BOT_LOGS / "discord_bot.log"),
+    # ("StockSage_DiscordBot",  DISCORD_BOT, BOT_LOGS / "discord_bot.log"),
 ]
 
 # ── Watchdog tasks (periodic repeat) ─────────────────────────────────────────
@@ -115,6 +117,12 @@ TASKS = [
     ("integrity_Check", "08:00", "integrity_check", "每小时数据完整性检查（首次通过后当日跳过）",      False),
     ("concept_Warm",    "08:30", "concept_warm",    "预热概念板块反查 map（~30s），不推送",            False),
     ("xhs_Morning",     "09:25", "chip_morning",    "小红书盘前筹码分析推送 📱",                      True),
+    # ── 盘中热榜快照（look-ahead 修复：记录采集时刻数据）────────────────────
+    ("hot_Rank_0935",   "09:35", "hot_rank",        "热榜快照 09:35 落盘（开盘情绪极值）",             False),
+    ("hot_Rank_1000",   "10:00", "hot_rank",        "热榜快照 10:00 落盘",                            False),
+    ("hot_Rank_1100",   "11:00", "hot_rank",        "热榜快照 11:00 落盘",                            False),
+    ("hot_Rank_1330",   "13:30", "hot_rank",        "热榜快照 13:30 落盘",                            False),
+    ("hot_Rank_1430",   "14:30", "hot_rank",        "热榜快照 14:30 落盘",                            False),
     # ── 盘中 ────────────────────────────────────────────────────────────────
     ("xhs_Midday",      "11:35", "chip_midday",     "小红书午间筹码分析推送 📱",                      True),
     # ── 收盘 ────────────────────────────────────────────────────────────────
@@ -123,11 +131,12 @@ TASKS = [
     ("market_Warm",     "15:35", "market_warm",     "预热市场数据：CSI300/PE/申万/停牌表，不推送",    False),
     ("price_Prefetch",  "15:45", "price_prefetch",  "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
-    ("daily_PerfLog",   "16:00", "daily_perf_log",  "主策略+筹码+金叉三合一收盘胜率 📱",              True),
+    ("daily_PerfLog",   "16:05", "daily_perf_log",  "主策略+筹码+金叉三合一收盘胜率 📱",              True),
     ("chip_Night",      "18:00", "chip_night",      "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
     ("main_Scan",       "18:30", "monitor_scan",    "主策略扫盘，更新 latest_picks.json，推送 📱",    True),
     ("gc_Scan",         "19:30", "gc_scan",         "金叉策略扫描（全A股8项指标共振）推送 📱",         True),
-    ("chip_CadScan",    "20:30", "cad_scan",        "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱",    True),
+    ("hot_Scan",        "19:00", "hot_scan",        "热榜策略扫描，更新 hot_scan_latest.json 推送 📱", True),
+    ("chip_CadScan",    "21:00", "cad_scan",        "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱",    True),
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
     ("main_Night",      "22:30", "main_night",      "预热财务缓存（batch_financials），不推送",        False),
 ]
@@ -233,6 +242,12 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
     elif slot == "gc_scan":
         path = TASKS_DIR / "run_gc_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{GOLDEN_CROSS_SCAN}" --push >> "{log}\\gc_scan.log" 2>&1'
+    elif slot == "hot_rank":
+        path = TASKS_DIR / "run_hot_rank_logger.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{HOT_RANK_LOGGER}" >> "{log}\\hot_rank_logger.log" 2>&1'
+    elif slot == "hot_scan":
+        path = TASKS_DIR / "run_hot_scan.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{HOT_SCAN}" --push >> "{log}\\hot_scan.log" 2>&1'
     else:
         raise ValueError(f"Unknown slot: {slot}")
 

@@ -1193,6 +1193,40 @@ def run(
     # ── 4. Log signals for backtesting (separate from holdings) ─────────────
     _append_signals_log(buy_alerts, sell_alerts, run_time, regime_score=regime_score)
 
+    # event_log — structured SQLite audit trail (exactly-once, non-blocking)
+    try:
+        import event_log as _elog
+        _date = datetime.now().strftime("%Y-%m-%d")
+        _rows = []
+        for b in buy_alerts:
+            _rows.append({
+                "date": _date, "strategy": "main", "code": b["code"],
+                "signal_type": "buy",
+                "price": b.get("price") or b.get("close"),
+                "score": b.get("buy_score"),
+                "details": {
+                    "name": b.get("name"), "buy_score": b.get("buy_score"),
+                    "sell_score": b.get("sell_score"), "regime_score": regime_score,
+                    "top_factors": b.get("top_bullish_factors", [])[:3],
+                },
+            })
+        for s in sell_alerts:
+            _rows.append({
+                "date": _date, "strategy": "main", "code": s["code"],
+                "signal_type": "sell",
+                "price": s.get("price") or s.get("close"),
+                "score": s.get("sell_score"),
+                "details": {
+                    "name": s.get("name"), "sell_score": s.get("sell_score"),
+                    "buy_score": s.get("buy_score"),
+                    "reasons": (s.get("reasons") or [])[:3],
+                },
+            })
+        if _rows:
+            _elog.log_events(_rows)
+    except Exception:
+        pass
+
     # Record daily pools for strategy performance tracking
     _today = datetime.now().strftime("%Y-%m-%d")
     try:
@@ -1797,6 +1831,19 @@ def run_loop(
             except Exception:
                 pass
 
+        # ── Pre-compute ATR cache once per day for adaptive thresholds ──────────────
+        _atr_cache: dict[str, float] = {}
+        if thresholds.get("atr_k_surge") or thresholds.get("atr_k_drop"):
+            for _h in holdings:
+                try:
+                    _pdf = fetcher.get_price_history(_h["code"], 20)
+                    if _pdf is not None and len(_pdf) >= 14:
+                        import numpy as _np
+                        _c = _pdf["close"].values.astype(float)
+                        _atr_cache[_h["code"]] = float(_np.mean(_np.abs(_np.diff(_c[-15:]))))
+                except Exception:
+                    pass
+
         # ── Fast check (trading hours only: 09:30–15:00) ─────────────────────────
         _market_open = (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and now.hour < 15
         fast_alerts: list[dict] = []
@@ -1805,8 +1852,30 @@ def run_loop(
             fast_alerts = fast_check_holdings(
                 holdings, thresholds, alert_state, t_trade_state,
                 urgent_alert_state=urgent_alert_state,
+                atr_cache=_atr_cache or None,
             )
             print(f"  {len(fast_alerts)} alert(s)")
+            # event_log — fast alerts
+            try:
+                import event_log as _elog
+                _fdate = now.strftime("%Y-%m-%d")
+                _frows = []
+                for fa in fast_alerts:
+                    _chg = fa.get("change_pct", 0.0)
+                    _ftype = "fast_surge" if _chg > 0 else "fast_drop"
+                    _frows.append({
+                        "date": _fdate, "strategy": "main", "code": fa["code"],
+                        "signal_type": _ftype,
+                        "price": fa.get("price"),
+                        "score": _chg,
+                        "details": {"name": fa.get("name"), "change_pct": _chg,
+                                     "pnl_pct": fa.get("pnl_pct"),
+                                     "reasons": (fa.get("reasons") or [])[:2]},
+                    })
+                if _frows:
+                    _elog.log_events(_frows)
+            except Exception:
+                pass
         if fast_alerts and _market_open:
             title = f"[StockSage ⚡] {len(fast_alerts)} 实时预警"
             desp  = build_fast_wechat_desp(fast_alerts, run_time,
