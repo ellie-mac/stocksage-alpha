@@ -2,16 +2,18 @@
 """
 金叉策略扫描 — 多维技术指标金叉共振筛选（MA60 趋势门控）
 
-5项正交金叉信号（已去除 RSI/MA5-10/布林中轨 高相关冗余）：
-  1. MACD金叉   — DIF向上穿越DEA（EMA导数，趋势动量）
-  2. KDJ金叉    — K线向上穿越D线（随机指标，超卖反弹）
-  3. MA10/20金叉 — 10日均线穿越20日均线（中期趋势确认）
-  4. 量能金叉   — 量MA5穿越量MA10且价格上涨（成交量驱动）
-  5. OBV金叉    — OBV的MA5穿越MA10（资金累积/分配）
+7项金叉信号：
+  1. MACD金叉    — DIF向上穿越DEA（EMA导数，趋势动量）
+  2. KDJ金叉     — K线向上穿越D线（随机指标，超卖反弹）
+  3. RSI金叉     — RSI(6)向上穿越RSI(12)（动量恢复）
+  4. MA10/20金叉 — 10日均线穿越20日均线（中期趋势确认）
+  5. 量能金叉    — 量MA5穿越量MA10且价格上涨（成交量驱动）
+  6. OBV金叉     — OBV的MA5穿越MA10（资金累积/分配）
+  7. 布林中轨金叉 — 价格向上穿越MA20（突破均线确认）
 
 前置条件：price > MA60 OR MA60 slope > 0（震荡市全部过滤）
 
-档位（共振数量）：G0=5 · G1=4 · G2=3
+档位（共振数量）：G0=7 · G1=6 · G2=5
 
 用法：
     python -X utf8 scripts/golden_cross_scan.py [--push] [--dry-run]
@@ -36,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 UNIVERSE_PATH = ROOT / "data" / "universe_main.json"
 OUT_LATEST    = ROOT / "data" / "golden_cross_latest.json"
 
-_TIER_MIN = {"G0": 5, "G1": 4, "G2": 3}
+_TIER_MIN = {"G0": 7, "G1": 6, "G2": 5}
 _MIN_BARS = 45   # EMA26 + EMA9 预热需要的最少 K 线数
 
 
@@ -78,6 +80,26 @@ def _kdj(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, n=9):
         K[i] = kp
         D[i] = dp
     return K, D
+
+
+def _rsi(closes: np.ndarray, period: int) -> np.ndarray:
+    n = len(closes)
+    rsi = np.full(n, np.nan)
+    if n <= period:
+        return rsi
+    deltas = np.diff(closes)
+    gains  = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+    ag = np.mean(gains[:period])
+    al = np.mean(losses[:period])
+    for i in range(period, n - 1):
+        ag = (ag * (period - 1) + gains[i]) / period
+        al = (al * (period - 1) + losses[i]) / period
+        if al > 0:
+            rsi[i + 1] = 100.0 - 100.0 / (1.0 + ag / al)
+        else:
+            rsi[i + 1] = 100.0
+    return rsi
 
 
 def _obv(closes: np.ndarray, volumes: np.ndarray) -> np.ndarray:
@@ -147,23 +169,31 @@ def _score_stock(df: pd.DataFrame) -> tuple[int, list[str], float]:
     K, D = _kdj(h, lo, c)
     _try(K, D, "KDJ金叉")
 
-    # 3. MA10/20金叉 —— 中期趋势确认
+    # 3. RSI金叉 —— RSI(6) 穿越 RSI(12)（动量恢复）
+    rsi6  = _rsi(c, 6)
+    rsi12 = _rsi(c, 12)
+    _try(rsi6, rsi12, "RSI金叉")
+
+    # 4. MA10/20金叉 —— 中期趋势确认
     ma10 = _sma(c, 10)
     ma20 = _sma(c, 20)
     _try(ma10, ma20, "MA10/20金叉")
 
-    # 4. 量能金叉 —— VolMA5 穿越 VolMA10，且近3日价格上涨
+    # 5. 量能金叉 —— VolMA5 穿越 VolMA10，且近3日价格上涨
     vma5  = _sma(v, 5)
     vma10 = _sma(v, 10)
     price_up = len(c) >= 4 and np.isfinite(c[-1]) and np.isfinite(c[-4]) and c[-1] > c[-4]
     if price_up:
         _try(vma5, vma10, "量能金叉")
 
-    # 5. OBV金叉 —— OBV MA(5) 穿越 MA(10)（资金累积/分配）
+    # 6. OBV金叉 —— OBV MA(5) 穿越 MA(10)（资金累积/分配）
     obv_arr  = _obv(c, v)
     obv_ma5  = _sma(obv_arr, 5)
     obv_ma10 = _sma(obv_arr, 10)
     _try(obv_ma5, obv_ma10, "OBV金叉")
+
+    # 7. 布林中轨金叉 —— 价格向上穿越 MA20（突破均线确认）
+    _try(c, ma20, "布林中轨金叉")
 
     freshness = float(np.mean([max(0.0, 1.0 - d * 0.2) for d in recency])) if recency else 0.0
     return len(fired), fired, freshness
@@ -261,13 +291,13 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
     tiers: dict[str, list] = {t: [] for t in _TIER_MIN}
     for r in results:
         sc = r["gc_score"]
-        if sc == 5:   tiers["G0"].append(r)
-        elif sc == 4: tiers["G1"].append(r)
-        elif sc == 3: tiers["G2"].append(r)
+        if sc == 7:   tiers["G0"].append(r)
+        elif sc == 6: tiers["G1"].append(r)
+        elif sc == 5: tiers["G2"].append(r)
 
     total = sum(len(v) for v in tiers.values())
     print(f"[golden_cross] 共 {total} 只："
-          f"G0(5/5)={len(tiers['G0'])} G1(4/5)={len(tiers['G1'])} G2(3/5)={len(tiers['G2'])}")
+          f"G0(7/7)={len(tiers['G0'])} G1(6/7)={len(tiers['G1'])} G2(5/7)={len(tiers['G2'])}")
 
     output = {"date": date, "tiers": tiers, "all_picks": results}
 
@@ -300,15 +330,17 @@ def _push_results(data: dict) -> None:
     _SIG_SHORT = {
         "MACD金叉":    "MACD",
         "KDJ金叉":     "KDJ",
+        "RSI金叉":     "RSI",
         "MA10/20金叉": "10/20",
         "量能金叉":    "量",
         "OBV金叉":     "OBV",
+        "布林中轨金叉": "布林",
     }
 
-    # 只推 G0（5信号全共振）和 G1（4信号），G2（3信号）数量过多不推送
+    # 只推 G0（7信号全共振）和 G1（6信号），G2（5信号）数量过多不推送
     lines = []
 
-    for t, label in [("G0", "5信号"), ("G1", "4信号")]:
+    for t, label in [("G0", "7信号"), ("G1", "6信号")]:
         picks = tiers.get(t, [])
         if not picks:
             continue
