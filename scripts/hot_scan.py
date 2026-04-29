@@ -184,7 +184,7 @@ def _push_results(data: dict) -> None:
             lines.append(f"  {p['code']} {p['name']}  ¥{p['close']}  {chg}  热度#{p['rank']}  动量{p['momentum']:.0f}")
         body = "\n".join(lines)
 
-    send_wechat(cfg.get("serverchan", {}).get("sendkey", ""), body, title=title)
+    send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
     print(f"[OK] 微信推送: {body[:60]}", flush=True)
 
 
