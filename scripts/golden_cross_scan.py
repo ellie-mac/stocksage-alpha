@@ -332,6 +332,11 @@ def _push_results(data: dict) -> None:
     print(f"\n{title}\n{body}")
     send_wechat(title, body, sendkey)
     print("[notify] 推送成功")
+    try:
+        from notify_discord import push_feishu_content
+        push_feishu_content(f"{title}\n{body}")
+    except Exception:
+        pass
 
 
 def main() -> None:

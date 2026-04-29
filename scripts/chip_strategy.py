@@ -936,7 +936,26 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
     if not dry_run:
         try:
             from notify_discord import push_feishu_content
-            push_feishu_content(f"{title}\n{body}")
+            # Feishu doesn't render Markdown tables; build a plain-text version
+            feishu_lines = [title]
+            for saves_dict, label in [
+                (cadm_top,  "✅三筛"),
+                (cah_only,  "🔍cah独有"),
+                (cad_only,  "💡cad独有"),
+            ]:
+                total = sum(len(v) for v in saves_dict.values())
+                if not total:
+                    continue
+                feishu_lines.append(f"\n{label} 共{total}只")
+                for tier in _TIER_ORDER:
+                    picks = saves_dict.get(tier[0], [])
+                    if not picks:
+                        continue
+                    feishu_lines.append(f"  [{tier[0]}] " + "  ".join(
+                        f"{p['name']} {p['close']:.2f} {p['winner_rate']:.1f}%"
+                        for p in picks
+                    ))
+            push_feishu_content("\n".join(feishu_lines))
         except Exception:
             pass
 
