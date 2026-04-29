@@ -115,7 +115,8 @@ def send_to_chat(chat_id: str, text: str) -> None:
 # ── Text constants ────────────────────────────────────────────────────────────
 _HELP = """\
 筹码策略
-  ca 全档 | cah 全档+排高位 | cabekh 全档+BOLL+≤50+排科创+排高位
+  cmh 数据驱动⭐ | cad 同上（别名） | cadm +MACD绿柱
+  ca 全档 | cah 全档+排高位 | cabekh 全档+全修饰
   修饰符：b BOLL  e 股价≤50  k 排科创  h 排高位  | ch 筹码详情
 
   gc 金叉共振 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
