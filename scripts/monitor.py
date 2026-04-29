@@ -1003,6 +1003,9 @@ def run(
     _regime: Optional[tuple] = None,               # (score, signal) pre-fetched by run_loop
     etf_scores: Optional[list] = None,             # top ETF scores to merge into push
 ) -> None:
+    from prefetch import wait_for_fresh_prices
+    wait_for_fresh_prices()
+
     config     = load_config()
     holdings   = load_holdings()
     thresholds = config.get("thresholds", {})

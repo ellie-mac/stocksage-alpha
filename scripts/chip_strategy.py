@@ -874,13 +874,12 @@ def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
     if n == 0:
         return ""
     win_ranges = {"T1": "≥95%", "T2": "90-95%", "T3": "85-90%", "T4": "75-85%", "T5": "65-75%"}
-    header = f"\n### {tier_name}（{win_ranges.get(tier_name, '')} {label}）— {n} 只"
-    rows = ["| 名称 | 行业 | 收盘 | 获利盘% |",
-            "|------|------|-----:|--------:|"]
+    header = f"\n**{tier_name}（{win_ranges.get(tier_name, '')}）{n}只**"
+    rows = []
     for p in picks:
         close_s = f"{p['close']:.2f}" if not math.isnan(float(p['close'] or 0)) else "-"
         win_s   = f"{p['winner_rate']:.1f}%" if not math.isnan(float(p['winner_rate'] or 0)) else "-"
-        rows.append(f"| {p['name']} | {p['industry']} | {close_s} | {win_s} |")
+        rows.append(f"{p['name']}({p['industry']}) {close_s} 获利{win_s}")
     return header + "\n" + "\n".join(rows)
 
 

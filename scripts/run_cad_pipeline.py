@@ -98,6 +98,9 @@ def _run(cmd: list[str], log_path: Path) -> int:
 def main() -> None:
     LOGS.mkdir(parents=True, exist_ok=True)
 
+    from prefetch import wait_for_fresh_prices
+    wait_for_fresh_prices()
+
     from chip_strategy import _latest_trade_date
     trade_date = _latest_trade_date()
     print(f"[pipeline] 开始  trade_date={trade_date}  {datetime.now():%H:%M:%S}", flush=True)

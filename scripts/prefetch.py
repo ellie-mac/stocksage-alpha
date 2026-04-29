@@ -207,6 +207,56 @@ def prefetch_fundflow(force: bool = False) -> None:
     )
 
 
+# ── freshness gate ───────────────────────────────────────────────────────────
+
+def wait_for_fresh_prices() -> bool:
+    """Check that today's closing prices are cached. Re-triggers prefetch if stale.
+
+    Call this at the start of any EOD scan (gc_scan, monitor, cad_pipeline).
+    Blocks until price data is confirmed fresh or prefetch completes.
+    Returns True if data is confirmed fresh for today's trading date.
+    """
+    import shutil, subprocess as _sp, pandas as _pd
+    import cache as _cache
+
+    now = datetime.now()
+    # Only meaningful after 15:00 on a weekday
+    if now.weekday() >= 5 or now.hour < 15:
+        return True  # weekend or pre-close — skip check
+
+    expected = now.strftime("%Y%m%d")
+
+    def _is_fresh() -> bool:
+        # Read 000001 cache bypassing TTL — just inspect what's stored
+        raw = _cache.get_df("price_000001_550", 999_999_999)
+        if raw is None or raw.empty:
+            return False
+        latest = raw.iloc[-1]["date"]
+        if isinstance(latest, _pd.Timestamp):
+            latest = latest.strftime("%Y%m%d")
+        return str(latest).replace("-", "")[:8] >= expected
+
+    if _is_fresh():
+        return True
+
+    print(f"[wait_prices] 价格数据未到今日 ({expected})，清空旧 cache 并重跑 prefetch ...", flush=True)
+
+    price_cache = Path(__file__).parent / "cache" / "price"
+    shutil.rmtree(price_cache, ignore_errors=True)
+
+    _sp.run(
+        [sys.executable, "-X", "utf8", str(Path(__file__).resolve()), "--price", "--force"],
+        cwd=str(Path(__file__).resolve().parent.parent),
+    )
+
+    fresh = _is_fresh()
+    if fresh:
+        print("[wait_prices] 价格数据已更新到今日 ✓", flush=True)
+    else:
+        print("[wait_prices] prefetch 完成但数据仍非今日（可能为非交易日或数据源延迟），继续执行", flush=True)
+    return fresh
+
+
 # ── entry ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:

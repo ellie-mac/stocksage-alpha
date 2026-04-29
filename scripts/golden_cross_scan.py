@@ -192,6 +192,10 @@ def _build_name_maps() -> tuple[dict[str, str], dict[str, str]]:
 def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") -> dict:
     import fetcher as _fetcher
 
+    if not as_of_date:  # only gate on live runs, not backfill
+        from prefetch import wait_for_fresh_prices
+        wait_for_fresh_prices()
+
     universe  = _load_universe()
     name_map, ind_map = _build_name_maps()
     date = as_of_date or datetime.now().strftime("%Y%m%d")
@@ -301,26 +305,15 @@ def _push_results(data: dict) -> None:
         "OBV金叉":     "OBV",
     }
 
-    # G0/G1 全量展示；G2 只推前15只（3/5门槛低，全市场可能出数百只）
-    DETAIL_TIERS = {"G0": "5信号", "G1": "4信号"}
-    G2_CAP = 15
-
+    # 只推 G0（5信号全共振）和 G1（4信号），G2（3信号）数量过多不推送
     lines = []
 
-    for t, label in DETAIL_TIERS.items():
+    for t, label in [("G0", "5信号"), ("G1", "4信号")]:
         picks = tiers.get(t, [])
         if not picks:
             continue
         lines.append(f"\n**【{t} {label}  {len(picks)}只】**  ")
         for p in picks:
-            sig_s = "·".join(_SIG_SHORT.get(s, s) for s in p["signals"])
-            lines.append(f"{p['code']} {p['name']} ¥{p['close']:.2f}  `{sig_s}`  ")
-
-    g2_picks = tiers.get("G2", [])
-    if g2_picks:
-        suffix = f"（仅展示前{G2_CAP}，共{len(g2_picks)}只）" if len(g2_picks) > G2_CAP else ""
-        lines.append(f"\n**【G2 3信号  {len(g2_picks)}只{suffix}】**  ")
-        for p in g2_picks[:G2_CAP]:
             sig_s = "·".join(_SIG_SHORT.get(s, s) for s in p["signals"])
             lines.append(f"{p['code']} {p['name']} ¥{p['close']:.2f}  `{sig_s}`  ")
 
