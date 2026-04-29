@@ -80,7 +80,7 @@ TOOLS: list[dict] = [
     },
     {
         "name": "get_golden_cross",
-        "description": "获取金叉共振扫描结果（G0=8信号 G1=7信号 G2=6信号）。适用于'gc/金叉/今天有什么金叉'。",
+        "description": "获取金叉共振扫描结果（G0=7信号 G1=6信号 G2=5信号）。适用于'gc/金叉/今天有什么金叉'。",
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     {
@@ -569,7 +569,7 @@ def h_gc() -> str:
         "MA5/10金叉": "5/10", "MA10/20金叉": "10/20",
         "量能金叉": "量", "OBV金叉": "OBV", "布林中轨金叉": "布林",
     }
-    TIERS = {"G0": "8信号", "G1": "7信号", "G2": "6信号"}
+    TIERS = {"G0": "7信号", "G1": "6信号", "G2": "5信号"}
     total = sum(len(tiers.get(t, [])) for t in TIERS)
     lines = [f"金叉共振 {date_s}  共{total}只\n"]
     for t, label in TIERS.items():

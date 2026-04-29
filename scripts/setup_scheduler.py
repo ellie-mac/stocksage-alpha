@@ -135,7 +135,7 @@ TASKS = [
     ("daily_PerfLog",   "16:05", "daily_perf_log",  "主策略+筹码+金叉三合一收盘胜率 📱",              True),
     ("chip_Night",      "18:00", "chip_night",      "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
     ("main_Scan",       "18:30", "monitor_scan",    "主策略扫盘，更新 latest_picks.json，推送 📱",    True),
-    ("gc_Scan",         "19:30", "gc_scan",         "金叉策略扫描（全A股5项指标共振）推送 📱",         True),
+    ("gc_Scan",         "19:30", "gc_scan",         "金叉策略扫描（全A股7项指标共振）推送 📱",         True),
     ("hot_Scan",        "19:00", "hot_scan",        "热榜策略扫描，更新 hot_scan_latest.json 推送 📱", True),
     ("chip_CadScan",    "21:00", "cad_scan",        "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱",    True),
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
