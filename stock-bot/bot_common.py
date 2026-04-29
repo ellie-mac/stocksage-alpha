@@ -1261,7 +1261,7 @@ def call_tool(name: str, args: dict) -> str:
         return f"❌ {name} 执行失败: {e}"
 
 
-# ── AI dispatch (Anthropic SDK, tool-calling) ─────────────────────────────────
+# ── AI dispatch (GitHub Models API, tool-calling) ────────────────────────────
 _AI_SYSTEM = (
     "你是 StockSage 量化交易系统的助手。用中文简洁回答。"
     "遇到需要数据或执行操作的请求，直接调用工具，不要先询问确认。"
@@ -1269,48 +1269,80 @@ _AI_SYSTEM = (
     "对于无关问题，正常回答即可。"
 )
 
+# Convert Anthropic tool format → OpenAI function calling format
+_OAI_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": t["name"],
+            "description": t["description"],
+            "parameters": t.get("input_schema", {"type": "object", "properties": {}}),
+        },
+    }
+    for t in TOOLS
+]
+
+_GH_MODELS_URL = "https://models.inference.ai.azure.com/chat/completions"
+_GH_MODEL = "gpt-4o-mini"
+
+
+def _gh_token() -> str:
+    import subprocess
+    try:
+        r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=10)
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
 
 def dispatch_ai(text: str, api_key: str) -> str:
-    if not api_key:
+    import json, httpx
+    token = _gh_token()
+    if not token:
         return "❓ 未识别命令，发 h 查看帮助。"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    messages: list[dict] = [
+        {"role": "system", "content": _AI_SYSTEM},
+        {"role": "user", "content": text},
+    ]
     try:
-        import anthropic as _ant
-        client = _ant.Anthropic(api_key=api_key)
-        messages: list[dict] = [{"role": "user", "content": text}]
+        client = httpx.Client(timeout=120)
+        for _ in range(5):
+            resp = client.post(_GH_MODELS_URL, headers=headers, json={
+                "model": _GH_MODEL,
+                "messages": messages,
+                "tools": _OAI_TOOLS,
+                "max_tokens": 1024,
+            })
+            resp.raise_for_status()
+            data = resp.json()
+            choice = data["choices"][0]
+            msg = choice["message"]
+            finish = choice["finish_reason"]
 
-        for _ in range(3):
-            resp = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=1024,
-                system=_AI_SYSTEM,
-                tools=TOOLS,
-                messages=messages,
-            )
-            if resp.stop_reason == "end_turn":
-                parts = [b.text for b in resp.content if hasattr(b, "text")]
-                return "\n".join(parts).strip() or "（无回复）"
-            if resp.stop_reason == "tool_use":
-                messages.append({"role": "assistant", "content": resp.content})
-                results = []
-                for block in resp.content:
-                    if block.type == "tool_use":
-                        results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": call_tool(block.name, block.input),
-                        })
-                messages.append({"role": "user", "content": results})
+            if finish == "stop":
+                return (msg.get("content") or "（无回复）").strip()
+
+            if finish == "tool_calls":
+                messages.append(msg)
+                for tc in msg.get("tool_calls", []):
+                    fn = tc["function"]
+                    result = call_tool(fn["name"], json.loads(fn.get("arguments") or "{}"))
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": str(result),
+                    })
             else:
                 break
 
-        final = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=512,
-            system=_AI_SYSTEM,
-            messages=messages,
-        )
-        parts = [b.text for b in final.content if hasattr(b, "text")]
-        return "\n".join(parts).strip() or "（无回复）"
+        final = client.post(_GH_MODELS_URL, headers=headers, json={
+            "model": _GH_MODEL,
+            "messages": messages,
+            "max_tokens": 512,
+        })
+        final.raise_for_status()
+        return (final.json()["choices"][0]["message"].get("content") or "（无回复）").strip()
     except Exception as e:
         print(f"[AI dispatch error] {e}", flush=True)
         return f"❌ AI 调用失败: {e}\n发 h 查看快捷命令。"
