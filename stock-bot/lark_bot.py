@@ -259,6 +259,12 @@ def _h_status() -> str:
     else:
         lines.append("❌ 无 StockSage 进程运行")
 
+    if other_procs:
+        lines.append("\n其他 Python 进程:")
+        for pid, cmd in other_procs:
+            name = cmd.split()[-1].replace("\\", "/").split("/")[-1][:40]
+            lines.append(f"  ⚪ {name}  PID {pid}")
+
     lines.append("")
     lines.append(_h_picks())
     return "\n".join(lines)
@@ -941,6 +947,8 @@ def _dispatch_sync(t: str) -> str | None:
         return _CHIP_LIST
     if t in ("gc", "金叉"):
         return _h_gc()
+    if t == "cmh":
+        return _h_chip_data_driven("bekh")
     if t == "cad" or t.startswith("cad"):
         mods = (t[4:].strip().replace(" ", "") or "bekhm") if t.startswith("cadm") else \
                (t[3:].strip().replace(" ", "") or "bekh")
