@@ -639,7 +639,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         with _em_hist_sem:   # max 2 concurrent EM requests — prevents rate-limit cascade
             try:
                 end = datetime.now()
-                start = end - timedelta(days=days)
+                start = end - timedelta(days=fetch_days)
                 df = _call_with_timeout(
                     ak.stock_zh_a_hist, 25,
                     symbol=code, period="daily",
@@ -661,7 +661,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                 cache.set_df(cache_key, df)
                 return df
             except Exception:
-                _hist_em_failed = True; _hist_em_failed_at = _time.time()
+                _hist_em_failed_at = _time.time(); _hist_em_failed = True
 
     # ── Source 2: Tushare Pro daily (adj=qfq) ────────────────────────────
     # Basic tier (120pts), 500 calls/min, data available ~15:00-16:00 each day.
@@ -670,7 +670,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             try:
                 pro = _get_tushare_pro()
                 if pro is None:
-                    _hist_ts_failed = True; _hist_ts_failed_at = _time.time()
+                    _hist_ts_failed_at = _time.time(); _hist_ts_failed = True
                 else:
                     ts_code = f"{code}.SH" if _market_from_code(code) == "sh" else f"{code}.SZ"
                     end_ts = datetime.now()
@@ -698,9 +698,41 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                                 return df.tail(days).reset_index(drop=True)
                             return df
             except Exception:
-                _hist_ts_failed = True; _hist_ts_failed_at = _time.time()
+                _hist_ts_failed_at = _time.time(); _hist_ts_failed = True
 
-    # ── Source 3: BaoStock (free, no V8, reliable) ───────────────────────
+    # ── Source 3: Tencent Finance (stock_zh_a_hist_tx) ─────────────────────
+    # Fully concurrent (no global lock), independent server (qq.com/gtimg.cn).
+    # Does not support BJ exchange (8xx/43xxxx) stocks.
+    # Moved before BaoStock because BaoStock is serialised by _bs_lock.
+    if not _hist_tx_failed:
+        try:
+            prefix = _market_from_code(code)
+            if prefix in ("sh", "sz"):
+                tx_sym = f"{prefix}{code}"
+                start_tx = (datetime.now() - timedelta(days=fetch_days + 50)).strftime("%Y%m%d")
+                end_tx   = datetime.now().strftime("%Y%m%d")
+                df = _call_with_timeout(
+                    ak.stock_zh_a_hist_tx, 30,
+                    symbol=tx_sym, start_date=start_tx, end_date=end_tx, adjust="qfq",
+                )
+                if df is not None and not df.empty:
+                    df = df.rename(columns={"amount": "volume"})
+                    df["date"] = pd.to_datetime(df["date"])
+                    df = df.sort_values("date").reset_index(drop=True)
+                    for col in ["open", "high", "low", "close", "volume"]:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors="coerce")
+                    df["change_pct"] = df["close"].pct_change() * 100
+                    df["change_amt"] = df["close"].diff()
+                    if not df.empty:
+                        cache.set_df(cache_key, df)
+                        if len(df) > days:
+                            return df.tail(days).reset_index(drop=True)
+                        return df
+        except Exception:
+            _hist_tx_failed_at = _time.time(); _hist_tx_failed = True
+
+    # ── Source 4: BaoStock (free, no V8, reliable; serialised by _bs_lock) ──
     # BaoStock's Python client is NOT thread-safe: all concurrent callers share
     # one TCP socket.  Without _bs_lock here, concurrent rs.next() calls in
     # different threads consume each other's response bytes, leaving some threads
@@ -714,8 +746,8 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         bs = _get_baostock() if not _hist_bs_failed else None
         if bs is None and not _hist_bs_failed:
             # Login failed (server down or module unavailable) — flag so subsequent
-            # stocks skip Source 3 without retrying the login on every call.
-            _hist_bs_failed = True; _hist_bs_failed_at = _time.time()
+            # stocks skip Source 4 without retrying the login on every call.
+            _hist_bs_failed_at = _time.time(); _hist_bs_failed = True
         if bs is not None:
             prefix = _market_from_code(code)
             bs_code = f"{prefix}.{code}"
@@ -760,15 +792,15 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             _bs_result = _call_with_timeout(_do_bs_query, timeout=60.0)
             if _bs_result is None or _bs_oserror[0]:
                 # Timed out OR Python-level socket error — flag BaoStock as down.
-                _hist_bs_failed = True; _hist_bs_failed_at = _time.time()
+                _hist_bs_failed_at = _time.time(); _hist_bs_failed = True
                 _reset_baostock()
             else:
                 rows, _bs_fields = _bs_result
                 if not rows and not _bs_fields:
                     # BaoStock returned empty rows AND empty fields: server-side failure
                     # (BSERR_RECVSOCK_FAIL — send_msg returned None after connection drop).
-                    # Flag it so subsequent stocks skip Source 3 without re-attempting.
-                    _hist_bs_failed = True; _hist_bs_failed_at = _time.time()
+                    # Flag it so subsequent stocks skip Source 4 without re-attempting.
+                    _hist_bs_failed_at = _time.time(); _hist_bs_failed = True
                 elif rows:
                     df = pd.DataFrame(rows, columns=_bs_fields)
                     df = df.rename(columns={"turn": "turnover", "pctChg": "change_pct"})
@@ -785,37 +817,6 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                         return df
     except Exception:
         pass
-
-    # ── Source 4: Tencent Finance (stock_zh_a_hist_tx) ──────────────────
-    # Independent server (qq.com / gtimg.cn) — entirely separate from East Money.
-    # Returns qfq-adjusted OHLCV; does not support BJ exchange (8xx/43xxxx) stocks.
-    if not _hist_tx_failed:
-        try:
-            prefix = _market_from_code(code)
-            if prefix in ("sh", "sz"):
-                tx_sym = f"{prefix}{code}"
-                start_tx = (datetime.now() - timedelta(days=fetch_days + 50)).strftime("%Y%m%d")
-                end_tx   = datetime.now().strftime("%Y%m%d")
-                df = _call_with_timeout(
-                    ak.stock_zh_a_hist_tx, 30,
-                    symbol=tx_sym, start_date=start_tx, end_date=end_tx, adjust="qfq",
-                )
-                if df is not None and not df.empty:
-                    df = df.rename(columns={"amount": "volume"})
-                    df["date"] = pd.to_datetime(df["date"])
-                    df = df.sort_values("date").reset_index(drop=True)
-                    for col in ["open", "high", "low", "close", "volume"]:
-                        if col in df.columns:
-                            df[col] = pd.to_numeric(df[col], errors="coerce")
-                    df["change_pct"] = df["close"].pct_change() * 100
-                    df["change_amt"] = df["close"].diff()
-                    if not df.empty:
-                        cache.set_df(cache_key, df)
-                        if len(df) > days:
-                            return df.tail(days).reset_index(drop=True)
-                        return df
-        except Exception:
-            _hist_tx_failed = True; _hist_tx_failed_at = _time.time()
 
     # ── Source 5: 163/Netease via stock_zh_a_daily (V8 — last resort) ───
     # Note: 163/Netease does not carry BJ exchange stocks; they will 404 silently.
@@ -879,9 +880,9 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                         return df.tail(days).reset_index(drop=True)
                     return df
         except ImportError:
-            _hist_tdx_failed = True; _hist_tdx_failed_at = _time.time()
+            _hist_tdx_failed_at = _time.time(); _hist_tdx_failed = True
         except Exception:
-            _hist_tdx_failed = True; _hist_tdx_failed_at = _time.time()
+            _hist_tdx_failed_at = _time.time(); _hist_tdx_failed = True
 
     return None
 
@@ -1542,56 +1543,63 @@ def _get_concept_1m_ret(concept_name: str) -> Optional[float]:
         return None
 
 
+_concept_reverse_map_lock = threading.Lock()
+
 def _build_concept_reverse_map() -> dict:
     """
     Build {stock_code: [concept_name, ...]} reverse lookup map.
     Iterates all concept boards in parallel (16 workers) and indexes their constituents.
     Cached for 6 hours — expensive first call (~30s), free on subsequent calls.
+    Lock prevents concurrent cold-start fetches from doubling EM requests.
     """
     cache_key = "concept_reverse_map"
     cached = cache.get(cache_key, 6 * 3600)
     if cached is not None:
         return cached
-    try:
-        from concurrent.futures import ThreadPoolExecutor
-        concept_df = ak.stock_board_concept_name_em()
-        if concept_df is None or concept_df.empty:
+    with _concept_reverse_map_lock:
+        cached = cache.get(cache_key, 6 * 3600)  # double-checked after acquiring lock
+        if cached is not None:
+            return cached
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            concept_df = ak.stock_board_concept_name_em()
+            if concept_df is None or concept_df.empty:
+                return {}
+            concept_df.columns = [c.strip() for c in concept_df.columns]
+            name_col = next(
+                (c for c in concept_df.columns if "名称" in c),
+                concept_df.columns[0],
+            )
+            concept_names = [str(n) for n in concept_df[name_col].dropna().tolist()]
+
+            reverse_map: dict = {}
+
+            def _fetch_cons(cname: str):
+                try:
+                    df = ak.stock_board_concept_cons_em(symbol=cname)
+                    if df is None or df.empty:
+                        return cname, []
+                    df.columns = [c.strip() for c in df.columns]
+                    code_col = next(
+                        (c for c in df.columns if "代码" in c or c.lower() == "code"),
+                        None,
+                    )
+                    if code_col is None:
+                        return cname, []
+                    codes = [str(c).zfill(6) for c in df[code_col].dropna().tolist()]
+                    return cname, codes
+                except Exception:
+                    return cname, []
+
+            with ThreadPoolExecutor(max_workers=16) as ex:
+                for cname, codes in ex.map(_fetch_cons, concept_names):
+                    for code in codes:
+                        reverse_map.setdefault(code, []).append(cname)
+
+            cache.set(cache_key, reverse_map)
+            return reverse_map
+        except Exception:
             return {}
-        concept_df.columns = [c.strip() for c in concept_df.columns]
-        name_col = next(
-            (c for c in concept_df.columns if "名称" in c),
-            concept_df.columns[0],
-        )
-        concept_names = [str(n) for n in concept_df[name_col].dropna().tolist()]
-
-        reverse_map: dict = {}
-
-        def _fetch_cons(cname: str):
-            try:
-                df = ak.stock_board_concept_cons_em(symbol=cname)
-                if df is None or df.empty:
-                    return cname, []
-                df.columns = [c.strip() for c in df.columns]
-                code_col = next(
-                    (c for c in df.columns if "代码" in c or c.lower() == "code"),
-                    None,
-                )
-                if code_col is None:
-                    return cname, []
-                codes = [str(c).zfill(6) for c in df[code_col].dropna().tolist()]
-                return cname, codes
-            except Exception:
-                return cname, []
-
-        with ThreadPoolExecutor(max_workers=16) as ex:
-            for cname, codes in ex.map(_fetch_cons, concept_names):
-                for code in codes:
-                    reverse_map.setdefault(code, []).append(cname)
-
-        cache.set(cache_key, reverse_map)
-        return reverse_map
-    except Exception:
-        return {}
 
 
 def get_concept_momentum(code: str) -> Optional[list]:

@@ -95,21 +95,23 @@ def get(key: str, ttl_seconds: int) -> Optional[Any]:
 
 def set(key: str, data: Any) -> None:
     path = _cache_path(key)
+    tmp  = path + ".tmp"
     try:
         if isinstance(data, pd.DataFrame):
             payload = {"__type": "dataframe", "records": data.to_json(orient="records", date_format="iso", force_ascii=False)}
         else:
             payload = data
-        with open(path, "w", encoding="utf-8") as f:
-            # allow_nan=False ensures NaN is rejected at write time rather than
-            # producing invalid JSON literal `NaN` that non-Python parsers reject.
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"ts": time.time(), "data": payload}, f,
                       ensure_ascii=False, allow_nan=False)
+        os.replace(tmp, path)   # atomic on POSIX; on Windows replaces atomically since Python 3.3
     except (ValueError, TypeError):
-        # NaN / non-serializable value — skip caching silently
-        pass
+        try: os.remove(tmp)
+        except OSError: pass
     except Exception as e:
         print(f"[cache] warn: failed to write '{key}': {e}")
+        try: os.remove(tmp)
+        except OSError: pass
 
 
 def get_df(key: str, ttl_seconds: int) -> Optional[pd.DataFrame]:
@@ -208,30 +210,25 @@ def smart_valuation_ttl() -> int:
 
 def purge_expired(max_age_seconds: int = TTL_FINANCIAL) -> int:
     """
-    Delete cache files whose timestamp is older than `max_age_seconds`.
+    Delete cache files older than `max_age_seconds`. Uses mtime (stat) instead of
+    reading JSON content — orders of magnitude faster on large caches.
     Defaults to 14 days. Returns the number of files deleted.
     """
     if not os.path.isdir(CACHE_DIR):
         return 0
     deleted = 0
-    now = time.time()
+    cutoff = time.time() - max_age_seconds
     for root, _, files in os.walk(CACHE_DIR):
         for fname in files:
             if not fname.endswith(".json"):
                 continue
             path = os.path.join(root, fname)
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    entry = json.load(f)
-                if now - entry.get("ts", 0) > max_age_seconds:
+                if os.stat(path).st_mtime < cutoff:
                     os.remove(path)
                     deleted += 1
-            except Exception:
-                try:
-                    os.remove(path)
-                    deleted += 1
-                except OSError:
-                    pass
+            except OSError:
+                pass
     return deleted
 
 
