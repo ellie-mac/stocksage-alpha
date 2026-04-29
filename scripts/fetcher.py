@@ -205,7 +205,10 @@ def _get_spot_df() -> pd.DataFrame:
         cached = cache.get("spot_all", cache.TTL_REALTIME)
         if cached is not None:
             return pd.DataFrame(cached)
-        df = _call_with_timeout(ak.stock_zh_a_spot_em, 30)   # 30s; Sina fallback kicks in after
+        try:
+            df = _call_with_timeout(ak.stock_zh_a_spot_em, 30)   # 30s; Sina fallback kicks in after
+        except Exception:
+            df = None
         if df is None or df.empty:
             _spot_em_failed = True
             _spot_em_failed_at = _time.time()
