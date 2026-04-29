@@ -114,12 +114,7 @@ def send_to_chat(chat_id: str, text: str) -> None:
 
 # ── Text constants ────────────────────────────────────────────────────────────
 _HELP = """\
-筹码策略
-  cmh 数据驱动⭐ | cad 同上（别名） | cadm +MACD绿柱
-  ca 全档 | cah 全档+排高位 | cabekh 全档+全修饰
-  修饰符：b BOLL  e 股价≤50  k 排科创  h 排高位  | ch 筹码详情
-
-  gc 金叉共振 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
+  cmh 筹码策略 | gc 金叉共振 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
 
 _FACTOR_HELP = """\
 因子 & 分析
@@ -949,7 +944,7 @@ def _dispatch_sync(t: str) -> str | None:
     if t in ("gc", "金叉"):
         return _h_gc()
     if t == "cmh":
-        return _h_chip_data_driven("bekh")
+        return _CHIP_LIST
     if t == "cad" or t.startswith("cad"):
         mods = (t[4:].strip().replace(" ", "") or "bekhm") if t.startswith("cadm") else \
                (t[3:].strip().replace(" ", "") or "bekh")
