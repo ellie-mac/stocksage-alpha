@@ -69,6 +69,12 @@ def _allowed_open_ids() -> set[str]:
     ids = _fs_cfg().get("allowed_open_ids", [])
     return set(ids) if ids else set()
 
+def _anthropic_key() -> str:
+    try:
+        return json.loads((BOT_DIR / "config.json").read_text(encoding="utf-8-sig"))["claude"]["api_key"]
+    except Exception:
+        return ""
+
 # ── Feishu API client (global, set in main) ───────────────────────────────────
 _client: lark.Client | None = None
 
@@ -153,6 +159,174 @@ _HOT_LIST = """\
   hs10h 热度扫描 top10% + 排高位
 
 热度来源：东方财富热榜，每2小时刷新"""
+
+# ── Agent tool definitions ────────────────────────────────────────────────────
+_TOOLS: list[dict] = [
+    {
+        "name": "get_system_status",
+        "description": "获取系统状态：StockSage各进程、今日推荐股票。适用于'z/状态/进程/系统怎么样'等查询。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_today_picks",
+        "description": "获取今日主策略推荐股票列表（latest_picks.json）。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_golden_cross",
+        "description": "获取金叉共振扫描结果（G0=8信号 G1=7信号 G2=6信号）。适用于'gc/金叉/今天有什么金叉'。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_stock_position",
+        "description": "分析单只股票的高低位：52周位置%、距高点距离、MA20/MA60偏离、布林带位置、趋势方向。快速（<30s）。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "6位股票代码，如 '000001' 或 '600519'"},
+            },
+            "required": ["code"],
+        },
+    },
+    {
+        "name": "analyze_stock",
+        "description": "对单只股票做全面因子分析报告，含动量/价值/质量/技术等多维评分。详细但较慢（1-3分钟）。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "6位股票代码或名称，如 '600519' 或 '贵州茅台'"},
+            },
+            "required": ["code"],
+        },
+    },
+    {
+        "name": "get_factor_ic",
+        "description": "获取各因子的IC（信息系数）摘要，评估每个因子的预测能力强弱。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_factor_info",
+        "description": "查询某个具体因子的详细说明（定义、逻辑、用途）。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "因子名称（英文），如 'momentum'、'accruals'、'roe_trend'"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "get_backtest_result",
+        "description": "获取最新回测结果摘要：年化收益、Sharpe、最大回撤、胜率、各期超额收益。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_backtest_status",
+        "description": "查询回测进程是否在运行及当前进度。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_tasks",
+        "description": "查询Windows计划任务执行情况（今日是否已运行、下次运行时间）。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_logs",
+        "description": "获取monitor日志的最后N行，用于排查问题。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "description": "获取最后N行，默认20，最大100", "default": 20},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "run_hot_scan",
+        "description": "启动热榜扫描策略（东方财富热榜+动量过滤），结果推送微信。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "top_pct": {"type": "number", "description": "热榜前N%，默认5.0", "default": 5.0},
+                "cah": {"type": "boolean", "description": "是否过滤高位股（距6月高点≥10%才保留），默认false", "default": False},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "run_full_scan",
+        "description": "触发主策略全市场扫盘，结果推送微信（约5-10分钟）。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "run_holdings_check",
+        "description": "只检查当前持仓股票的信号（不扫全市场），快速推送微信。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "start_monitor",
+        "description": "启动monitor.py定时循环扫描进程（若未运行）。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "restart_monitor",
+        "description": "重启monitor.py循环扫描进程（先停旧进程再启新进程）。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "run_chip_scan",
+        "description": "启动筹码策略扫描，指定档位和修饰符。结果推微信。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tier": {
+                    "type": "string",
+                    "description": "筹码档位：'1'(≥95%) '2'(90-95%) '3'(85-90%) '4'(75-85%) '5'(65-75%)",
+                    "enum": ["1", "2", "3", "4", "5"],
+                },
+                "mods": {
+                    "type": "string",
+                    "description": "修饰符：b=布林, e=≤50元, k=排科创, h=排高位, m=MACD绿柱, z=MACD近零。可叠加如'bekh'",
+                    "default": "",
+                },
+            },
+            "required": ["tier"],
+        },
+    },
+    {
+        "name": "run_chip_cad",
+        "description": "启动筹码CAD数据驱动扫描（T4→T1→T2→T3→T5顺序），推送微信。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mods": {"type": "string", "description": "修饰符组合，默认'bekhm'", "default": "bekhm"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "run_backtest",
+        "description": "启动因子回测（后台运行，每期约20分钟）。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "periods": {"type": "integer", "description": "回测期数，默认16", "default": 16},
+                "universe": {
+                    "type": "string",
+                    "description": "股票池：'main'（主板）或 'smallcap'（小盘）",
+                    "enum": ["main", "smallcap"],
+                    "default": "main",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "run_factor_ic",
+        "description": "启动因子IC回测分析（约1-2小时），分析各因子的预测能力。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+]
 
 # ── Chip tier config ──────────────────────────────────────────────────────────
 _CHIP_TIERS = {
@@ -956,6 +1130,101 @@ def _h_read_file(path: str) -> str:
 _AI_BOT_NAME = "太子"  # cc-connect AI bot name for unknown commands
 
 
+# ── Agent tool executor ───────────────────────────────────────────────────────
+def _call_tool(name: str, args: dict) -> str:
+    try:
+        if name == "get_system_status":   return _h_status()
+        if name == "get_today_picks":     return _h_picks()
+        if name == "get_golden_cross":    return _h_gc()
+        if name == "get_stock_position":  return _h_pos(args.get("code", ""))
+        if name == "analyze_stock":       return _h_research(args.get("code", ""))
+        if name == "get_factor_ic":       return _h_ic()
+        if name == "get_factor_info":     return _h_factor_info(args.get("name", ""))
+        if name == "get_backtest_result": return _h_backtest_result()
+        if name == "get_backtest_status": return _h_backtest_status()
+        if name == "get_tasks":           return _h_tasks()
+        if name == "get_logs":            return _h_logs(min(int(args.get("n", 20)), 100))
+        if name == "run_hot_scan":
+            return _h_hot_scan(top_pct=float(args.get("top_pct", 5.0)), cah=bool(args.get("cah", False)))
+        if name == "run_full_scan":       return _h_scan()
+        if name == "run_holdings_check":  return _h_holdings()
+        if name == "start_monitor":       return _h_start_monitor()
+        if name == "restart_monitor":     return _h_restart()
+        if name == "run_chip_scan":
+            return _launch_chip(str(args.get("tier", "1")), str(args.get("mods", "")))
+        if name == "run_chip_cad":
+            return _h_chip_data_driven(str(args.get("mods", "bekhm")))
+        if name == "run_backtest":
+            return _h_backtest(periods=int(args.get("periods", 16)), universe=str(args.get("universe", "main")))
+        if name == "run_factor_ic":
+            log_path = LOGS / "factor_ic_main.log"
+            with open(log_path, "w", encoding="utf-8") as f:
+                f.write(f"--- factor_analysis started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+            subprocess.Popen(
+                [sys.executable, "-X", "utf8", str(SCRIPTS / "factor_analysis.py"),
+                 "--rolling", "6", "--step", "20", "--out", str(ROOT / "data" / "factor_ic.json")],
+                cwd=str(ROOT), stdout=open(log_path, "a", encoding="utf-8"), stderr=subprocess.STDOUT,
+            )
+            return "因子IC回测已启动（约1-2小时）✅"
+        return f"❌ 未知工具: {name}"
+    except Exception as e:
+        return f"❌ {name} 执行失败: {e}"
+
+
+def _dispatch_ai(text: str) -> str:
+    """Route natural-language messages through Claude with tools."""
+    key = _anthropic_key()
+    if not key:
+        return "❓ 未识别命令，发 h 查看帮助。"
+    try:
+        import anthropic as _ant
+        client = _ant.Anthropic(api_key=key)
+        system = (
+            "你是 StockSage 量化交易系统的助手，只处理A股投资和系统操作相关的问题。"
+            "用中文简洁回答。遇到需要查数据或执行操作的请求，直接调用工具，不要询问确认。"
+            "如果问题与系统功能无关，简短说明无法帮助。"
+        )
+        messages: list[dict] = [{"role": "user", "content": text}]
+
+        for _ in range(3):
+            resp = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=1024,
+                system=system,
+                tools=_TOOLS,
+                messages=messages,
+            )
+            if resp.stop_reason == "end_turn":
+                parts = [b.text for b in resp.content if hasattr(b, "text")]
+                return "\n".join(parts).strip() or "（无回复）"
+            if resp.stop_reason == "tool_use":
+                messages.append({"role": "assistant", "content": resp.content})
+                results = []
+                for block in resp.content:
+                    if block.type == "tool_use":
+                        results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": _call_tool(block.name, block.input),
+                        })
+                messages.append({"role": "user", "content": results})
+            else:
+                break
+
+        # get final text after tool results
+        final = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=512,
+            system=system,
+            messages=messages,
+        )
+        parts = [b.text for b in final.content if hasattr(b, "text")]
+        return "\n".join(parts).strip() or "（无回复）"
+    except Exception as e:
+        print(f"[AI dispatch error] {e}", flush=True)
+        return f"❌ AI 调用失败: {e}\n发 h 查看快捷命令。"
+
+
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 def _dispatch_sync(t: str) -> str | None:
     """Return reply string for known commands, or None to hand off to Claude."""
@@ -1088,9 +1357,8 @@ def _on_message_receive(data: lark.im.v1.P2ImMessageReceiveV1) -> None:
             return
         result = _dispatch_sync(text)
         if result is None:
-            reply_text(message_id, f"❓ 未识别命令，发 h 查看帮助。\nAI 对话请找 @{_AI_BOT_NAME}")
-        else:
-            reply_text(message_id, result)
+            result = _dispatch_ai(text)
+        reply_text(message_id, result)
 
     threading.Thread(target=handle, daemon=True).start()
 
