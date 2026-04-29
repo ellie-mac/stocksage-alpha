@@ -129,8 +129,8 @@ TASKS = [
     ("xhs_Evening",     "15:30", "chip_evening",    "小红书收盘筹码分析推送 📱",                      True),
     # ── 收盘后数据预热 ───────────────────────────────────────────────────────
     ("market_Warm",      "15:35", "market_warm",      "预热市场数据：CSI300/PE/申万/停牌表，不推送",    False),
-    ("price_Prefetch",   "16:00", "price_prefetch",  "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
-    ("fundflow_Prefetch","16:30", "fundflow_prefetch","预热全市场资金流向缓存（~20min），不推送",       False),
+    ("price_Prefetch",   "17:00", "price_prefetch",  "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
+    ("fundflow_Prefetch","17:30", "fundflow_prefetch","预热全市场资金流向缓存（~20min），不推送",       False),
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
     ("daily_PerfLog",   "16:05", "daily_perf_log",  "主策略+筹码+金叉三合一收盘胜率 📱",              True),
     ("chip_Night",      "18:00", "chip_night",      "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
