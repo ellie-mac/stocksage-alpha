@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""
+每日统一胜率记录 — 收盘后一条微信
+运行时间：16:00（市场收盘后）
+
+包含三个策略：
+  主策略    — latest_picks.json（前日 18:30 扫盘）
+  筹码策略  — CAH∩CAD∩CADM 三者共有 T1-T4（前日 20:30 扫描）
+  金叉共振  — golden_cross_YYYYMMDD.json G0-G2（前日 19:30 扫描）
+
+用法：
+    python -X utf8 scripts/daily_perf_log.py [--dry-run] [--force]
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import datetime
+from pathlib import Path
+
+ROOT     = Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT / "data"
+
+MAIN_PICKS_PATH = DATA_DIR / "latest_picks.json"
+SIG_PATH        = DATA_DIR / "signals_log.json"
+
+MAIN_PERF_PATH  = DATA_DIR / "main_daily_perf.json"
+CHIP_PERF_PATH  = DATA_DIR / "chip_daily_perf.json"
+GC_PERF_PATH    = DATA_DIR / "gc_daily_perf.json"
+
+CHIP_TIERS = ["T1", "T2", "T3", "T4"]
+GC_TIERS   = ["G0", "G1", "G2"]
+
+
+# ── 行情 ──────────────────────────────────────────────────────────────────────
+
+def _fetch_prices(codes: list[str]) -> dict[str, float]:
+    import sys, pandas as pd
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from common import get_spot_em
+    df = get_spot_em()
+    if df.empty:
+        return {}
+    df["_code"] = df["代码"].astype(str).str.zfill(6)
+    df = df[df["_code"].isin(codes)].copy()
+    df["_pct"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
+    return dict(zip(df["_code"], df.dropna(subset=["_pct"])["_pct"]))
+
+
+# ── 统计工具 ──────────────────────────────────────────────────────────────────
+
+_SIG_SHORT = {
+    "MACD金叉": "MACD", "KDJ金叉": "KDJ", "RSI金叉": "RSI",
+    "MA5/10金叉": "5/10", "MA10/20金叉": "10/20",
+    "量能金叉": "量", "OBV金叉": "OBV", "布林中轨金叉": "布林",
+}
+
+
+def _stats(items: list[dict], prices: dict[str, float]) -> dict:
+    results = [{"code": p["code"], "name": p.get("name", p["code"]),
+                "pct": prices[p["code"]], "signals": p.get("signals", [])}
+               for p in items if p["code"] in prices]
+    if not results:
+        return {"n": 0, "win_rate": None, "avg_ret": None, "top5": [], "results": []}
+    vals = [r["pct"] for r in results]
+    win_rate = round(sum(1 for v in vals if v > 0) / len(vals) * 100, 1)
+    avg_ret  = round(sum(vals) / len(vals), 2)
+    top5 = sorted(results, key=lambda r: r["pct"], reverse=True)[:5]
+    return {"n": len(results), "win_rate": win_rate, "avg_ret": avg_ret,
+            "top5": top5, "results": results}
+
+
+def _emoji(win_rate: float | None) -> str:
+    if win_rate is None: return "⚪"
+    if win_rate >= 60:   return "🟢"
+    if win_rate >= 40:   return "🟡"
+    return "🔴"
+
+
+def _wr(s: dict) -> str:
+    return f"{s['win_rate']}%" if s["win_rate"] is not None else "-"
+
+def _ar(s: dict) -> str:
+    return f"{s['avg_ret']:+.2f}%" if s["avg_ret"] is not None else "-"
+
+
+# ── 各策略数据加载 ─────────────────────────────────────────────────────────────
+
+def _load_main(today: str) -> list[dict]:
+    if MAIN_PICKS_PATH.exists():
+        raw = json.loads(MAIN_PICKS_PATH.read_text(encoding="utf-8"))
+        ts  = raw.get("timestamp", "")
+        if ts[:10].replace("-", "") < today:
+            picks = raw.get("results", [])
+            return [{"code": str(p.get("code", "")).split(".")[0],
+                     "name": p.get("name", "")}
+                    for p in picks if p.get("code")]
+    if SIG_PATH.exists():
+        entries = json.loads(SIG_PATH.read_text(encoding="utf-8"))
+        for entry in reversed(entries):
+            if entry.get("date", "") < today:
+                buys = entry.get("buy_signals", [])
+                if buys:
+                    return [{"code": str(p.get("code", "")).split(".")[0],
+                             "name": p.get("name", "")} for p in buys]
+    return []
+
+
+def _find_prev(glob_pat: str, today: str) -> dict | None:
+    candidates = sorted(
+        (p for p in DATA_DIR.glob(glob_pat) if p.stem[-8:] < today),
+        key=lambda p: p.stem[-8:], reverse=True,
+    )
+    if not candidates:
+        return None
+    try:
+        return json.loads(candidates[0].read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _load_chip(today: str) -> dict[str, list[dict]]:
+    """三者共有 T1-T4，按档返回"""
+    empty = {t: [] for t in CHIP_TIERS}
+    cah  = _find_prev("chip_cah_????????.json",  today)
+    cad  = _find_prev("chip_cad_????????.json",  today)
+    cadm = _find_prev("chip_cadm_????????.json", today)
+    if not cad:
+        return empty
+    if not (cah and cadm):
+        return {t: cad.get("tiers", {}).get(t, []) for t in CHIP_TIERS}
+    cadm_codes = {p["code"] for t in CHIP_TIERS for p in cadm.get("tiers", {}).get(t, [])}
+    cah_codes  = {p["code"] for t in CHIP_TIERS for p in cah.get("tiers",  {}).get(t, [])}
+    return {
+        t: [p for p in cad.get("tiers", {}).get(t, [])
+            if p["code"] in cadm_codes and p["code"] in cah_codes]
+        for t in CHIP_TIERS
+    }
+
+
+def _load_gc(today: str) -> dict[str, list[dict]]:
+    """G0-G2：找前日带日期的扫描文件，按档返回"""
+    gc = _find_prev("golden_cross_????????.json", today)
+    if not gc:
+        return {t: [] for t in GC_TIERS}
+    tiers = gc.get("tiers", {})
+    return {t: tiers.get(t, []) for t in GC_TIERS}
+
+
+# ── 推送格式 ──────────────────────────────────────────────────────────────────
+
+def _fmt_section(header: str, rows: list[str]) -> str:
+    """用行尾两空格强制 markdown 换行，sections 之间用 \\n\\n 隔开。"""
+    return "  \n".join([header] + rows)
+
+
+# ── 持久化 ────────────────────────────────────────────────────────────────────
+
+def _append(path: Path, record: dict, today: str, force: bool) -> bool:
+    existing: list[dict] = []
+    if path.exists():
+        existing = json.loads(path.read_text(encoding="utf-8"))
+    if any(r["date"] == today for r in existing):
+        if force:
+            existing = [r for r in existing if r["date"] != today]
+        else:
+            return False
+    existing.append(record)
+    path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+    return True
+
+
+# ── 主程序 ────────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force",   action="store_true")
+    args = parser.parse_args()
+
+    now = datetime.now()
+    if not args.force:
+        hm = now.hour * 60 + now.minute
+        if hm < 15 * 60 + 55:
+            print(f"[daily_perf] 当前 {now:%H:%M}，需 15:55 后运行，跳过")
+            return
+
+    today    = now.strftime("%Y%m%d")
+    date_fmt = f"{today[4:6]}/{today[6:]}"
+
+    # ── 加载各策略选股 ────────────────────────────────────────────────────────
+    main_picks    = _load_main(today)
+    chip_by_tier  = _load_chip(today)
+    gc_by_tier    = _load_gc(today)
+
+    chip_flat = [p for picks in chip_by_tier.values() for p in picks]
+    gc_flat   = [p for picks in gc_by_tier.values()   for p in picks]
+
+    print(f"[daily_perf] 主策略 {len(main_picks)}只 / 筹码 {len(chip_flat)}只 / 金叉 {len(gc_flat)}只")
+
+    if not main_picks and not chip_flat and not gc_flat:
+        print("[daily_perf] 三个策略均无数据，退出")
+        return
+
+    # ── 一次性拉取所有行情 ────────────────────────────────────────────────────
+    all_codes = list({p["code"] for p in main_picks + chip_flat + gc_flat})
+    print(f"[daily_perf] 获取 {len(all_codes)} 只行情 ...")
+    prices = _fetch_prices(all_codes)
+    print(f"[daily_perf] 获取到 {len(prices)} 只")
+
+    # ── 统计 ──────────────────────────────────────────────────────────────────
+    ms = _stats(main_picks, prices)
+    chip_tier_stats = {t: _stats(chip_by_tier[t], prices) for t in CHIP_TIERS}
+    gc_tier_stats   = {t: _stats(gc_by_tier[t],   prices) for t in GC_TIERS}
+    cs = _stats(chip_flat, prices)
+    gs = _stats(gc_flat,   prices)
+
+    for label, s in [("主策略", ms), ("筹码", cs), ("金叉", gs)]:
+        print(f"  [{label}] {s['n']}只  胜率{_wr(s)}  均涨{_ar(s)}")
+
+    # ── 构建推送 ──────────────────────────────────────────────────────────────
+    sections: list[str] = []
+
+    # 主策略：全部5只各自换行
+    if ms["results"]:
+        rows = [f"  {r['name']} {r['pct']:+.2f}%"
+                for r in sorted(ms["results"], key=lambda r: r["pct"], reverse=True)]
+        sections.append(_fmt_section(
+            f"{_emoji(ms['win_rate'])} **主策略 {ms['n']}只  胜率{_wr(ms)}  均{_ar(ms)}**",
+            rows,
+        ))
+
+    # 筹码策略：各档胜率 + 前五
+    if cs["results"]:
+        rows = [f"{_emoji(cs['win_rate'])} **筹码策略 {cs['n']}只  胜率{_wr(cs)}  均{_ar(cs)}**"]
+        for t in CHIP_TIERS:
+            s = chip_tier_stats[t]
+            if s["n"] == 0:
+                continue
+            rows.append(f"**{t}** {s['n']}只  胜率{_wr(s)}  均{_ar(s)}")
+            for r in s["top5"]:
+                rows.append(f"  {r['name']} {r['pct']:+.2f}%")
+        sections.append("  \n".join(rows))
+
+    # 金叉共振：各档胜率 + 前五（带信号缩写）
+    if gs["results"]:
+        rows = [f"{_emoji(gs['win_rate'])} **金叉共振 {gs['n']}只  胜率{_wr(gs)}  均{_ar(gs)}**"]
+        for t in GC_TIERS:
+            s = gc_tier_stats[t]
+            if s["n"] == 0:
+                continue
+            rows.append(f"**{t}** {s['n']}只  胜率{_wr(s)}  均{_ar(s)}")
+            for r in s["top5"]:
+                sig_s = "·".join(_SIG_SHORT.get(sg, sg) for sg in r.get("signals", []))
+                sig_tag = f" `{sig_s}`" if sig_s else ""
+                rows.append(f"  {r['name']} {r['pct']:+.2f}%{sig_tag}")
+        sections.append("  \n".join(rows))
+
+    sections.append("⚠️ 仅供参考，不构成投资建议")
+    push_body = "\n\n".join(sections)
+    print(f"\n{push_body}\n")
+
+    if args.dry_run:
+        print("[daily_perf] dry-run，不写入不推送")
+        return
+
+    # ── 各自保存历史 ──────────────────────────────────────────────────────────
+    ts = now.isoformat(timespec="seconds")
+    _append(MAIN_PERF_PATH,
+            {"date": today, "logged": ts, "n": ms["n"],
+             "win_rate": ms["win_rate"], "avg_ret": ms["avg_ret"], "top5": ms["results"]},
+            today, args.force)
+    _append(CHIP_PERF_PATH,
+            {"date": today, "logged": ts,
+             "total_n": cs["n"], "total_win_rate": cs["win_rate"], "total_avg_ret": cs["avg_ret"]},
+            today, args.force)
+    _append(GC_PERF_PATH,
+            {"date": today, "logged": ts,
+             "total_n": gs["n"], "total_win_rate": gs["win_rate"], "total_avg_ret": gs["avg_ret"]},
+            today, args.force)
+    print("[daily_perf] 历史记录已写入")
+
+    # ── 推送 ──────────────────────────────────────────────────────────────────
+    try:
+        import sys
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from common import send_wechat, configure_pushplus
+        cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
+        sendkey = cfg.get("serverchan", {}).get("sendkey", "")
+        configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+        parts = []
+        if ms["win_rate"] is not None: parts.append(f"主{ms['win_rate']}%")
+        if cs["win_rate"] is not None: parts.append(f"筹{cs['win_rate']}%")
+        if gs["win_rate"] is not None: parts.append(f"叉{gs['win_rate']}%")
+        title = f"收盘胜率 {date_fmt} | {' / '.join(parts)}"
+        send_wechat(title, push_body, sendkey)
+        print("[daily_perf] 微信推送成功")
+    except Exception as e:
+        print(f"[daily_perf] 微信推送失败: {e}")
+
+
+if __name__ == "__main__":
+    main()

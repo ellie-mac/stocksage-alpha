@@ -761,143 +761,7 @@ def score_short_interest(
     industry_ret_1m: Optional[float] = None,
     market_ret_1m: Optional[float] = None,
 ) -> dict:
-    """
-    Short interest ratio: 融券余额 / 流通市值 (max 10).
-    Low short interest is positive; high = bearish sentiment.
-      ratio <= 0.5%  -> 10 pts
-      ratio 0.5-3%   -> linear 10-3 pts
-      ratio >= 5%    ->  0 pts
-
-    Context cross with 52w price position:
-      High short (>= 3%) + low position (< 0.3) -> short squeeze potential -> buy boost (+3)
-      High short (>= 3%) + high position (> 0.7) -> shorts likely right -> sell boost (+2)
-
-    Earnings revision cross: short squeeze catalyst (requires revision_df)
-      High short (>= 3%) + net analyst upgrades >= 2  -> squeeze catalyst, buy +2
-      High short (>= 3%) + net analyst downgrades <= -2 -> shorts confirmed by analysts, sell +2
-
-    Market regime cross (requires market_regime_score):
-      High short (>= 3%) + bull market (regime >= 7) -> squeeze risk elevated in rising market, buy +1.5
-      High short (>= 3%) + bear market (regime <= 3) -> shorts likely right in downtrend, sell +1
-
-    Industry excess return cross (requires industry_ret_1m and market_ret_1m):
-      High short (>= 3%) + industry weak (excess <= -3%) -> sell +1 (空头被行业下行趋势确认)
-      High short (>= 3%) + industry strong (excess >= +3%) -> buy +1 (逆势做空=可能的逼空，行业没有配合空头)
-    """
-    if margin_df is None or margin_df.empty or circulating_cap <= 0:
-        return _neutral(10)
-
-    short_cols = [c for c in margin_df.columns
-                  if any(k in c for k in ["融券余量金额", "融券余额", "融券余量"])]
-    if not short_cols:
-        return _neutral(10)
-
-    series = pd.to_numeric(margin_df[short_cols[0]], errors="coerce").dropna()
-    if series.empty:
-        return _neutral(10)
-
-    short_balance = float(series.iloc[-1])
-    ratio = short_balance / circulating_cap * 100  # in %
-
-    if ratio <= 0.5:
-        score = 10.0
-    elif ratio <= 3.0:
-        score = 10.0 - (ratio - 0.5) / 2.5 * 7.0
-    elif ratio <= 5.0:
-        score = 3.0 - (ratio - 3.0) / 2.0 * 3.0
-    else:
-        score = 0.0
-
-    signal = ("minimal short" if ratio <= 0.5 else
-              "moderate short" if ratio <= 3.0 else "heavily shorted")
-
-    # --- Sell score: high short interest ---
-    if ratio >= 5:
-        sell_score = 9.0
-    elif ratio >= 3:
-        # linear: 3% -> 5pts, 5% -> 9pts
-        sell_score = 5.0 + (ratio - 3) / 2 * 4.0
-    elif ratio >= 0.5:
-        # linear: 0.5% -> 0pts, 3% -> 5pts
-        sell_score = (ratio - 0.5) / 2.5 * 5.0
-    else:
-        sell_score = 0.0
-
-    # --- Context cross: price position × short interest ---
-    position = _get_price_position(price_df)
-    if position is not None and ratio >= 3.0:
-        if position < 0.3:
-            # Low position + heavy short = squeeze setup (shorts trapped, stock beaten down)
-            score = min(10.0, score + 3.0)
-            signal = "squeeze potential (low position + heavy short)"
-        elif position > 0.7:
-            # High position + heavy short = shorts likely right at the top
-            sell_score = min(10.0, sell_score + 2.0)
-            signal = "bearish confirmation (high position + heavy short)"
-
-    # --- Earnings revision cross: short squeeze catalyst ---
-    net_revisions = None
-    if revision_df is not None and not revision_df.empty and ratio >= 3.0:
-        rating_cols = [c for c in revision_df.columns
-                       if any(k in c for k in ["评级变动", "方向", "上调", "下调", "rating"])]
-        if rating_cols:
-            try:
-                col_str = revision_df[rating_cols[0]].astype(str).str.lower()
-                up   = int(col_str.str.contains("上调|upgrade|buy|strong").sum())
-                down = int(col_str.str.contains("下调|downgrade|sell|reduce").sum())
-                net_revisions = up - down
-                if net_revisions >= 2:
-                    # Analysts upgrading a heavily shorted stock: classic squeeze setup
-                    score = min(10.0, score + 2.0)
-                    signal = signal + " + analyst upgrades (squeeze catalyst)"
-                elif net_revisions <= -2:
-                    # Both shorts and analysts are bearish: strong conviction sell
-                    sell_score = min(10.0, sell_score + 2.0)
-                    signal = signal + " + analyst downgrades (shorts confirmed)"
-            except Exception:
-                pass
-
-    # --- Market regime cross: short squeeze risk is regime-dependent ---
-    if market_regime_score is not None and ratio >= 3.0:
-        if market_regime_score >= 7:
-            # Bull market + heavy short: rising tide can trigger a squeeze, stocks become more buyable
-            score = min(10.0, score + 1.5)
-            signal = signal + " (bull market — squeeze risk elevated, 逼空风险高)"
-        elif market_regime_score <= 3:
-            # Bear market + heavy short: shorts are directionally correct, conviction sell
-            sell_score = min(10.0, sell_score + 1.0)
-            signal = signal + " (bear market — shorts likely right, 熊市空头有优势)"
-
-    # --- Industry excess return cross: sector environment confirms or undermines short thesis ---
-    industry_signal = None
-    if industry_ret_1m is not None and market_ret_1m is not None and ratio >= 3.0:
-        excess = industry_ret_1m - market_ret_1m
-        if excess <= -3.0:
-            # Sector falling + heavy short: shorts are aligned with sector direction
-            sell_score = min(10.0, sell_score + 1.0)
-            industry_signal = f"高融券+行业弱(超额{excess:.1f}%) — 空头被行业趋势确认"
-        elif excess >= 3.0:
-            # Sector strong + heavy short: shorts are fighting the sector, squeeze risk elevated
-            score = min(10.0, score + 1.0)
-            industry_signal = f"高融券+行业强(超额{excess:.1f}%) — 逆势做空，逼空风险高"
-
-    return {
-        "score": round(min(10.0, score), 1),
-        "sell_score": round(min(10.0, sell_score), 1),
-        "max": 10,
-        "details": {
-            "short_balance_billion": round(short_balance / 1e8, 2),
-            "ratio_pct": round(ratio, 3),
-            "position_52w": round(position, 3) if position is not None else None,
-            "net_revisions": net_revisions,
-            "market_regime_score": market_regime_score,
-            "industry_signal": industry_signal,
-            "signal": signal,
-            "sell_score": round(min(10.0, sell_score), 1),
-        },
-    }
-
-
+    return {"score": 0, "sell_score": 0, "max": 10, "details": {}}
 def score_rsi_signal(
     price_df: Optional[pd.DataFrame],
     market_regime_score: Optional[float] = None,
@@ -906,223 +770,98 @@ def score_rsi_signal(
     revision_df: Optional[pd.DataFrame] = None,
 ) -> dict:
     """
-    RSI zone scoring (max 10).
-    Rewards oversold recovery setups; penalises extreme overbought.
-      RSI <= 30  -> 10 pts (oversold)
-      RSI 30-50  -> linear 10-5 pts (recovering)
-      RSI 50-70  -> linear 5-3 pts (healthy trend)
-      RSI >= 70  ->  1 pt  (overbought risk)
+    14-period RSI mean-reversion / momentum signal (max 10).
 
-    Context cross with MA5/MA20 trend:
-      RSI >= 70 + MA bullish (ma5 > ma20) -> confirmed uptrend, soften sell (-2)
-      RSI >= 70 + MA bearish (ma5 < ma20) -> dead-cat bounce, amplify sell (+2)
-      RSI <= 30 + MA bearish              -> falling knife, reduce buy (-3)
-      RSI <= 30 + MA bullish              -> dip in uptrend, keep high buy (no change)
-
-    Market regime cross (requires market_regime_score):
-      RSI <= 30 + bull market (regime >= 7) -> 牛市超卖是绝佳买点，反弹可信 -> buy +2
-      RSI <= 30 + bear market (regime <= 3) -> 熊市超卖可以继续跌，勿接飞刀 -> buy -2, sell +1
-      RSI >= 70 + bull market              -> 强趋势中RSI可长期高位运行，减弱卖出 -> sell -1.5
-      RSI >= 70 + bear market              -> 熊市中的反弹更脆弱，死猫弹 -> sell +1.5
-
-    Industry excess cross (requires industry_ret_1m, market_ret_1m):
-      RSI <= 30 + industry outperforming (excess >= +3%) -> sector bid lifts oversold, buy +1.5
-      RSI <= 30 + industry weak (excess <= -3%)          -> sector drags recovery, soften buy -1
-      RSI >= 70 + industry hot (excess >= +5%)           -> overbought in hot sector, slight sell +0.5
+    Oversold zones (RSI < 30) are buy setups; overbought (RSI > 70) are sell setups.
+    RSI direction (rising vs falling) provides confirmation.
+    All inputs are derived from price_df — no external data source required.
     """
-    if price_df is None or len(price_df) < 20 or "close" not in price_df.columns:
-        return _neutral(10)
+    MAX = 10
+    if price_df is None or len(price_df) < 18 or "close" not in price_df.columns:
+        return _neutral(MAX)
 
-    try:
-        import ta
-        rsi = float(ta.momentum.RSIIndicator(price_df["close"], window=14).rsi().iloc[-1])
-    except Exception:
-        return _neutral(10)
+    close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+    if len(close) < 18:
+        return _neutral(MAX)
 
-    if np.isnan(rsi):
-        return _neutral(10)
+    def _rsi(series: pd.Series, period: int = 14) -> float:
+        delta = series.diff()
+        avg_gain = float(delta.clip(lower=0).tail(period).mean())
+        avg_loss = float((-delta.clip(upper=0)).tail(period).mean())
+        if avg_loss == 0:
+            return 100.0 if avg_gain > 0 else 50.0
+        return 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
 
-    if rsi <= 30:
-        score = 10.0
-    elif rsi <= 50:
-        score = 10.0 - (rsi - 30) / 20 * 5.0
-    elif rsi <= 70:
-        score = 5.0 - (rsi - 50) / 20 * 2.0
+    rsi_curr = _rsi(close)
+    rsi_prev = _rsi(close.iloc[:-3]) if len(close) >= 21 else None
+    rsi_rising = (rsi_curr > rsi_prev) if rsi_prev is not None else None
+
+    # ── Buy score ──
+    if rsi_curr < 20:
+        score, signal = 9.5, "extreme oversold"
+    elif rsi_curr < 30:
+        score, signal = 8.0, "oversold"
+    elif rsi_curr < 40:
+        score, signal = 7.0, "mild oversold"
+    elif rsi_curr < 50:
+        score, signal = 6.0, "below midline"
+    elif rsi_curr < 55:
+        score, signal = 5.0, "neutral"
+    elif rsi_curr < 65:
+        score, signal = 4.0, "mild overbought"
+    elif rsi_curr < 75:
+        score, signal = 3.0, "overbought"
     else:
-        score = 1.0
+        score, signal = 1.5, "extreme overbought"
 
-    signal = ("oversold" if rsi <= 30 else
-              "recovering" if rsi <= 50 else
-              "healthy" if rsi <= 70 else "overbought")
+    if rsi_rising is not None:
+        if rsi_curr < 50 and rsi_rising:
+            score = min(MAX, score + 1.0)
+            signal += " + RSI rising (bullish)"
+        elif rsi_curr > 70 and not rsi_rising:
+            score = max(0.0, score - 0.5)
+            signal += " + RSI falling (fading)"
 
-    # --- Sell score: overbought RSI ---
-    if rsi >= 80:
-        sell_score = 9.0
-    elif rsi >= 70:
-        # linear: 70 -> 5pts, 80 -> 9pts
-        sell_score = 5.0 + (rsi - 70) / 10 * 4.0
-    elif rsi >= 60:
-        sell_score = 2.0
-    else:
-        sell_score = 0.0
-
-    # --- Context cross: MA trend direction ---
-    ma_bull = None
-    try:
-        ma5  = float(price_df["close"].tail(5).mean())
-        ma20 = float(price_df["close"].tail(20).mean())
-        ma_bull = ma5 > ma20
-    except Exception:
-        pass
-
-    if ma_bull is not None:
-        if rsi >= 70:
-            if ma_bull:
-                # Overbought in confirmed uptrend — may continue, soften sell pressure
-                sell_score = max(0.0, sell_score - 2.0)
-                signal = "overbought (uptrend confirmed — reduced sell pressure)"
-            else:
-                # Overbought but MA bearish — dead-cat bounce, amplify sell
-                sell_score = min(10.0, sell_score + 2.0)
-                signal = "overbought (bearish MA — likely dead-cat bounce)"
-        elif rsi <= 30:
-            if not ma_bull:
-                # Oversold but MA still bearish — falling knife, reduce buy confidence
-                score = max(1.0, score - 3.0)
-                signal = "oversold (bearish MA — may continue falling)"
-            # else: RSI oversold + MA bullish = healthy dip, no adjustment needed
-
-    # --- Volume cross: does volume confirm RSI extreme? ---
-    vol_ratio = None
-    try:
-        if "volume" in price_df.columns and len(price_df) >= 15:
-            vol = pd.to_numeric(price_df["volume"], errors="coerce").dropna()
-            if len(vol) >= 15:
-                v5  = float(vol.tail(5).mean())
-                v10 = float(vol.tail(15).head(10).mean())
-                if v10 > 0:
-                    vol_ratio = v5 / v10
-    except Exception:
-        pass
-
-    if vol_ratio is not None:
-        if rsi <= 30 and vol_ratio < 0.80:
-            # Oversold + volume drying up = selling exhausted, high conviction reversal
-            score = min(10.0, score + 2.0)
-            signal = signal + " + volume drying (selling exhausted)"
-        elif rsi >= 70 and vol_ratio < 0.80:
-            # Overbought + volume shrinking = buyers leaving, confirms overbought sell
-            sell_score = min(10.0, sell_score + 2.0)
-            signal = signal + " + volume drying (buyers leaving)"
-        elif rsi >= 70 and vol_ratio > 1.30:
-            # Overbought + expanding volume = strong momentum, might continue longer
-            sell_score = max(0.0, sell_score - 1.0)
-            signal = signal + " + volume expanding (momentum still strong)"
-
-    # --- Market regime cross: RSI signal reliability is fundamentally different in bull vs bear ---
     if market_regime_score is not None:
-        if rsi <= 30:
-            if market_regime_score >= 7:
-                # Bull market oversold: pullback fully absorbed, high-probability reversal entry
-                score = min(10.0, score + 2.0)
-                signal = signal + " (bull market — 超卖是绝佳买点)"
-            elif market_regime_score <= 3:
-                # Bear market oversold: can keep falling for weeks; classic falling-knife trap
-                score = max(0.0, score - 2.0)
-                sell_score = min(10.0, sell_score + 1.0)
-                signal = signal + " (bear market — 熊市超卖可继续跌，勿接飞刀)"
-        elif rsi >= 70:
-            if market_regime_score >= 7:
-                # Bull market overbought: RSI can stay elevated for extended periods in strong trends
-                sell_score = max(0.0, sell_score - 1.5)
-                signal = signal + " (bull market — 强趋势中RSI可长期高位运行)"
-            elif market_regime_score <= 3:
-                # Bear market overbought: bounces are short-lived and typically sell opportunities
-                sell_score = min(10.0, sell_score + 1.5)
-                signal = signal + " (bear market — 熊市超买更脆弱，死猫弹)"
+        if rsi_curr < 30 and float(market_regime_score) >= 7:
+            score = min(MAX, score + 0.5)
+            signal += " + bull regime dip"
+        elif rsi_curr > 70 and float(market_regime_score) <= 3:
+            score = max(0.0, score - 1.0)
+            signal += " + bear regime risky"
 
-    # --- Industry excess cross: sector momentum changes RSI reversal conviction ---
-    if industry_ret_1m is not None and market_ret_1m is not None:
-        excess = industry_ret_1m - market_ret_1m
-        if rsi <= 30:
-            if excess >= 3:
-                # Oversold stock + strong sector: sector provides support for the bounce
-                score = min(10.0, score + 1.5)
-                signal = signal + f" (industry outperforming {excess:+.1f}% — 行业强撑超卖反弹)"
-            elif excess <= -3:
-                # Oversold stock + weak sector: no sector floor, RSI reversal less reliable
-                score = max(0.0, score - 1.0)
-                signal = signal + f" (industry weak {excess:+.1f}% — 行业弱，超卖反弹打折)"
-        elif rsi >= 70 and excess >= 5:
-            # Overbought + very hot sector: momentum may continue slightly longer
-            sell_score = min(10.0, sell_score + 0.5)
-            signal = signal + f" (industry very hot {excess:+.1f}% — 行业热，超买略强)"
+    # ── Sell score ──
+    if rsi_curr > 80:
+        sell_score, sell_signal = 8.0, "extreme overbought sell"
+    elif rsi_curr > 70:
+        sell_score, sell_signal = 5.5, "overbought sell zone"
+    elif rsi_curr > 65:
+        sell_score, sell_signal = 3.0, "mild overbought"
+    else:
+        sell_score, sell_signal = max(0.0, (rsi_curr - 50.0) / 15.0), "neutral sell"
 
-    # --- Earnings revision cross: fundamental confirmation of RSI extremes ---
     if revision_df is not None and not revision_df.empty:
-        rating_cols = [c for c in revision_df.columns
-                       if any(k in c for k in ["评级", "rating", "建议", "recommendation"])]
-        if rating_cols:
-            col_str = revision_df[rating_cols[0]].astype(str).str.lower()
-            up   = int(col_str.str.contains("上调|upgrade|buy|strong buy").sum())
-            down = int(col_str.str.contains("下调|downgrade|sell|reduce").sum())
-            net_rev = up - down
-            if rsi <= 30:
-                if net_rev >= 2:
-                    # Oversold RSI + analyst upgrades: technical + fundamental double bottom
-                    score = min(10.0, score + 2.0)
-                    signal = signal + f" + upgrades (net {net_rev:+d}) — 技术超卖+基本面底部双确认"
-                elif net_rev <= -2:
-                    # Oversold RSI but analysts still cutting: true falling knife
-                    score = max(0.0, score - 1.5)
-                    sell_score = min(10.0, sell_score + 1.0)
-                    signal = signal + f" + downgrades (net {net_rev:+d}) — 超卖但基本面恶化=真飞刀"
-            elif rsi >= 70:
-                if net_rev <= -2:
-                    # Overbought RSI + analysts cutting: technical + fundamental double top
-                    sell_score = min(10.0, sell_score + 1.5)
-                    signal = signal + f" + downgrades (net {net_rev:+d}) — 超买+基本面恶化双顶确认"
-                elif net_rev >= 2:
-                    # Overbought RSI but analysts upgrading: fundamentals support rally
-                    sell_score = max(0.0, sell_score - 1.0)
-                    signal = signal + f" + upgrades (net {net_rev:+d}) — 超买但基本面支撑，可能持续"
-
-    # --- 52w price position cross: RSI extremes at price extremes are highest-conviction signals ---
-    position_rsi = _get_price_position(price_df)
-    if position_rsi is not None:
-        if rsi <= 30:
-            if position_rsi < 0.3:
-                # Oversold RSI at 52w low: genuine panic bottom, maximum buy conviction
-                score = min(10.0, score + 2.0)
-                signal = signal + f" (52w low {position_rsi:.2f} — 真正的恐慌底部，超卖最可信)"
-            elif position_rsi > 0.7:
-                # Oversold RSI but fell from highs: structural decline, not a simple mean-reversion
-                score = max(0.0, score - 1.5)
-                sell_score = min(10.0, sell_score + 1.0)
-                signal = signal + f" (52w high {position_rsi:.2f} — 从高位跌下来的超卖，结构性下行)"
-        elif rsi >= 70:
-            if position_rsi > 0.7:
-                # Overbought RSI at 52w high: confirmed distribution top
-                sell_score = min(10.0, sell_score + 1.5)
-                signal = signal + f" (52w high {position_rsi:.2f} — 技术顶+价格顶双重确认)"
-            elif position_rsi < 0.3:
-                # Overbought RSI at 52w low: short-covering bounce, not a real trend, soften sell
-                sell_score = max(0.0, sell_score - 1.0)
-                signal = signal + f" (52w low {position_rsi:.2f} — 低位反弹超买，非真正顶部)"
+        try:
+            rating_cols = [c for c in revision_df.columns
+                           if any(k in str(c) for k in ["评级", "rating", "recommendation"])]
+            if rating_cols:
+                col_str = revision_df[rating_cols[0]].astype(str).str.lower()
+                upgrades = int(col_str.str.contains("上调|upgrade|buy|strong buy").sum())
+                if rsi_curr < 35 and upgrades >= 2:
+                    score = min(MAX, score + 0.5)
+                    signal += f" + analyst upgrades({upgrades})"
+        except Exception:
+            pass
 
     return {
-        "score": round(min(10.0, score), 1),
-        "sell_score": round(min(10.0, sell_score), 1),
-        "max": 10,
+        "score":      round(min(MAX, max(0.0, score)), 1),
+        "sell_score": round(min(MAX, max(0.0, sell_score)), 1),
+        "max": MAX,
         "details": {
-            "rsi": round(rsi, 1),
-            "ma_bull": ma_bull,
-            "vol_ratio_5d_10d": round(vol_ratio, 2) if vol_ratio is not None else None,
-            "position_52w": round(position_rsi, 3) if position_rsi is not None else None,
-            "market_regime_score": market_regime_score,
-            "industry_excess_pct": round(industry_ret_1m - market_ret_1m, 1) if (industry_ret_1m is not None and market_ret_1m is not None) else None,
+            "rsi": round(rsi_curr, 1),
+            "rsi_rising": rsi_rising,
             "signal": signal,
-            "sell_score": round(min(10.0, sell_score), 1),
+            "sell_signal": sell_signal,
         },
     }
 
@@ -1136,224 +875,114 @@ def score_macd_signal(
     revision_df: Optional[pd.DataFrame] = None,
 ) -> dict:
     """
-    MACD histogram momentum scoring (max 10).
-    Rewards strengthening positive momentum; penalises deteriorating.
-      histogram > 0 and increasing  -> 8-10 pts
-      histogram > 0 and decreasing  ->  5-7 pts
-      histogram < 0 and increasing  ->  3-5 pts (recovery)
-      histogram < 0 and decreasing  ->  0-2 pts
+    Standard 12/26/9 MACD trend signal (max 10).
 
-    Context cross with 52w price position:
-      Bullish + low position  -> base breakout signal, buy +2
-      Bullish + high position -> late-stage rally, sell +2
-      Bearish + high position -> confirmed top, sell +2
-      Bearish + low position  -> bottom testing, sell -2
-
-    Market regime cross (requires market_regime_score):
-      Bullish MACD + bull market (regime >= 7) -> 趋势延续概率高 -> buy +1
-      Bullish MACD + bear market (regime <= 3) -> 熊市假突破概率高 -> buy -1, sell +1
-      Bearish MACD + bear market               -> 系统性下行确认 -> sell +1
-
-    Industry excess cross (requires industry_ret_1m, market_ret_1m):
-      Bullish MACD + industry outperforming (excess >= +3%) -> sector tailwind confirms signal, buy +1
-      Bullish MACD + industry weak (excess <= -3%)          -> fighting sector headwind, soften buy -0.5
-      Bearish MACD + industry weak                          -> double weakness confirmed, sell +0.5
-
-    Concept cross (requires best_concept_ret):
-      Bullish MACD + hot concept (>= +8%) -> 概念资金推动MACD改善，有持续性 -> buy +1.5
-      Bearish MACD + hot concept (>= +8%) -> 题材热度可能带来反转，软化卖出 -> sell -1
+    Scoring combines:
+    - Zero-line position (MACD>0 = bullish trend)
+    - Histogram direction (expanding = accelerating momentum)
+    - Signal-line cross (golden/death cross)
+    - Zero-line cross bonus
+    All inputs derived from price_df close prices — no external data required.
     """
+    MAX = 10
     if price_df is None or len(price_df) < 35 or "close" not in price_df.columns:
-        return _neutral(10)
+        return _neutral(MAX)
 
-    try:
-        import ta
-        ind = ta.trend.MACD(price_df["close"])
-        hist = ind.macd_diff()
-        curr = float(hist.iloc[-1])
-        prev = float(hist.iloc[-2])
-    except Exception:
-        return _neutral(10)
+    close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+    if len(close) < 35:
+        return _neutral(MAX)
 
-    if np.isnan(curr) or np.isnan(prev):
-        return _neutral(10)
+    ema12     = close.ewm(span=12, adjust=False).mean()
+    ema26     = close.ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    sig_line  = macd_line.ewm(span=9, adjust=False).mean()
+    histogram = macd_line - sig_line
 
-    improving = curr > prev
+    macd_c = float(macd_line.iloc[-1]); macd_p = float(macd_line.iloc[-2])
+    sig_c  = float(sig_line.iloc[-1]);  sig_p  = float(sig_line.iloc[-2])
+    hist_c = float(histogram.iloc[-1]); hist_p = float(histogram.iloc[-2])
 
-    if curr > 0 and improving:
-        # Magnitude bonus: larger positive histogram = stronger signal
-        mag = min(1.0, abs(curr) / (abs(prev) + 1e-9))
-        score = 8.0 + mag * 2.0
-        signal = "bullish strengthening"
-    elif curr > 0 and not improving:
-        score = 6.0
-        signal = "bullish weakening"
-    elif curr <= 0 and improving:
-        score = 4.0
-        signal = "bearish recovery"
+    score = 5.0
+    sell_score = 0.0
+    signals: list = []
+
+    # 1. Zero-line position
+    if macd_c > 0:
+        score += 1.5
+        signals.append("MACD>0")
     else:
-        mag = min(1.0, abs(curr) / (abs(prev) + 1e-9))
-        score = max(0.0, 2.0 - mag * 2.0)
-        signal = "bearish deepening"
+        score -= 1.0
+        sell_score += 1.0
+        signals.append("MACD<0")
 
-    # --- Sell score: bearish MACD momentum ---
-    if curr <= 0 and not improving:
-        # bearish deepening
-        mag = min(1.0, abs(curr) / (abs(prev) + 1e-9))
-        sell_score = 7.0 + mag * 2.0  # 7-9pts
-    elif curr > 0 and not improving:
-        # bullish weakening (falling fast)
-        decline = abs(curr - prev) / (abs(prev) + 1e-9)
-        sell_score = 3.0 + min(1.0, decline) * 2.0  # 3-5pts
+    # 2. Histogram direction
+    if hist_c > 0 and hist_c > hist_p:
+        score += 2.0
+        signals.append("hist↑ bullish")
+    elif hist_c > 0 and hist_c < hist_p:
+        score += 0.5
+        sell_score += 1.5
+        signals.append("hist↓ fading")
+    elif hist_c < 0 and hist_c > hist_p:
+        score -= 0.5
+        signals.append("hist recovering")
     else:
-        sell_score = 0.0
+        score -= 1.5
+        sell_score += 1.5
+        signals.append("hist↓ bearish")
 
-    sell_score = round(max(0.0, min(9.0, sell_score)), 1)
+    # 3. Signal-line cross
+    golden_cross = (macd_p < sig_p) and (macd_c >= sig_c)
+    death_cross  = (macd_p > sig_p) and (macd_c <= sig_c)
+    if golden_cross:
+        score += 2.0
+        signals.append("golden cross!")
+    elif death_cross:
+        score -= 2.0
+        sell_score += 2.5
+        signals.append("death cross!")
+    elif macd_c > sig_c:
+        score += 0.5
+        signals.append("MACD>signal")
+    else:
+        score -= 0.5
+        sell_score += 0.5
 
-    # --- Context cross: 52w price position ---
-    position = _get_price_position(price_df)
-    if position is not None:
-        if curr > 0 and improving:
-            if position < 0.3:
-                # Bullish MACD at low position = base breakout, strong accumulation signal
-                score = min(10.0, score + 2.0)
-                signal = "bullish strengthening (low position — base breakout)"
-            elif position > 0.7:
-                # Bullish MACD at high position = late-stage rally, caution
-                sell_score = min(10.0, sell_score + 2.0)
-                signal = "bullish strengthening (high position — late stage, caution)"
-        elif curr <= 0 and not improving:
-            if position > 0.7:
-                # Bearish MACD at high position = confirmed distribution top
-                sell_score = min(10.0, sell_score + 2.0)
-                signal = "bearish deepening (high position — confirmed top)"
-            elif position < 0.3:
-                # Bearish MACD at low position = bottom testing, reversal may be close
-                sell_score = max(0.0, sell_score - 2.0)
-                signal = "bearish deepening (low position — bottom testing)"
+    # 4. Zero-line cross bonus
+    if macd_p < 0 <= macd_c:
+        score += 1.5
+        signals.append("zero-line bull cross!")
+    elif macd_p > 0 >= macd_c:
+        score -= 1.5
+        sell_score += 1.5
+        signals.append("zero-line bear cross!")
 
-    # --- Volume confirmation cross: is the MACD signal backed by real participation? ---
-    vol_ratio = None
-    try:
-        if "volume" in price_df.columns and len(price_df) >= 60:
-            vol = pd.to_numeric(price_df["volume"], errors="coerce").dropna()
-            if len(vol) >= 60:
-                v20 = float(vol.tail(20).mean())
-                v60 = float(vol.tail(60).mean())
-                if v60 > 0:
-                    vol_ratio = v20 / v60
-    except Exception:
-        pass
-
-    if vol_ratio is not None:
-        if curr > 0 and improving and vol_ratio > 1.3:
-            # Bullish MACD + expanding volume: signal confirmed by market participation
-            score = min(10.0, score + 1.5)
-            signal = signal + f" + volume expanding ×{vol_ratio:.1f} (confirmed)"
-        elif curr > 0 and improving and vol_ratio < 0.8:
-            # Bullish MACD + shrinking volume: likely a weak or false breakout
-            score = max(0.0, score - 1.0)
-            signal = signal + f" + volume contracting ×{vol_ratio:.1f} (questionable)"
-        elif curr <= 0 and not improving and vol_ratio > 1.3:
-            # Bearish MACD + expanding volume: breakdown confirmed, sellers piling in
-            sell_score = min(10.0, sell_score + 1.5)
-            signal = signal + f" + volume expanding ×{vol_ratio:.1f} (breakdown confirmed)"
-
-    # --- Market regime cross: MACD reliability differs sharply in bull vs bear ---
+    # Regime cross
     if market_regime_score is not None:
-        bullish_macd = curr > 0 and improving
-        bearish_macd = curr <= 0 and not improving
-        if bullish_macd:
-            if market_regime_score >= 7:
-                # Bull market: MACD golden cross has high follow-through, trend continuation likely
-                score = min(10.0, score + 1.0)
-                signal = signal + " (bull market — 趋势延续概率高)"
-            elif market_regime_score <= 3:
-                # Bear market: MACD bullish crosses frequently fail as dead-cat bounces
-                score = max(0.0, score - 1.0)
-                sell_score = min(10.0, sell_score + 1.0)
-                signal = signal + " (bear market — 熊市假突破风险高)"
-        elif bearish_macd and market_regime_score <= 3:
-            # Bearish MACD confirmed by broad bear market: systemic decline, amplify sell
-            sell_score = min(10.0, sell_score + 1.0)
-            signal = signal + " (bear market — 系统性下行确认)"
+        regime = float(market_regime_score)
+        if golden_cross and regime >= 7:
+            score = min(MAX, score + 0.5)
+        elif death_cross and regime <= 3:
+            sell_score = min(MAX, sell_score + 0.5)
 
-    # --- Industry excess cross: sector momentum shapes MACD signal reliability ---
-    if industry_ret_1m is not None and market_ret_1m is not None:
-        excess = industry_ret_1m - market_ret_1m
-        bullish_macd = curr > 0 and improving
-        bearish_macd = curr <= 0 and not improving
-        if bullish_macd:
-            if excess >= 3:
-                # Bullish MACD + outperforming sector: sector momentum confirms the break
-                score = min(10.0, score + 1.0)
-                signal = signal + f" (industry outperforming {excess:+.1f}% — 行业顺风增强MACD信号)"
-            elif excess <= -3:
-                # Bullish MACD but sector falling: isolated stock move, less reliable
-                score = max(0.0, score - 0.5)
-                signal = signal + f" (industry weak {excess:+.1f}% — 行业逆风，MACD金叉打折)"
-        elif bearish_macd and excess <= -3:
-            # Bearish MACD + weak sector: double confirmation of downside
-            sell_score = min(10.0, sell_score + 0.5)
-            signal = signal + f" (industry weak {excess:+.1f}% — 行业弱叠加MACD死叉)"
-
-    # --- Concept cross: theme heat as catalyst for MACD signal ---
-    if best_concept_ret is not None:
-        bullish_macd = curr > 0 and improving
-        bearish_macd = curr <= 0 and not improving
-        if bullish_macd and best_concept_ret >= 8.0:
-            # Bullish MACD + hot concept: concept money is likely driving the improvement, high persistence
-            score = min(10.0, score + 1.5)
-            signal = signal + f" (hot concept {best_concept_ret:+.1f}% — 概念资金推动，持续性强)"
-        elif bearish_macd and best_concept_ret >= 8.0:
-            # Bearish MACD but hot concept in play: theme rotation may provide a catalyst to reverse
-            sell_score = max(0.0, sell_score - 1.0)
-            signal = signal + f" (hot concept {best_concept_ret:+.1f}% — 题材热度可能带来反转，软化卖出)"
-
-    # --- Earnings revision cross: fundamental confirmation of technical MACD signal ---
-    revision_signal_macd = None
-    if revision_df is not None and not revision_df.empty:
-        try:
-            rating_cols = [c for c in revision_df.columns
-                           if any(k in c for k in ["评级", "rating", "建议", "recommendation"])]
-            if rating_cols:
-                col_str = revision_df[rating_cols[0]].astype(str).str.lower()
-                up_m   = int(col_str.str.contains("上调|upgrade|buy|strong buy").sum())
-                down_m = int(col_str.str.contains("下调|downgrade|sell|reduce").sum())
-                net_m  = up_m - down_m
-                bullish_macd_r = curr > 0 and improving
-                bearish_macd_r = curr <= 0 and not improving
-                if bullish_macd_r and net_m >= 2:
-                    # Bullish MACD + analyst upgrades: technical + fundamental double confirmation
-                    score = min(10.0, score + 1.5)
-                    revision_signal_macd = f"MACD金叉+分析师上调({net_m:+d}家) — 技术基本面双重确认，信号可靠性高"
-                elif bearish_macd_r and net_m <= -2:
-                    # Bearish MACD + analyst downgrades: double negative confirmation
-                    sell_score = min(10.0, sell_score + 1.0)
-                    revision_signal_macd = f"MACD死叉+分析师下调({net_m:+d}家) — 双重利空确认"
-        except Exception:
-            pass
+    # Concept momentum sustains MACD trends in A-share hot sectors
+    if best_concept_ret is not None and best_concept_ret > 5 and hist_c > 0:
+        score = min(MAX, score + 0.5)
+        signals.append(f"hot sector({best_concept_ret:.1f}%)")
 
     return {
-        "score": round(min(10.0, score), 1),
-        "sell_score": round(min(10.0, sell_score), 1),
-        "max": 10,
+        "score":      round(min(MAX, max(0.0, score)), 1),
+        "sell_score": round(min(MAX, max(0.0, sell_score)), 1),
+        "max": MAX,
         "details": {
-            "macd_diff": round(curr, 4),
-            "macd_diff_prev": round(prev, 4),
-            "trend": "improving" if improving else "deteriorating",
-            "position_52w": round(position, 3) if position is not None else None,
-            "vol_ratio_20_60": round(vol_ratio, 2) if vol_ratio is not None else None,
-            "market_regime_score": market_regime_score,
-            "industry_excess_pct": round(industry_ret_1m - market_ret_1m, 1) if (industry_ret_1m is not None and market_ret_1m is not None) else None,
-            "best_concept_ret": round(best_concept_ret, 1) if best_concept_ret is not None else None,
-            "revision_signal": revision_signal_macd,
-            "signal": signal,
-            "sell_score": round(min(10.0, sell_score), 1),
+            "macd":         round(macd_c, 4),
+            "signal_line":  round(sig_c, 4),
+            "histogram":    round(hist_c, 4),
+            "golden_cross": golden_cross,
+            "death_cross":  death_cross,
+            "signals":      " | ".join(signals),
         },
     }
-
-
 def score_turnover_percentile(
     price_df: Optional[pd.DataFrame],
     market_regime_score: Optional[float] = None,
@@ -1950,158 +1579,7 @@ def score_lhb(
     market_ret_1m: Optional[float] = None,
     revision_df: Optional[pd.DataFrame] = None,
 ) -> dict:
-    """
-    Dragon-Tiger list net institutional buy 龙虎榜 (max 10).
-    Net institutional buy (大单净买入) on LHB triggers = informed accumulation.
-      net_buy >= 5000万  -> 10 pts
-      net_buy 1000-5000万 -> linear 7-10 pts
-      net_buy ±1000万     ->  5 pts (neutral)
-      net_buy <= -5000万  ->  0 pts
-
-    52-week position cross: LHB flow meaning changes completely with price level
-      Net buy >= 1000万 + position < 0.3  -> institutional bottom discovery, buy +2
-      Net sell <= -1000万 + position > 0.7 -> confirmed distribution at highs, sell +2
-      Net buy >= 1000万 + position > 0.7  -> buying at highs = possible markup/exit setup, sell +1
-
-    Market regime cross (requires market_regime_score):
-      Net buy >= 1000万 + bull market (regime >= 7) -> buy +1.5 (牛市龙虎买入=趋势持续性强)
-      Net buy >= 1000万 + bear market (regime <= 3) -> buy -1 (熊市中即使龙虎买入也可能是接刀)
-      Net sell <= -1000万 + bear market             -> sell +1 (熊市龙虎卖出=加速出逃)
-
-    Industry excess return cross (requires industry_ret_1m and market_ret_1m):
-      Net buy >= 1000万 + weak industry (excess <= -3%) -> buy +1.5 (弱行业中逆势买入=最高置信度)
-      Net sell <= -1000万 + hot industry (excess >= +3%) -> sell +1.5 (行业热但龙虎卖出=内部人趁好出货)
-    """
-    if lhb_df is None or lhb_df.empty:
-        return _neutral(10)
-
-    buy_cols  = [c for c in lhb_df.columns if any(k in c for k in ["买入", "净买入", "净额"])]
-    sell_cols = [c for c in lhb_df.columns if any(k in c for k in ["卖出"])]
-
-    try:
-        if buy_cols:
-            net_buy = float(pd.to_numeric(lhb_df[buy_cols[0]], errors="coerce").sum())
-            if sell_cols:
-                net_buy -= float(pd.to_numeric(lhb_df[sell_cols[0]], errors="coerce").sum())
-        else:
-            return _neutral(10)
-    except Exception:
-        return _neutral(10)
-
-    net_m = net_buy / 1e6  # in millions CNY
-
-    if net_m >= 5000:
-        score = 10.0
-    elif net_m >= 1000:
-        score = 7.0 + (net_m - 1000) / 4000 * 3.0
-    elif net_m >= -1000:
-        score = 5.0 + net_m / 1000 * 2.0
-    elif net_m >= -5000:
-        score = 5.0 + (net_m + 1000) / 4000 * 5.0
-    else:
-        score = 0.0
-
-    signal = "strong buy" if net_m >= 1000 else ("neutral" if abs(net_m) < 1000 else "selling")
-
-    # --- Sell score: strong institutional selling on Dragon-Tiger list ---
-    if net_m <= -5000:
-        sell_score = 9.0
-    elif net_m <= -1000:
-        # linear: -1000 -> 5pts, -5000 -> 9pts
-        sell_score = 5.0 + (-net_m - 1000) / 4000 * 4.0
-    elif net_m <= 0:
-        sell_score = 2.0
-    else:
-        sell_score = 0.0
-
-    sell_score = round(min(10.0, sell_score), 1)
-
-    # --- 52w position cross: context determines meaning of LHB flow ---
-    position = _get_price_position(price_df)
-    if position is not None:
-        if net_m >= 1000 and position < 0.3:
-            # Institutions buying on LHB while stock is near 52w lows: genuine bottom discovery
-            score = min(10.0, score + 2.0)
-            sell_score = max(0.0, sell_score - 1.0)
-            signal = "institutional bottom discovery (buy at 52w low)"
-        elif net_m <= -1000 and position > 0.7:
-            # Institutions selling on LHB while stock is near 52w highs: confirmed distribution
-            sell_score = min(10.0, sell_score + 2.0)
-            signal = "institutional distribution at highs (confirmed exit)"
-        elif net_m >= 1000 and position > 0.7:
-            # Buying at highs via LHB: could be late-stage markup or cover for distribution
-            sell_score = min(10.0, sell_score + 1.0)
-            signal = signal + " at high price (possible markup/exit setup)"
-
-    # --- Market regime cross: LHB signal persistence differs in bull vs bear ---
-    regime_signal = None
-    if market_regime_score is not None:
-        if net_m >= 1000 and market_regime_score >= 7:
-            # Bull market: LHB buys tend to persist — momentum and institutional follow-through
-            score = min(10.0, score + 1.5)
-            regime_signal = f"龙虎买入+牛市({market_regime_score:.1f}) — 趋势持续性强"
-        elif net_m >= 1000 and market_regime_score <= 3:
-            # Bear market: even LHB buys can be catching falling knives
-            score = max(0.0, score - 1.0)
-            regime_signal = f"龙虎买入+熊市({market_regime_score:.1f}) — 熊市接刀风险"
-        elif net_m <= -1000 and market_regime_score <= 3:
-            # Bear market exit: accelerating flight
-            sell_score = min(10.0, sell_score + 1.0)
-            regime_signal = f"龙虎卖出+熊市({market_regime_score:.1f}) — 加速出逃"
-
-    # --- Industry excess return cross: sector context confirms LHB intent ---
-    industry_signal = None
-    if industry_ret_1m is not None and market_ret_1m is not None:
-        excess = industry_ret_1m - market_ret_1m
-        if net_m >= 1000 and excess <= -3.0:
-            # Buying against a falling sector: highest conviction counter-trend bet
-            score = min(10.0, score + 1.5)
-            industry_signal = f"龙虎买入+弱行业(超额{excess:.1f}%) — 逆行业买入，最高置信度"
-        elif net_m <= -1000 and excess >= 3.0:
-            # Selling while sector is hot: insiders dumping into sector strength
-            sell_score = min(10.0, sell_score + 1.5)
-            industry_signal = f"龙虎卖出+热行业(超额{excess:.1f}%) — 趁行业热出货，信息优势明显"
-
-    # --- Earnings revision cross: dual institutional signal confirmation ---
-    revision_signal_lhb = None
-    if revision_df is not None and not revision_df.empty:
-        try:
-            rating_cols = [c for c in revision_df.columns
-                           if any(k in c for k in ["评级", "rating", "建议", "recommendation"])]
-            if rating_cols:
-                col_str = revision_df[rating_cols[0]].astype(str).str.lower()
-                up_lhb   = int(col_str.str.contains("上调|upgrade|buy|strong buy").sum())
-                down_lhb = int(col_str.str.contains("下调|downgrade|sell|reduce").sum())
-                net_lhb  = up_lhb - down_lhb
-                if net_m >= 1000 and net_lhb >= 2:
-                    # LHB net buy + analyst upgrades: trading action + research consensus aligned
-                    score = min(10.0, score + 1.5)
-                    revision_signal_lhb = f"龙虎净买+分析师上调({net_lhb:+d}家) — 交易行为+研究判断双重确认，高置信度"
-                elif net_m <= -1000 and net_lhb <= -2:
-                    # LHB net sell + analyst downgrades: institutional exit confirmed by analysts
-                    sell_score = min(10.0, sell_score + 1.5)
-                    revision_signal_lhb = f"龙虎净卖+分析师下调({net_lhb:+d}家) — 机构抛售被研究同步确认"
-        except Exception:
-            pass
-
-    return {
-        "score": round(max(0.0, min(10.0, score)), 1),
-        "sell_score": round(sell_score, 1),
-        "max": 10,
-        "details": {
-            "net_buy_million": round(net_m, 1),
-            "appearances": len(lhb_df),
-            "position_52w": round(position, 2) if position is not None else None,
-            "market_regime_score": market_regime_score,
-            "regime_signal": regime_signal,
-            "industry_signal": industry_signal,
-            "revision_signal": revision_signal_lhb,
-            "signal": signal,
-            "sell_score": round(sell_score, 1),
-        },
-    }
-
-
+    return {"score": 0, "sell_score": 0, "max": 10, "details": {}}
 def score_lockup_pressure(
     lockup_df: Optional[pd.DataFrame],
     circulating_cap: float = 0,
@@ -4925,93 +4403,7 @@ def score_cash_flow_quality(
 def score_main_inflow(
     fund_flow_df: Optional[pd.DataFrame],
 ) -> dict:
-    """大单净流入因子 — institutional/large-order net buying pressure.
-
-    Logic:
-      Uses `主力净流入-净占比` (main capital net inflow as % of total turnover),
-      averaged over the most recent 5 trading days. Positive = net institutional
-      buying; negative = net selling.
-
-      Unlike chip_distribution which uses net 元 amount, this factor uses the
-      percentage metric which normalises across stocks with different market caps.
-
-    Scoring:
-      net_pct ≥ +5%  → score 10  (strong institutional accumulation)
-      net_pct  +2~+5 → score 8
-      net_pct  0~+2  → score 6
-      net_pct  -2~0  → score 4
-      net_pct  -5~-2 → score 2
-      net_pct ≤ -5%  → score 0   (heavy institutional distribution)
-    """
-    MAX = 10
-    if fund_flow_df is None or fund_flow_df.empty:
-        return _neutral(MAX)
-
-    try:
-        # Look for percentage column first, then fall back to raw 净额 normalised
-        pct_cols = [c for c in fund_flow_df.columns
-                    if "主力净流入" in c and "净占比" in c]
-        amt_cols = [c for c in fund_flow_df.columns
-                    if any(k in c for k in ["主力净流入-净额", "大单净流入-净额", "超大单净流入-净额"])]
-
-        net_pct: Optional[float] = None
-
-        if pct_cols:
-            series = pd.to_numeric(fund_flow_df[pct_cols[0]], errors="coerce").dropna()
-            if not series.empty:
-                net_pct = float(series.tail(5).mean())
-
-        elif amt_cols:
-            # Use raw amount — normalise to a pseudo-percentage via 5d average sign
-            series = pd.to_numeric(fund_flow_df[amt_cols[0]], errors="coerce").dropna()
-            if not series.empty:
-                amt_5d = float(series.tail(5).sum())
-                # Scale: ≥ +1e8 yuan → +5%, ≤ -1e8 → -5%
-                net_pct = float(np.clip(amt_5d / 2e7, -10.0, 10.0))
-
-        if net_pct is None:
-            return _neutral(MAX)
-
-        # Map net_pct to score: neutral at 0%, +/- 5% maps to ±5 score points above/below 5
-        score      = float(np.clip(5.0 + net_pct, 0.0, 10.0))
-        sell_score = float(np.clip(5.0 - net_pct, 0.0, 10.0))
-
-        if net_pct >= 5:
-            signal = f"strong institutional accumulation: net={net_pct:.1f}%"
-        elif net_pct >= 2:
-            signal = f"moderate institutional buying: net={net_pct:.1f}%"
-        elif net_pct >= 0:
-            signal = f"mild net inflow: net={net_pct:.1f}%"
-        elif net_pct >= -2:
-            signal = f"mild net outflow: net={net_pct:.1f}%"
-        elif net_pct >= -5:
-            signal = f"moderate institutional distribution: net={net_pct:.1f}%"
-        else:
-            signal = f"heavy institutional distribution: net={net_pct:.1f}%"
-
-        return {
-            "score":      round(score, 1),
-            "sell_score": round(sell_score, 1),
-            "max":        MAX,
-            "details": {
-                "signal":   signal,
-                "net_pct_5d_avg": round(net_pct, 2),
-                "sell_score": round(sell_score, 1),
-            },
-        }
-
-    except Exception:
-        return _neutral(MAX)
-
-
-# ===========================================================================
-# BATCH-2 FACTORS — added 2026-04-01
-# ===========================================================================
-
-# ---------------------------------------------------------------------------
-# score_turnover_acceleration — 换手率加速度 (Turnover Rate Trend)
-# ---------------------------------------------------------------------------
-
+    return {"score": 0, "sell_score": 0, "max": 10, "details": {}}
 def score_turnover_acceleration(
     price_df: Optional[pd.DataFrame],
 ) -> dict:
@@ -5595,77 +4987,7 @@ def score_size_factor(
 def score_amihud_illiquidity(
     price_df: Optional[pd.DataFrame],
 ) -> dict:
-    """Amihud非流动性因子 — illiquidity premium.
-
-    Amihud (2002) illiquidity ratio:
-        IL = mean( |r_t| / Amount_t )   over last 60 trading days
-
-    where |r_t| = absolute daily return, Amount_t = daily turnover in yuan.
-    High IL → illiquid → earns liquidity risk premium → bullish.
-
-    Economically distinct from low_volatility (return smoothness) and
-    size_factor (market cap): isolates actual market-impact cost.
-
-    Scoring (log-linear, typical A-share range 1e-12 to 1e-7):
-      IL ~ 1e-12  (mega-liquid, e.g. Moutai)   → score 0–2
-      IL ~ 1e-10  (mid-cap average)             → score 5
-      IL ~ 1e-8   (small/thin)                  → score 8–10
-    """
-    MAX = 10
-    if price_df is None or len(price_df) < 10:
-        return _neutral(MAX)
-
-    if not {"close", "amount"}.issubset(price_df.columns):
-        return _neutral(MAX)
-
-    try:
-        close  = pd.to_numeric(price_df["close"],  errors="coerce")
-        amount = pd.to_numeric(price_df["amount"], errors="coerce")
-        ret    = close.pct_change().abs()
-        il_ser = (ret / amount.replace(0, np.nan)).dropna()
-
-        N = min(60, len(il_ser))
-        if N < 5:
-            return _neutral(MAX)
-
-        il_mean = float(il_ser.tail(N).mean())
-        if il_mean <= 0:
-            return _neutral(MAX)
-
-        # log10(IL * 1e10): range [-2, +4] → score [0, 10]
-        log_il = np.log10(il_mean * 1e10)
-        score  = float(np.clip((log_il + 2.0) / 6.0 * 10.0, 0.0, 10.0))
-        sell_score = float(np.clip(10.0 - score, 0.0, 10.0))
-
-        if il_mean >= 1e-8:
-            signal = f"高非流动性 IL={il_mean:.2e} — 流动性溢价显著"
-        elif il_mean >= 1e-9:
-            signal = f"中等非流动性 IL={il_mean:.2e}"
-        elif il_mean >= 1e-10:
-            signal = f"流动性一般 IL={il_mean:.2e}"
-        else:
-            signal = f"高流动性 IL={il_mean:.2e} — 溢价已定价"
-
-        return {
-            "score":      round(score, 1),
-            "sell_score": round(sell_score, 1),
-            "max":        MAX,
-            "details": {
-                "signal":    signal,
-                "amihud_il": float(f"{il_mean:.4e}"),
-                "n_days":    N,
-                "sell_score": round(sell_score, 1),
-            },
-        }
-
-    except Exception:
-        return _neutral(MAX)
-
-
-# ---------------------------------------------------------------------------
-# score_medium_term_momentum — 中期动量 (Medium-Term Momentum, 60d skip 20d)
-# ---------------------------------------------------------------------------
-
+    return {"score": 0, "sell_score": 0, "max": 10, "details": {}}
 def score_medium_term_momentum(
     price_df: Optional[pd.DataFrame],
 ) -> dict:
@@ -6428,85 +5750,7 @@ def score_nearness_to_high(
 def score_price_volume_corr(
     price_df: Optional[pd.DataFrame],
 ) -> dict:
-    """价量关系质量 — Spearman correlation between |return| and volume over 20d.
-
-    Measures whether price moves are confirmed by volume.
-    High positive correlation = volume-backed moves (institutional accumulation,
-    momentum quality). Low/negative = price moves on thin volume (unreliable).
-
-    Distinct from `volume` (absolute level), `volume_expansion` (trend),
-    and `obv_trend` (directional). This measures the *consistency* of the
-    volume-price relationship.
-
-    In A-shares, moves confirmed by volume tend to continue; low-volume
-    breakouts/breakdowns typically reverse within days.
-
-    Score: high positive correlation → high score.
-    """
-    MAX = 10
-    if price_df is None or len(price_df) < 22:
-        return _neutral(MAX)
-    if "close" not in price_df.columns:
-        return _neutral(MAX)
-
-    vol_col = None
-    for c in ["volume", "成交量", "vol", "turnover", "换手率"]:
-        if c in price_df.columns:
-            vol_col = c
-            break
-    if vol_col is None:
-        return _neutral(MAX)
-
-    try:
-        from scipy.stats import spearmanr as _spearmanr
-        close = pd.to_numeric(price_df["close"], errors="coerce").dropna()
-        vol   = pd.to_numeric(price_df[vol_col], errors="coerce")
-
-        # Align
-        df = pd.DataFrame({"close": close, "vol": vol}).dropna().tail(21)
-        if len(df) < 10:
-            return _neutral(MAX)
-
-        abs_ret = df["close"].pct_change().abs().dropna()
-        v       = df["vol"].iloc[1:].reset_index(drop=True)
-        abs_ret = abs_ret.reset_index(drop=True)
-
-        if len(abs_ret) < 8:
-            return _neutral(MAX)
-
-        corr, _ = _spearmanr(abs_ret, v)
-        if np.isnan(corr):
-            return _neutral(MAX)
-
-        # score = corr * 5 + 5, clipped [0, 10]
-        # corr=-1→0, corr=0→5, corr=+1→10
-        score      = float(np.clip(corr * 5.0 + 5.0, 0.0, 10.0))
-        sell_score = float(np.clip(-corr * 5.0 + 5.0, 0.0, 10.0))
-
-        if corr >= 0.4:
-            signal = f"strong volume-price confirmation (r={corr:.2f}) — moves are reliable"
-        elif corr >= 0.1:
-            signal = f"moderate confirmation (r={corr:.2f})"
-        elif corr >= -0.1:
-            signal = f"no relationship (r={corr:.2f}) — volume uninformative"
-        else:
-            signal = f"volume-price divergence (r={corr:.2f}) — moves unreliable, reversal risk"
-
-        return {
-            "score":      round(score, 1),
-            "sell_score": round(sell_score, 1),
-            "max":        MAX,
-            "details": {
-                "signal":    signal,
-                "pv_corr":   round(float(corr), 3),
-                "sell_score": round(sell_score, 1),
-            },
-        }
-
-    except Exception:
-        return _neutral(MAX)
-
-
+    return {"score": 0, "sell_score": 0, "max": 10, "details": {}}
 def score_trend_linearity(
     price_df: Optional[pd.DataFrame],
 ) -> dict:
@@ -6798,218 +6042,7 @@ def score_price_efficiency(
 def score_hammer_bottom(
     price_df: Optional[pd.DataFrame],
 ) -> dict:
-    """金针探底因子 — hammer / dragonfly-doji candlestick pattern.
-
-    Detects candles where the stock tested significantly lower intraday but
-    recovered strongly by close, leaving a long lower shadow (下引线).
-
-    Hammer criteria (per candle):
-      - lower_shadow  ≥ 55% of total range  (主要特征)
-      - lower_shadow  ≥ 2× real body        (引线远长于实体)
-      - upper_shadow  ≤ 20% of total range  (无上影或极短)
-      - real body     ≥ 5% of total range   (排除十字星/无量)
-      - total_range   > 0.5% of close price (排除无交易日)
-
-    Strength bonuses (each +1 quality point):
-      - Bullish body: close ≥ open  (阳线金针 更强)
-      - Very long wick: lower_shadow ≥ 3× body
-      - Volume spike: hammer-day volume ≥ 1.5× 20d average (机构托底)
-      - Near support: hammer close within 3% of MA20 or MA60 (支撑位金针)
-      - Recovery confirmed: next-day close > hammer-day close (次日验证)
-
-    Score (MAX=12):
-      - 0 hammers in 10d → neutral (4.8)
-      - 1 hammer (quality 0–5) → score 5–10
-      - 2+ hammers in 10d → extra +2 (反复探底后支撑更强)
-      - Max quality bonus capped at 5 pts per best hammer
-
-    Sell score: detects shooting stars (上影线长, 下影线短 = 头部信号).
-    """
-    MAX = 12
-    if price_df is None or len(price_df) < 22:
-        return _neutral(MAX)
-
-    required = {"close", "open", "high", "low"}
-    if not required.issubset(price_df.columns):
-        return _neutral(MAX)
-
-    try:
-        df = price_df.copy().tail(22)
-        for col in ("close", "open", "high", "low"):
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-        df = df.dropna(subset=["close", "open", "high", "low"])
-        if len(df) < 5:
-            return _neutral(MAX)
-
-        # Volume column (optional — used for quality bonus only)
-        vol_col = None
-        for c in ["volume", "成交量", "vol"]:
-            if c in df.columns:
-                vol_col = c
-                break
-        if vol_col is not None:
-            df[vol_col] = pd.to_numeric(df[vol_col], errors="coerce")
-            avg_vol = float(df[vol_col].iloc[:-1].mean())  # 20d avg excluding today
-        else:
-            avg_vol = None
-
-        # MA20 and MA60 for support check
-        close_series = df["close"]
-        ma20 = float(close_series.rolling(20).mean().iloc[-1]) if len(close_series) >= 20 else None
-        ma60_series = close_series.rolling(60).mean()
-        ma60 = float(ma60_series.iloc[-1]) if len(close_series) >= 60 else None
-
-        # Analyse last 10 candles for hammer patterns
-        window = df.tail(10).reset_index(drop=True)
-
-        hammer_days: list[dict] = []   # list of qualifying hammer candles
-        shooting_star_days: list[dict] = []
-
-        for i in range(len(window)):
-            row   = window.iloc[i]
-            o, h, l, c_price = float(row["open"]), float(row["high"]), float(row["low"]), float(row["close"])
-
-            body   = abs(c_price - o)
-            lower  = min(o, c_price) - l     # lower shadow length
-            upper  = h - max(o, c_price)     # upper shadow length
-            rng    = h - l                    # total range
-
-            if rng < 1e-8 or rng < 0.005 * c_price:  # skip zero-range / flat days
-                continue
-            if c_price < 1e-4:
-                continue
-
-            body_ratio  = body  / rng
-            lower_ratio = lower / rng
-            upper_ratio = upper / rng
-
-            # ── Hammer detection ───────────────────────────────────────
-            if (
-                lower_ratio >= 0.55
-                and lower >= 2.0 * max(body, 1e-8)
-                and upper_ratio <= 0.20
-                and body_ratio >= 0.05
-            ):
-                quality = 0
-                notes   = []
-
-                # Bullish body
-                if c_price >= o:
-                    quality += 1
-                    notes.append("阳线金针")
-
-                # Very long lower wick
-                if lower >= 3.0 * max(body, 1e-8):
-                    quality += 1
-                    notes.append(f"超长下引线({lower_ratio:.0%})")
-
-                # Volume spike
-                if vol_col is not None and avg_vol and avg_vol > 0:
-                    day_vol = float(row[vol_col]) if not pd.isna(row[vol_col]) else 0
-                    if day_vol >= 1.5 * avg_vol:
-                        quality += 1
-                        notes.append("放量金针")
-
-                # Near support (MA20 or MA60)
-                if ma20 and abs(c_price - ma20) / ma20 <= 0.03:
-                    quality += 1
-                    notes.append("MA20支撑金针")
-                elif ma60 and abs(c_price - ma60) / ma60 <= 0.03:
-                    quality += 1
-                    notes.append("MA60支撑金针")
-
-                # Recovery confirmation (check next day if available)
-                if i + 1 < len(window):
-                    next_close = float(window.iloc[i + 1]["close"])
-                    if next_close > c_price:
-                        quality += 1
-                        notes.append("次日上涨确认")
-
-                hammer_days.append({
-                    "day_index": i,
-                    "quality":   quality,
-                    "lower_ratio": lower_ratio,
-                    "notes":     notes,
-                    "close":     c_price,
-                })
-
-            # ── Shooting star detection (sell signal) ──────────────────
-            if (
-                upper_ratio >= 0.55
-                and upper >= 2.0 * max(body, 1e-8)
-                and lower_ratio <= 0.20
-                and body_ratio >= 0.05
-            ):
-                shooting_star_days.append({
-                    "day_index": i,
-                    "upper_ratio": upper_ratio,
-                })
-
-        # ── Score calculation ──────────────────────────────────────────
-        if not hammer_days:
-            sell_bonus = min(len(shooting_star_days) * 3, 8)
-            score      = 0.0
-            sell_score = min(sell_bonus, float(MAX))
-            if shooting_star_days:
-                signal = f"shooting star detected ({len(shooting_star_days)} in 10d) — distribution risk"
-            else:
-                signal = "no hammer or shooting star in 10d — neutral"
-            return {
-                "score":      round(max(score, 0.0), 1),
-                "sell_score": round(sell_score, 1),
-                "max":        MAX,
-                "details": {
-                    "signal":          signal,
-                    "hammer_count":    0,
-                    "shooting_stars":  len(shooting_star_days),
-                    "sell_score":      round(sell_score, 1),
-                },
-            }
-
-        # Find the best hammer (highest quality in the window)
-        best = max(hammer_days, key=lambda x: x["quality"])
-        quality = min(best["quality"], 5)  # cap quality bonus at 5
-
-        base_score  = 5.0 + quality   # range: 5–10
-        multi_bonus = 2.0 if len(hammer_days) >= 2 else 0.0
-        score       = min(base_score + multi_bonus, float(MAX))
-
-        # Sell score: shooting stars partially offset hammer signal
-        sell_score = max(0.0, min(len(shooting_star_days) * 2.0, 6.0))
-
-        # Signal text
-        recency   = "recent" if best["day_index"] >= len(window) - 3 else "earlier"
-        notes_str = " + ".join(best["notes"]) if best["notes"] else "basic hammer"
-        if len(hammer_days) >= 2:
-            signal = (
-                f"{len(hammer_days)} hammer patterns in 10d — repeated support test "
-                f"({recency} best: {notes_str}, wick={best['lower_ratio']:.0%})"
-            )
-        else:
-            signal = (
-                f"金针探底 ({recency}): {notes_str}, "
-                f"lower shadow={best['lower_ratio']:.0%} of range"
-            )
-
-        return {
-            "score":      round(score, 1),
-            "sell_score": round(sell_score, 1),
-            "max":        MAX,
-            "details": {
-                "signal":           signal,
-                "hammer_count":     len(hammer_days),
-                "best_quality":     quality,
-                "best_lower_ratio": round(best["lower_ratio"], 3),
-                "best_notes":       best["notes"],
-                "shooting_stars":   len(shooting_star_days),
-                "sell_score":       round(sell_score, 1),
-            },
-        }
-
-    except Exception:
-        return _neutral(MAX)
-
-
+    return {"score": 0, "sell_score": 0, "max": 10, "details": {}}
 def score_intraday_vs_overnight(
     price_df: Optional[pd.DataFrame],
 ) -> dict:

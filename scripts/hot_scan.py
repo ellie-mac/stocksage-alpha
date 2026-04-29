@@ -29,7 +29,7 @@ OUT_LATEST = ROOT / "data" / "hot_scan_latest.json"
 
 
 def _momentum_score(df: pd.DataFrame) -> float:
-    """0-100: price vs MA5/MA20/MA60 + 5-day return."""
+    """0-100: price vs MA5/MA20/MA60 + risk-adjusted 5-day return - drawdown penalty."""
     c = df["close"].values
     ma5  = float(np.mean(c[-5:]))
     ma20 = float(np.mean(c[-20:]))
@@ -39,9 +39,17 @@ def _momentum_score(df: pd.DataFrame) -> float:
     if ma5  > ma20:  score += 30
     if ma20 > ma60:  score += 20
     if len(c) >= 6:
+        atr = float(np.mean(np.abs(np.diff(c[-21:])))) if len(c) >= 21 else 0.0
         ret5 = (c[-1] - c[-6]) / c[-6]
-        if ret5 > 0: score += 20
-    return min(score, 100.0)
+        # Risk-adjusted: reward ret5 only if it exceeds noise (0.5×ATR/price)
+        noise = 0.5 * atr / c[-1] if c[-1] > 0 and atr > 0 else 0.0
+        if ret5 > noise: score += 20
+    # Drawdown penalty: if price is >15% below its 20-day high, subtract 20 pts
+    if len(c) >= 20:
+        high_20d = float(np.max(c[-20:]))
+        if high_20d > 0 and (c[-1] / high_20d - 1) < -0.15:
+            score -= 20
+    return max(0.0, min(score, 100.0))
 
 
 def run_hot_scan(top_pct: float = 5.0, cah: bool = False, push: bool = False) -> dict:
@@ -88,6 +96,13 @@ def run_hot_scan(top_pct: float = 5.0, cah: bool = False, push: bool = False) ->
             name = name_map.get(code, code)
             if "ST" in name.upper():
                 return None
+            if len(df) >= 2:
+                prev_close = float(df["close"].iloc[-2])
+                if prev_close > 0 and abs(close - prev_close) / prev_close * 100 >= 9.5:
+                    return None
+            if "high" in df.columns and "low" in df.columns:
+                if float(df["high"].iloc[-1]) == float(df["low"].iloc[-1]):
+                    return None
             if cah:
                 high_6m = float(df["high"].tail(120).max())
                 if close > high_6m * 0.9:

@@ -239,6 +239,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         total_skip = forward_days + price_offset
         if price_df_full is None or len(price_df_full) < total_skip + 30:
             return None
+        fetcher.check_price_quality(price_df_full, code)
 
         # Simulate "as of (forward_days + price_offset) days ago"
         price_df = price_df_full.iloc[:-total_skip].copy()
@@ -248,12 +249,36 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
             close.iloc[-(total_skip + 1)] * 100
         )
 
+        # ── Tradability filters ──────────────────────────────────────────────
+        # 1) Lookback suspension: >30% zero-volume days in the past forward_days
+        #    before signal date → stock likely on extended suspension (no look-ahead).
+        # 2) Limit-up/down on signal day: cannot execute at that price.
+        sig_idx = len(price_df_full) - total_skip - 1
+        lb_start = max(0, sig_idx - forward_days)
+        lookback_window = price_df_full.iloc[lb_start:sig_idx]
+        if "volume" in price_df_full.columns and len(lookback_window) > 0:
+            vol = pd.to_numeric(lookback_window["volume"], errors="coerce").fillna(0)
+            n_suspended = int((vol == 0).sum())
+            if n_suspended > max(2, int(forward_days * 0.3)):
+                return None  # recently suspended → likely still untradeable
+        if "change_pct" in price_df_full.columns:
+            signal_chg = float(
+                pd.to_numeric(price_df_full["change_pct"].iloc[-(total_skip + 1)],
+                              errors="coerce") or 0
+            )
+            if abs(signal_chg) >= 9.5:  # limit-up or limit-down on signal day
+                return None
+
         # Fetch supporting data (uses cache so repeated calls are free).
         # market_price_df and spot_df are shared across all stocks; if pre-fetched
         # by the caller they are passed in via _shared to avoid per-stock re-fetches.
         _sh             = _shared or {}
+        asof_date_str   = _sh.get("asof_date", "")
         quote           = fetcher.get_realtime_quote(code) or {}
         financial_df    = fetcher.get_financial_indicators(code)
+        # Apply point-in-time filter: only use financial data announced before signal day
+        if asof_date_str:
+            financial_df = _financial_pit_filter(financial_df, asof_date_str)
         val_history     = fetcher.get_valuation_history(code)
         fund_flow_df    = fetcher.get_fund_flow(code, 10)
         margin_df       = fetcher.get_margin_data(code)
@@ -520,6 +545,21 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
                 scores["industry_momentum"] = np.nan
                 scores["sell_score_industry_momentum"] = np.nan
 
+        # Liquidity metadata — underscore prefix excludes it from IC / composite
+        try:
+            _vol20 = pd.to_numeric(price_df["volume"].tail(20), errors="coerce").fillna(0)
+            _cls20 = pd.to_numeric(price_df["close"].tail(20), errors="coerce").fillna(0)
+            scores["_avg_daily_amt_wan"] = round(float((_vol20 * _cls20).mean()) / 100, 0)
+        except Exception:
+            pass
+
+        # Industry tag for cross-sectional NaN fill in winsorize step
+        if "_industry" not in scores:
+            try:
+                scores["_industry"] = (fetcher.get_stock_info(code) or {}).get("industry", "")
+            except Exception:
+                scores["_industry"] = ""
+
         return scores
 
     except Exception:
@@ -548,6 +588,29 @@ def spearman_ic(factor_scores: pd.Series, forward_returns: pd.Series) -> tuple[f
         return ic, np.nan
 
 
+def _winsorize_and_fill(df: pd.DataFrame, factor_cols: list[str]) -> pd.DataFrame:
+    """
+    Winsorize each factor at 1%/99%, then fill NaN with industry median
+    (grouped by '_industry' column if present, else cross-sectional median).
+    Returns a modified copy.
+    """
+    df = df.copy()
+    has_industry = "_industry" in df.columns and df["_industry"].notna().any()
+    for col in factor_cols:
+        s = pd.to_numeric(df[col], errors="coerce")
+        lo, hi = s.quantile(0.01), s.quantile(0.99)
+        s = s.clip(lo, hi)
+        if s.isna().any():
+            if has_industry:
+                ind_med = s.groupby(df["_industry"]).transform("median")
+                global_med = s.median()
+                s = s.fillna(ind_med).fillna(global_med)
+            else:
+                s = s.fillna(s.median())
+        df[col] = s
+    return df
+
+
 def ic_summary(ic: float, n: int, pval: float = np.nan) -> dict:
     """Compute t-stat and quality label from a single cross-sectional IC.
 
@@ -574,6 +637,188 @@ def ic_summary(ic: float, n: int, pval: float = np.nan) -> dict:
         "quality":   quality,
         "direction": direction,
     }
+
+
+def _newey_west_t(ic_series: list, lags: int = None) -> float:
+    """Newey-West HAC t-statistic for mean IC, correcting for autocorrelation."""
+    arr = np.array([v for v in ic_series if v is not None and not np.isnan(v)])
+    n = len(arr)
+    if n < 5:
+        return np.nan
+    if lags is None:
+        lags = max(1, int(np.ceil(4 * (n / 100) ** (2 / 9))))
+    lags = min(lags, n - 1)  # lags must be < n
+    mean_ic = float(np.mean(arr))
+    centered = arr - mean_ic
+    nw_var = float(np.mean(centered ** 2))
+    for k in range(1, lags + 1):
+        w = 1.0 - k / (lags + 1)
+        gamma_k = float(np.mean(centered[k:] * centered[:-k]))
+        nw_var += 2 * w * gamma_k
+    se = np.sqrt(max(0.0, nw_var) / n)
+    return float(mean_ic / se) if se > 0 else np.nan
+
+
+def _cost_breakeven(ic_table: dict, ic_field: str = "ic",
+                    cross_section_vol_pct: float = 12.0) -> dict:
+    """
+    For each factor, estimate break-even single-side transaction cost in bp.
+
+    Formula: expected_alpha_per_period(%) = IC × cross_section_vol_pct
+    Break-even cost(bp) = expected_alpha_per_period(%) × 100 / 2
+    (divide by 2 because a round-trip costs 2× single-side)
+
+    cross_section_vol_pct: typical cross-sectional std of forward returns across stocks.
+    Default 12% is a conservative estimate for 20-day A-share cross-section.
+    """
+    result = {}
+    for factor, stats in ic_table.items():
+        ic = stats.get(ic_field)
+        if ic is None:
+            result[factor] = {"alpha_pct_per_period": None, "break_even_bp": None}
+            continue
+        try:
+            ic_val = float(ic)
+        except (TypeError, ValueError):
+            result[factor] = {"alpha_pct_per_period": None, "break_even_bp": None}
+            continue
+        if ic_val <= 0:
+            result[factor] = {"alpha_pct_per_period": 0.0, "break_even_bp": 0.0}
+            continue
+        alpha_pct = round(ic_val * cross_section_vol_pct, 3)
+        be_bp     = round(alpha_pct * 100 / 2, 1)
+        result[factor] = {"alpha_pct_per_period": alpha_pct, "break_even_bp": be_bp}
+    return result
+
+
+def _factor_redundancy_report(
+    factor_matrix: pd.DataFrame,
+    ic_stats: dict,
+    ic_field: str = "ic",
+    corr_threshold: float = 0.75,
+) -> dict:
+    """
+    Cluster factors by pairwise Spearman correlation and flag redundant ones.
+
+    Within each high-correlation cluster (|r| >= corr_threshold) the factor with
+    the highest |ICIR| (falling back to |IC|) is kept as representative; others
+    are flagged as candidates to drop.  Pure analytics — does not alter IC/scoring.
+    """
+    valid = [
+        f for f in factor_matrix.columns
+        if f in ic_stats and ic_stats[f].get(ic_field) is not None
+        and not factor_matrix[f].isna().all()
+    ]
+    if len(valid) < 2:
+        return {}
+
+    sub = factor_matrix[valid].dropna(how="all")
+    if len(sub) < 10:
+        return {}
+
+    corr_df = sub.corr(method="spearman")
+
+    pairs: list = []
+    for i, fa in enumerate(valid):
+        for j in range(i + 1, len(valid)):
+            fb = valid[j]
+            c = corr_df.loc[fa, fb]
+            if not np.isnan(c) and abs(c) >= corr_threshold:
+                pairs.append((fa, fb, round(float(c), 3)))
+    pairs.sort(key=lambda x: -abs(x[2]))
+
+    # Union-Find clustering
+    parent = {f: f for f in valid}
+
+    def _find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for fa, fb, _ in pairs:
+        ra, rb = _find(fa), _find(fb)
+        if ra != rb:
+            parent[ra] = rb
+
+    cluster_map: dict = {}
+    for f in valid:
+        cluster_map.setdefault(_find(f), []).append(f)
+
+    def _ic_score(f: str) -> float:
+        s = ic_stats.get(f, {})
+        for field in ("icir", ic_field):
+            v = s.get(field)
+            if v is not None:
+                try:
+                    return abs(float(v))
+                except (TypeError, ValueError):
+                    pass
+        return 0.0
+
+    redundant: list = []
+    clusters_out: list = []
+    for members in cluster_map.values():
+        if len(members) == 1:
+            continue
+        best = max(members, key=_ic_score)
+        dropped = sorted(m for m in members if m != best)
+        redundant.extend(dropped)
+        clusters_out.append({"representative": best, "redundant": dropped, "size": len(members)})
+
+    clusters_out.sort(key=lambda x: -x["size"])
+    return {
+        "corr_threshold":    corr_threshold,
+        "n_redundant":       len(redundant),
+        "redundant_factors": sorted(redundant),
+        "clusters":          clusters_out,
+        "high_corr_pairs":   pairs[:15],
+    }
+
+
+def _financial_pit_filter(
+    financial_df: Optional[pd.DataFrame], asof_date: str
+) -> Optional[pd.DataFrame]:
+    """
+    Filter financial_df to records visible as of asof_date, using standard
+    A-share mandatory disclosure deadlines as a conservative PIT proxy:
+      Q4/Annual  (period Dec 31) → available from Apr 30 next year  (+4 months)
+      Q3         (period Sep 30) → available from Oct 31             (+1 month)
+      H1/Q2      (period Jun 30) → available from Aug 31             (+2 months)
+      Q1         (period Mar 31) → available from Apr 30             (+1 month)
+
+    Real disclosure dates are typically earlier, so this slightly underestimates
+    available data (conservative = less look-ahead, not more).
+    """
+    if financial_df is None or financial_df.empty or not asof_date:
+        return financial_df
+
+    period_col = next(
+        (c for c in financial_df.columns
+         if any(k in str(c) for k in ["报告期", "年份", "年度", "period", "date"])),
+        None,
+    )
+    if period_col is None:
+        return financial_df
+
+    try:
+        asof_ts = pd.Timestamp(asof_date)
+    except Exception:
+        return financial_df
+
+    _LAG = {12: 4, 9: 1, 6: 2, 3: 1}  # month of period end → months to add
+
+    keep = []
+    for v in financial_df[period_col]:
+        try:
+            pts = pd.Timestamp(str(v))
+            avail = pts + pd.DateOffset(months=_LAG.get(pts.month, 4))
+            keep.append(avail <= asof_ts)
+        except Exception:
+            keep.append(True)
+
+    filtered = financial_df[[bool(k) for k in keep]].reset_index(drop=True)
+    return filtered if not filtered.empty else None
 
 
 # ---------------------------------------------------------------------------
@@ -658,7 +903,9 @@ def run_analysis(
     df = pd.DataFrame(results)
     forward_ret = df["forward_ret"]
 
-    factor_cols = [c for c in df.columns if c not in ("code", "forward_ret")]
+    factor_cols = [c for c in df.columns
+                   if c not in ("code", "forward_ret") and not c.startswith("_")]
+    df = _winsorize_and_fill(df, factor_cols)
 
     ic_results: dict[str, dict] = {}
     for factor in sorted(factor_cols):
@@ -678,6 +925,8 @@ def run_analysis(
 
     # Weight recommendations based on IC magnitude and direction
     weight_recs = _recommend_weights(ic_results)
+    cost_be = _cost_breakeven(ic_results, ic_field="ic")
+    factor_redundancy = _factor_redundancy_report(df[factor_cols], ic_results)
 
     return {
         "meta": {
@@ -687,6 +936,8 @@ def run_analysis(
         },
         "ic_table":        ic_results,
         "weight_recommendations": weight_recs,
+        "cost_breakeven":  cost_be,
+        "factor_redundancy": factor_redundancy,
         "forward_return_stats": {
             "mean_pct":   round(float(forward_ret.mean()), 2),
             "median_pct": round(float(forward_ret.median()), 2),
@@ -697,33 +948,120 @@ def run_analysis(
 
 def _recommend_weights(stats_table: dict, ic_field: str = "ic") -> dict:
     """
-    Suggest FactorWeights multipliers based on IC quality.
-    Works for both single-period (ic_field="ic") and rolling (ic_field="mean_ic").
+    Suggest FactorWeights multipliers based on IC/ICIR.
 
-    quality strings may include a p-value suffix (e.g. "strong (p<0.01)"),
-    so comparisons use startswith rather than exact equality.
+    Rolling mode (ic_field="mean_ic"): uses continuous ICIR as weight.
+    Single-period (ic_field="ic"): falls back to IC-magnitude thresholds.
+
+    Negative-IC factors are always zeroed — inversion requires manual
+    confirmation across multiple windows before setting a negative weight.
     """
     recs: dict[str, float] = {}
     for factor, stats in stats_table.items():
         ic = stats.get(ic_field)
         if ic is None:
-            recs[factor] = 0.1  # unknown — keep minimal
+            recs[factor] = 0.0
             continue
-        quality   = stats.get("quality", "noise")
-        direction = stats.get("direction", "")
 
-        if "inverted" in direction:
-            recs[factor] = 0.0 if quality.startswith(("strong", "moderate")) else 0.1
-        elif quality.startswith("strong"):
-            recs[factor] = 2.0
-        elif quality.startswith("moderate"):
-            recs[factor] = 1.0
-        elif quality.startswith("weak"):
-            recs[factor] = 0.5
+        # Negative IC → zero; never blindly invert from a single backtest run
+        if ic < 0:
+            recs[factor] = 0.0
+            continue
+
+        icir = stats.get("icir")
+        if icir is not None and not np.isnan(float(icir)) and ic_field == "mean_ic":
+            # Rolling mode: use ICIR directly as a continuous weight (cap at 3.0)
+            w = max(0.0, min(3.0, round(float(icir), 2)))
         else:
-            recs[factor] = 0.2  # noise — keep but minimal weight
+            # Single-period fallback: discrete IC-magnitude thresholds
+            quality = stats.get("quality", "noise")
+            if quality.startswith("strong"):
+                w = 2.0
+            elif quality.startswith("moderate"):
+                w = 1.0
+            elif quality.startswith("weak"):
+                w = 0.5
+            else:
+                w = 0.0
+
+        recs[factor] = w
 
     return recs
+
+
+# ---------------------------------------------------------------------------
+# Walk-forward OOS IC analysis
+# ---------------------------------------------------------------------------
+
+def _walk_forward_oos(
+    period_ics: "dict[str, list[float]]",
+    n_periods: int,
+    min_train: int = 4,
+) -> dict:
+    """
+    Expanding-window walk-forward OOS split on per-period IC series.
+
+    Period ordering: idx=0 = most recent, idx=n-1 = oldest.
+    For each OOS test point t in [0, n-min_train-1]:
+      - training = periods [t+1 .. n-1]  (older)
+      - test     = period t               (one newer, unseen at train time)
+
+    With N=12, min_train=4 → 7-8 OOS test points.
+
+    Returns per-factor OOS IC stats and IS↔OOS rank correlation.
+    """
+    oos_points = n_periods - min_train
+    if oos_points < 1:
+        return {"note": f"Too few periods ({n_periods}) for walk-forward (min_train={min_train})"}
+
+    factors = list(period_ics.keys())
+    oos_ics: dict[str, list[float]] = {f: [] for f in factors}
+    final_is_mean: dict[str, float] = {}  # IS mean at test_idx=0 (uses all n-1 older periods)
+
+    for test_idx in range(oos_points):
+        train_indices = list(range(test_idx + 1, n_periods))
+        for f in factors:
+            series = period_ics.get(f, [])
+            if test_idx == 0:
+                train_vals = [series[i] for i in train_indices
+                              if i < len(series) and not np.isnan(series[i])]
+                final_is_mean[f] = float(np.mean(train_vals)) if train_vals else np.nan
+            test_val = series[test_idx] if test_idx < len(series) else np.nan
+            oos_ics[f].append(float(test_val) if test_val is not None else np.nan)
+
+    oos_agg: dict[str, dict] = {}
+    for f in factors:
+        vals = [v for v in oos_ics[f] if not np.isnan(v)]
+        if not vals:
+            oos_agg[f] = {"oos_mean_ic": None, "oos_icir": None, "oos_hit_rate": None, "n_oos": 0}
+            continue
+        mean = float(np.mean(vals))
+        std  = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
+        icir = mean / std if std > 0 else np.nan
+        oos_agg[f] = {
+            "oos_mean_ic":  round(mean, 4),
+            "oos_icir":     round(icir, 3) if not np.isnan(icir) else None,
+            "oos_hit_rate": round(float(np.mean([v > 0 for v in vals])), 3),
+            "n_oos":        len(vals),
+        }
+
+    # Rank correlation between full IS (test_idx=0 training set) and OOS mean IC
+    rank_corr = None
+    common = [f for f in factors
+              if not np.isnan(final_is_mean.get(f, np.nan))
+              and oos_agg[f].get("oos_mean_ic") is not None]
+    if len(common) >= 5:
+        is_s  = pd.Series([final_is_mean[f] for f in common])
+        oos_s = pd.Series([oos_agg[f]["oos_mean_ic"] for f in common])
+        rank_corr = round(float(is_s.rank().corr(oos_s.rank())), 4)
+
+    return {
+        "n_oos_points":     oos_points,
+        "min_train_periods": min_train,
+        "is_oos_rank_corr": rank_corr,
+        "oos_ic":           oos_agg,
+        "note": f"Expanding window OOS: {oos_points} test pts, min_train={min_train}",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -746,6 +1084,12 @@ def _run_rolling(
     Returns aggregated mean_IC and ICIR per factor, plus per-period detail.
     """
     print(f"Rolling IC: {n_periods} periods × {step}d step, {forward_days}d forward, group={group}\n")
+
+    if "B" in group.upper():
+        print("[warn] Rolling mode with group B: fundamental/flow factors (ROE, revenue growth,\n"
+              "       fund flow, margins, etc.) always use TODAY's data for ALL periods.\n"
+              "       IC estimates for these factors have look-ahead bias and are unreliable.\n"
+              "       Use --group A for unbiased rolling IC on price-based factors.\n", flush=True)
 
     # ── Pre-fetch all stock data once (covers max price_offset) ─────────────
     # All rolling periods reuse the same cache entry (_PRICE_FETCH_DAYS covers them all)
@@ -792,11 +1136,61 @@ def _run_rolling(
             price_offset = period_idx * step
             print(f"  Period {period_idx + 1}/{n_periods}  (price_offset={price_offset}d back)")
 
+            # ── Historicize market data for this period ──────────────────────
+            # market_df is a time-ordered DataFrame; slice off the last
+            # price_offset rows to simulate "as of N trading days ago".
+            base_mdf = _shared.get("market_df")
+            if price_offset > 0 and base_mdf is not None and len(base_mdf) > price_offset:
+                market_df_period = base_mdf.iloc[:-price_offset].copy()
+            else:
+                market_df_period = base_mdf
+
+            # Recompute 1-month market return from the historicized window
+            market_ret_period: Optional[float] = None
+            if "B" in group.upper() and market_df_period is not None and len(market_df_period) >= 2:
+                _close_h = market_df_period["close"].tail(25)
+                if len(_close_h) >= 2:
+                    market_ret_period = float((_close_h.iloc[-1] / _close_h.iloc[0] - 1) * 100)
+
+            _shared_period = dict(_shared)
+            _shared_period["market_df"]  = market_df_period
+            _shared_period["market_ret"] = market_ret_period
+            # asof_date is set later (after dynamic universe resolution), but we
+            # pre-populate here so the key always exists in _shared_period.
+            _shared_period["asof_date"]  = ""
+
+            # ── Dynamic universe: use index constituents as of this period ───
+            # asof_date is extracted from market_df_period which is already
+            # historicized above, so it correctly represents T-price_offset.
+            period_codes = codes  # explicit default: fixed pool
+            universe_src = "FALLBACK_FIXED"
+            asof_date = ""
+            try:
+                if (market_df_period is not None
+                        and not market_df_period.empty
+                        and "trade_date" in market_df_period.columns):
+                    asof_date = str(market_df_period["trade_date"].iloc[-1])
+                if asof_date:
+                    idx_codes = fetcher.get_index_universe("000300.SH", asof_date)
+                    if len(idx_codes) >= 50:
+                        period_codes = idx_codes
+                        universe_src = "CSI300"
+                    else:
+                        idx_codes = fetcher.get_index_universe("000905.SH", asof_date)
+                        if len(idx_codes) >= 50:
+                            period_codes = idx_codes
+                            universe_src = "CSI500"
+            except Exception:
+                period_codes = codes
+                universe_src = "FALLBACK_FIXED"
+            _shared_period["asof_date"] = asof_date  # now confirmed and universe-aligned
+            print(f"    Universe: {len(period_codes)} stocks ({universe_src}, asof={asof_date})", flush=True)
+
             results: list[dict] = []
             errors = 0
             futures = {
-                ex.submit(compute_stock_scores, code, forward_days, group, price_offset, _shared): code
-                for code in codes
+                ex.submit(compute_stock_scores, code, forward_days, group, price_offset, _shared_period): code
+                for code in period_codes
             }
             for future in as_completed(futures):
                 try:
@@ -814,7 +1208,9 @@ def _run_rolling(
 
             df = pd.DataFrame(results)
             forward_ret = df["forward_ret"]
-            factor_cols = [c for c in df.columns if c not in ("code", "forward_ret")]
+            factor_cols = [c for c in df.columns
+                           if c not in ("code", "forward_ret") and not c.startswith("_")]
+            df = _winsorize_and_fill(df, factor_cols)
 
             period_ic: dict[str, float] = {}
             for factor in factor_cols:
@@ -827,13 +1223,15 @@ def _run_rolling(
                     period_ic[factor] = ic
 
             period_meta.append({
-                "period":       period_idx + 1,
-                "price_offset": price_offset,
-                "n_stocks":     len(results),
-                "errors":       errors,
-                "mean_fwd_ret": round(float(forward_ret.mean()), 2),
-                "ic":           {f: (round(v, 4) if not np.isnan(v) else None)
-                                 for f, v in period_ic.items()},
+                "period":        period_idx + 1,
+                "price_offset":  price_offset,
+                "asof_date":     asof_date,
+                "universe_src":  universe_src,
+                "n_stocks":      len(results),
+                "errors":        errors,
+                "mean_fwd_ret":  round(float(forward_ret.mean()), 2),
+                "ic":            {f: (round(v, 4) if not np.isnan(v) else None)
+                                  for f, v in period_ic.items()},
             })
 
             for factor, ic_val in period_ic.items():
@@ -848,18 +1246,26 @@ def _run_rolling(
     agg: dict[str, dict] = {}
     for factor, ic_list in period_ics.items():
         valid_ics = [v for v in ic_list if not np.isnan(v)]
+        nw_t = _newey_west_t(valid_ics)
+        hit_rate = round(float(np.mean([v > 0 for v in valid_ics])), 3)
         if len(valid_ics) < 2:
             agg[factor] = {
                 "mean_ic":   round(valid_ics[0], 4) if valid_ics else None,
+                "ic_median": round(float(np.median(valid_ics)), 4) if valid_ics else None,
+                "ic_iqr":    None,
+                "hit_rate":  hit_rate,
                 "icir":      None,
+                "nw_tstat":  round(float(nw_t), 3) if not np.isnan(nw_t) else None,
                 "n_periods": len(valid_ics),
                 "quality":   "insufficient periods",
                 "direction": "N/A",
             }
             continue
-        mean_ic = float(np.mean(valid_ics))
-        std_ic  = float(np.std(valid_ics, ddof=1))
-        icir    = mean_ic / std_ic if std_ic > 0 else np.nan
+        mean_ic   = float(np.mean(valid_ics))
+        std_ic    = float(np.std(valid_ics, ddof=1))
+        ic_median = float(np.median(valid_ics))
+        ic_iqr    = float(np.percentile(valid_ics, 75) - np.percentile(valid_ics, 25))
+        icir      = mean_ic / std_ic if std_ic > 0 else np.nan
         quality = (
             "strong"   if abs(mean_ic) >= 0.08 and abs(icir) >= 0.5  else
             "moderate" if abs(mean_ic) >= 0.05 and abs(icir) >= 0.3  else
@@ -868,7 +1274,11 @@ def _run_rolling(
         )
         agg[factor] = {
             "mean_ic":   round(mean_ic, 4),
+            "ic_median": round(ic_median, 4),
+            "ic_iqr":    round(ic_iqr, 4),
+            "hit_rate":  hit_rate,
             "icir":      round(icir, 3) if not np.isnan(icir) else None,
+            "nw_tstat":  round(float(nw_t), 3) if not np.isnan(nw_t) else None,
             "n_periods": len(valid_ics),
             "quality":   quality,
             "direction": "positive ✓" if mean_ic > 0 else "inverted ✗",
@@ -878,6 +1288,17 @@ def _run_rolling(
     agg = dict(sorted(agg.items(), key=lambda x: abs(x[1].get("mean_ic") or 0), reverse=True))
 
     weight_recs = _recommend_weights(agg, ic_field="mean_ic")
+    cost_be = _cost_breakeven(agg, ic_field="mean_ic")
+
+    # Factor redundancy based on IC-series correlation (proxy for cross-sectional correlation)
+    ic_series_df = pd.DataFrame({f: period_ics[f] for f in agg if f in period_ics})
+    factor_redundancy = _factor_redundancy_report(ic_series_df, agg, ic_field="mean_ic")
+
+    # Walk-forward OOS IC split (expanding window, min_train=4)
+    oos_analysis = _walk_forward_oos(period_ics, len(period_meta), min_train=4)
+    if oos_analysis.get("is_oos_rank_corr") is not None:
+        print(f"  Walk-forward OOS: {oos_analysis['n_oos_points']} test pts, "
+              f"IS↔OOS rank-corr = {oos_analysis['is_oos_rank_corr']:.3f}")
 
     return {
         "meta": {
@@ -889,6 +1310,9 @@ def _run_rolling(
         },
         "ic_table":               agg,
         "weight_recommendations": weight_recs,
+        "cost_breakeven":         cost_be,
+        "factor_redundancy":      factor_redundancy,
+        "oos_analysis":           oos_analysis,
         "period_detail":          period_meta,
     }
 
@@ -909,6 +1333,9 @@ if __name__ == "__main__":
     parser.add_argument("--universe", type=str,   default="",
                         help="Path to a JSON file with a list of stock codes to use instead of built-in TEST_UNIVERSE. "
                              "Format: [\"600519\", \"000858\", ...] or {\"codes\": [...]}")
+    parser.add_argument("--fwd-list", type=str, default="",
+                        help="Comma-separated forward horizons to test (e.g. '1,5,10,20,40'). "
+                             "Runs separate IC analysis for each horizon and prints a decay table.")
     args = parser.parse_args()
 
     # Resolve stock universe
@@ -930,6 +1357,33 @@ if __name__ == "__main__":
         loaded = TEST_UNIVERSE
 
     codes = loaded[:args.n]
+
+    if args.fwd_list:
+        horizons = [int(h.strip()) for h in args.fwd_list.split(",") if h.strip().isdigit()]
+        if horizons:
+            print(f"\nMulti-horizon IC decay: {horizons}d forward windows\n")
+            decay_rows = []
+            for h in horizons:
+                r = run_analysis(codes=codes, forward_days=h, group=args.group,
+                                 max_workers=args.workers, rolling=max(args.rolling, 1), step=args.step)
+                ic_tbl = r.get("ic_table", {})
+                # Collect mean IC (or IC for single period) per factor per horizon
+                row = {"fwd_days": h}
+                for f, s in ic_tbl.items():
+                    ic_val = s.get("mean_ic") or s.get("ic")
+                    row[f] = round(float(ic_val), 4) if ic_val is not None else None
+                decay_rows.append(row)
+            # Print decay table: rows=horizons, cols=top factors
+            if decay_rows:
+                top_factors = sorted(decay_rows[-1].keys() - {"fwd_days"},
+                                     key=lambda f: abs(decay_rows[-1].get(f) or 0), reverse=True)[:15]
+                print(f"{'Horizon':>8} " + " ".join(f"{f[:14]:>15}" for f in top_factors))
+                print("-" * (8 + 16 * len(top_factors)))
+                for row in decay_rows:
+                    vals = " ".join(f"{(row.get(f) or 0):>15.4f}" for f in top_factors)
+                    print(f"{row['fwd_days']:>7}d {vals}")
+            sys.exit(0)
+
     result = run_analysis(
         codes=codes, forward_days=args.fwd, group=args.group,
         max_workers=args.workers, rolling=args.rolling, step=args.step,
@@ -941,6 +1395,33 @@ if __name__ == "__main__":
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(output)
         print(f"\nResults saved to {args.out}")
+        # Run manifest for reproducibility
+        import datetime, hashlib
+        manifest = {
+            "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+            "params": {
+                "n": args.n, "fwd": args.fwd, "group": args.group,
+                "rolling": args.rolling, "step": args.step,
+                "workers": args.workers,
+                "universe": args.universe or "built-in",
+            },
+            "data_stats": {
+                "n_stocks_collected": result.get("meta", {}).get("n_stocks"),
+                "n_periods": result.get("meta", {}).get("n_periods"),
+            },
+            "redundancy": {
+                "n_redundant": result.get("factor_redundancy", {}).get("n_redundant"),
+                "redundant_factors": result.get("factor_redundancy", {}).get("redundant_factors"),
+            },
+            "params_hash": hashlib.md5(json.dumps(
+                {"n": args.n, "fwd": args.fwd, "group": args.group,
+                 "rolling": args.rolling, "step": args.step},
+                sort_keys=True).encode()).hexdigest()[:8],
+        }
+        manifest_path = args.out.rsplit(".", 1)[0] + ".manifest.json"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        print(f"Run manifest saved to {manifest_path}")
     elif "error" in result:
         print(f"\nError: {result['error']}")
     elif args.rolling > 1:
@@ -963,6 +1444,24 @@ if __name__ == "__main__":
             recs = result.get("weight_recommendations", {})
             for factor, w in sorted(recs.items(), key=lambda x: -x[1]):
                 print(f"  {factor:<28}  →  weight = {w:.1f}")
+
+            # ── Cost break-even table ──────────────────────────────────────
+            cost_be = result.get("cost_breakeven", {})
+            be_rows = [
+                (f, v["alpha_pct_per_period"], v["break_even_bp"])
+                for f, v in cost_be.items()
+                if v.get("break_even_bp") is not None and v["break_even_bp"] > 0
+            ]
+            be_rows.sort(key=lambda x: -x[2])
+            be_rows = be_rows[:20]
+            if be_rows:
+                print("\n" + "="*70)
+                print("COST BREAK-EVEN (assuming 12% cross-section vol, 20d holding)")
+                print(f"{'Factor':<28} {'Alpha%/period':>15} {'Break-even(bp)':>16}")
+                print("-" * 62)
+                for fac, alpha_pct, be_bp in be_rows:
+                    suffix = "  <- survives at {:g}bp cost".format(be_bp) if be_bp >= 10 else ""
+                    print(f"{fac:<28} {alpha_pct:>15.3f} {be_bp:>16.1f}{suffix}")
     else:
         # ── Single-period output ───────────────────────────────────────────
         print("\n" + "="*70)

@@ -80,9 +80,9 @@ class FactorWeights:
     macd_signal:         float = 0.0   # no data
     amihud_illiquidity:  float = 0.0   # IC flipped to -0.005 (was +0.073); zeroed
     main_inflow:         float = 0.0   # no data (insufficient periods)
-    turnover_percentile: float = 0.0   # IC=-0.054; turned negative, zeroed
-    turnover_acceleration: float = 0.0 # IC=-0.087; turned negative, zeroed
-    price_inertia:       float = 0.0   # IC=-0.078; turned negative, zeroed
+    turnover_percentile: float = 0.0   # IC=-0.054; zeroed pending backtest fix
+    turnover_acceleration: float = 0.0 # IC=-0.087; zeroed pending backtest fix
+    price_inertia:       float = 0.0  # IC=-0.078; zeroed pending backtest fix
     price_volume_corr:   float = 0.0   # IC=-0.009, near zero
     # ── Ext-A: inverted signals ───────────────────────────────────────────
     limit_hits:          float = -1.0  # IC=-0.117, ICIR=-1.07; reduced from -2.0
@@ -1971,6 +1971,22 @@ def score_volume_ratio(
       量比 >= 2 + price up + bull market (regime >= 7)  -> buy +1 (牛市放量持续性更强)
       量比 >= 2 + price down + bear market (regime <= 3) -> sell +1.5 (熊市放量下跌更危险)
     """
+    # EOD fallback: compute volume_ratio from price_df when real-time API value is unavailable
+    if (volume_ratio is None or volume_ratio <= 0) and price_df is not None and "volume" in price_df.columns:
+        try:
+            _vol = pd.to_numeric(price_df["volume"], errors="coerce").dropna()
+            if len(_vol) >= 6:
+                _today = float(_vol.iloc[-1])
+                _avg5 = float(_vol.iloc[-6:-1].mean())
+                if _avg5 > 0 and _today >= 0:
+                    volume_ratio = _today / _avg5
+                    if change_pct is None and "close" in price_df.columns:
+                        _cls = pd.to_numeric(price_df["close"], errors="coerce").dropna()
+                        if len(_cls) >= 2 and float(_cls.iloc[-2]) > 0:
+                            change_pct = float((_cls.iloc[-1] / _cls.iloc[-2] - 1) * 100)
+        except Exception:
+            pass
+
     if volume_ratio is None or volume_ratio <= 0:
         return {"score": 5.0, "sell_score": 0.0, "max": 10,
                 "details": {"volume_ratio": volume_ratio, "signal": "no data, neutral", "sell_score": 0.0}}

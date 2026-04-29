@@ -18,11 +18,14 @@
     python -X utf8 scripts/chip_strategy.py --min-win 90  # 放宽至 90%
     python -X utf8 scripts/chip_strategy.py --dry-run     # 仅打印，不推送
     python -X utf8 scripts/chip_strategy.py --refresh-names  # 强制刷新名称缓存
+    python -X utf8 scripts/chip_strategy.py --cad                       # 数据驱动多档扫描
+    python -X utf8 scripts/chip_strategy.py --cad --mods bekh bekhm    # 指定 mods
 """
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -644,6 +647,20 @@ def screen(
         if n_hot:
             print(f"[screen] pct_chg>{max_today_pct:.1f}% 剔除 {n_hot} 只（今日涨幅过大）")
 
+    # Filter 1b: limit-up / limit-down / one-price-bar — chip indicators are meaningless on these days
+    if "pct_chg" in result.columns:
+        limit = result["pct_chg"].notna() & (result["pct_chg"].abs() >= 9.5)
+        n_limit = limit.sum()
+        result = result[~limit]
+        if n_limit:
+            print(f"[screen] |pct_chg|>=9.5% 剔除 {n_limit} 只（涨跌停）")
+    if "high" in result.columns and "low" in result.columns:
+        ziboard = result["high"].notna() & result["low"].notna() & (result["high"] == result["low"])
+        n_zi = ziboard.sum()
+        result = result[~ziboard]
+        if n_zi:
+            print(f"[screen] high==low 剔除 {n_zi} 只（一字板）")
+
     # Filter 2: 6-month position — exclude stocks near their 6-month high
     if max_6m_ratio is not None and six_month_high:
         result["_6m_high"] = result["ts_code"].map(six_month_high)
@@ -772,11 +789,215 @@ def format_message(
 
 
 # ---------------------------------------------------------------------------
+# CAD (data-driven multi-tier scan) — merged from chip_cad.py
+# ---------------------------------------------------------------------------
+
+_TIER_ORDER = [
+    ("T1", 95.0, None),
+    ("T2", 90.0, 95.0),
+    ("T3", 85.0, 90.0),
+    ("T4", 75.0, 85.0),
+    ("T5", 65.0, 75.0),
+]
+
+
+def _cad_run_one(df_all, mods: str, trade_date: str, pro) -> tuple[dict, int]:
+    """Run one mods variant. Returns (tiers_dict, total_count). Does NOT push."""
+    mods = mods.lower()
+    boll_near   = "b" in mods
+    cheap       = "e" in mods
+    no_kcb      = "k" in mods
+    high_filter = "h" in mods
+    macd_conv   = "m" in mods
+    macd_zero   = "z" in mods
+
+    max_price    = 50.0 if cheap else None
+    max_6m_ratio = 0.9  if high_filter else None
+
+    total = 0
+    saves: dict[str, list[dict]] = {}
+
+    for tier_name, min_win, max_win in _TIER_ORDER:
+        win_range = f"{min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{min_win:.0f}%"
+
+        result = screen(df_all, min_win, max_win=max_win, max_today_pct=None,
+                        max_6m_ratio=None, six_month_high=None,
+                        max_price=max_price, exclude_kcb=no_kcb)
+
+        if max_6m_ratio is not None and not result.empty:
+            six_m  = fetch_6m_high(result["ts_code"].tolist(), trade_date, pro)
+            result = screen(df_all, min_win, max_win=max_win, max_today_pct=None,
+                            max_6m_ratio=max_6m_ratio, six_month_high=six_m,
+                            max_price=max_price, exclude_kcb=no_kcb)
+
+        if (boll_near or macd_conv or macd_zero) and not result.empty:
+            result = add_indicators(result)
+            result = screen(result, min_win, max_win=max_win, max_today_pct=None,
+                            max_6m_ratio=None, six_month_high=None,
+                            max_price=None, exclude_kcb=False,
+                            boll_near_mid=boll_near, macd_converging=macd_conv,
+                            macd_near_zero=macd_zero)
+
+        n = len(result)
+        total += n
+        print(f"[cad/{mods}] {tier_name} ({win_range}): {n} 只", flush=True)
+
+        picks_list: list[dict] = []
+        for _, row in result.iterrows():
+            code  = row.get("code", "")
+            name  = str(row.get("name", "") or "").strip()[:8] or str(code)
+            ind   = str(row.get("industry", "") or "")[:6]
+            close = row.get("close", float("nan"))
+            win   = row.get("winner_rate", float("nan"))
+            picks_list.append({"code": str(code), "name": name,
+                               "industry": ind, "close": close, "winner_rate": win})
+        saves[tier_name] = picks_list
+
+    if "m" in mods:
+        prefix = "chip_cadm"
+    elif mods == "h":
+        prefix = "chip_cah"
+    else:
+        prefix = "chip_cad"
+    payload = json.dumps({"date": trade_date, "mods": mods, "tiers": saves},
+                         ensure_ascii=False, indent=2)
+    dated  = DATA / f"{prefix}_{trade_date}.json"
+    latest = DATA / f"{prefix}_latest.json"
+    dated.write_text(payload, encoding="utf-8")
+    latest.write_text(payload, encoding="utf-8")
+    print(f"[cad/{mods}] 已保存 {dated.name}（共{total}只）")
+    return saves, total
+
+
+def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
+    n = len(picks)
+    if n == 0:
+        return ""
+    win_ranges = {"T1": "≥95%", "T2": "90-95%", "T3": "85-90%", "T4": "75-85%", "T5": "65-75%"}
+    header = f"\n### {tier_name}（{win_ranges.get(tier_name, '')} {label}）— {n} 只"
+    rows = ["| 名称 | 行业 | 收盘 | 获利盘% |",
+            "|------|------|-----:|--------:|"]
+    for p in picks:
+        close_s = f"{p['close']:.2f}" if not math.isnan(float(p['close'] or 0)) else "-"
+        win_s   = f"{p['winner_rate']:.1f}%" if not math.isnan(float(p['winner_rate'] or 0)) else "-"
+        rows.append(f"| {p['name']} | {p['industry']} | {close_s} | {win_s} |")
+    return header + "\n" + "\n".join(rows)
+
+
+def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_date: str,
+                     sendkey: str, dry_run: bool) -> None:
+    """三段推送：cadm T1-T4（三者共有精华）→ cah独有 T1-T4 → cad独有（全档）。cadm T5 不推。"""
+    date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
+    top_tiers = [t for t in _TIER_ORDER if t[0] in ("T1", "T2", "T3", "T4")]
+
+    cadm_top = {t[0]: cadm_saves.get(t[0], []) for t in top_tiers}
+    cadm_top_total = sum(len(v) for v in cadm_top.values())
+
+    cad_codes = {p["code"] for picks in cad_saves.values() for p in picks}
+    cah_only: dict[str, list[dict]] = {
+        t[0]: [p for p in cah_saves.get(t[0], []) if p["code"] not in cad_codes]
+        for t in top_tiers
+    }
+    cah_only_total = sum(len(v) for v in cah_only.values())
+
+    cadm_codes = {p["code"] for picks in cadm_saves.values() for p in picks}
+    cad_only: dict[str, list[dict]] = {
+        t[0]: [p for p in cad_saves.get(t[0], []) if p["code"] not in cadm_codes]
+        for t in _TIER_ORDER
+    }
+    cad_only_total = sum(len(v) for v in cad_only.values())
+
+    sections = []
+    if cadm_top_total:
+        sections.append(f"\n## ✅ 三筛俱过 T1-T4（cadm）共{cadm_top_total}只")
+        for t in top_tiers:
+            s = _cad_build_section(t[0], cadm_top.get(t[0], []), "cadm")
+            if s:
+                sections.append(s)
+
+    if cah_only_total:
+        sections.append(f"\n## 🔍 cah独有 T1-T4（排高位通过，未过BOLL/价格/科创）共{cah_only_total}只")
+        for t in top_tiers:
+            s = _cad_build_section(t[0], cah_only.get(t[0], []), "cah")
+            if s:
+                sections.append(s)
+
+    if cad_only_total:
+        sections.append(f"\n## 💡 cad独有（BOLL等通过，MACD未收敛）共{cad_only_total}只")
+        for t in _TIER_ORDER:
+            s = _cad_build_section(t[0], cad_only.get(t[0], []), "cad")
+            if s:
+                sections.append(s)
+
+    body  = "\n".join(sections) + "\n\n> ⚠️ 仅供参考，不构成投资建议"
+    title = f"筹码驱动 {date_fmt} 三筛:{cadm_top_total} cah独有:{cah_only_total} cad独有:{cad_only_total}"
+    print(f"\n{title}\n")
+    send_wechat(title, body, sendkey, dry_run=dry_run)
+    if not dry_run:
+        try:
+            from notify_discord import push_feishu_content
+            push_feishu_content(f"{title}\n{body}")
+        except Exception:
+            pass
+
+
+def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool = False) -> None:
+    """数据驱动多档扫描入口（原 chip_cad.py main）。"""
+    import json as _json
+    cfg     = _json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
+    sendkey = cfg.get("serverchan", {}).get("sendkey", "")
+    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+
+    if mods_list is None:
+        mods_list = ["bekh", "bekhm"]
+
+    pro        = _get_pro()
+    query_date = date or _latest_trade_date()
+    df_all     = fetch_chip_data(query_date, pro)
+
+    if df_all.empty:
+        print("[cad] 无数据，退出")
+        return
+
+    trade_date = str(df_all["trade_date"].iloc[0]) if "trade_date" in df_all.columns else query_date
+
+    names = load_names()
+    if names:
+        df_all["name"]     = df_all["ts_code"].map(lambda c: names.get(c, {}).get("name", ""))
+        df_all["industry"] = df_all["ts_code"].map(lambda c: names.get(c, {}).get("industry", ""))
+    else:
+        df_all["name"] = df_all["industry"] = ""
+
+    print(f"[cad] trade_date={trade_date}  mods={mods_list}", flush=True)
+
+    mods_list = [m.lower() for m in mods_list]
+    if set(mods_list) == {"bekh", "bekhm"}:
+        cah_saves,  _ = _cad_run_one(df_all, "h",     trade_date, pro)
+        cadm_saves, _ = _cad_run_one(df_all, "bekhm", trade_date, pro)
+        cad_saves,  _ = _cad_run_one(df_all, "bekh",  trade_date, pro)
+        _cad_merged_push(cah_saves, cadm_saves, cad_saves, trade_date, sendkey, dry_run)
+    else:
+        for mods_str in mods_list:
+            saves, total = _cad_run_one(df_all, mods_str, trade_date, pro)
+            date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
+            body  = "\n".join(
+                _cad_build_section(t, saves.get(t, []), mods_str)
+                for t, _, _ in _TIER_ORDER
+            ) + "\n\n> ⚠️ 仅供参考，不构成投资建议"
+            title = f"筹码驱动 {date_fmt} ({mods_str}) 共{total}只"
+            send_wechat(title, body, sendkey, dry_run=dry_run)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--cad",           action="store_true",
+                        help="数据驱动多档扫描（原 chip_cad.py）")
+    parser.add_argument("--mods",          nargs="+", default=["bekh", "bekhm"],
+                        help="--cad 专用: mods 列表")
     parser.add_argument("--date",          type=str,   default="")
     parser.add_argument("--min-win",       type=float, default=90.0,
                         help="获利盘最低比例%%，默认90")
@@ -799,6 +1020,10 @@ def main() -> None:
     parser.add_argument("--dry-run",       action="store_true")
     parser.add_argument("--refresh-names", action="store_true", help="强制刷新名称缓存")
     args = parser.parse_args()
+
+    if args.cad:
+        cad_main(mods_list=args.mods, date=args.date, dry_run=args.dry_run)
+        return
 
     max_today_pct = args.max_today_pct if args.max_today_pct > 0 else None
     max_6m_ratio  = args.max_6m_ratio  if args.max_6m_ratio  > 0 else None

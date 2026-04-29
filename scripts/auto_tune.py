@@ -11,18 +11,24 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 
 # ── 路径定义 ────────────────────────────────────────────────────────────────────
-_ROOT          = Path(__file__).parent.parent
-PERF_LOG       = _ROOT / "data" / "signal_performance.json"
-WEIGHT_HISTORY = _ROOT / "data" / "weight_history.json"
-FACTOR_CONFIG  = _ROOT / "scripts" / "factor_config.py"
+_ROOT            = Path(__file__).parent.parent
+PERF_LOG         = _ROOT / "data" / "signal_performance.json"
+WEIGHT_HISTORY   = _ROOT / "data" / "weight_history.json"
+WEIGHT_BASE_FILE = _ROOT / "data" / "weight_base.json"        # IC-derived base (frozen)
+MULTIPLIER_FILE  = _ROOT / "data" / "weight_multipliers.json" # online overlay
+FACTOR_CONFIG    = _ROOT / "scripts" / "factor_config.py"
 
 # ── 调参超参数 ──────────────────────────────────────────────────────────────────
-MIN_FACTOR_SAMPLES   = 5       # 每个因子至少需要的已完成信号数
+MIN_FACTOR_SAMPLES   = 50      # 每个因子至少需要的已完成信号数（提高到50，减少噪声）
 MIN_TOTAL_SIGNALS    = 15      # 全局最低：20d 已完成买入信号数量
-SCALE                = 0.6     # delta = (hit_rate - 0.50) * SCALE
+SCALE                = 0.6     # delta_m = (adjusted_hit_rate - 0.50) * SCALE
 MAX_DELTA_PER_RUN    = 0.3     # 单次运行最大调整幅度（绝对值）
 WEIGHT_MIN_POS       = 0.1     # 正权重下界
 WEIGHT_MAX           = 3.0     # 权重上界
+MULT_MIN             = 0.7     # 乘子下界：不允许 live weight < 70% of base
+MULT_MAX             = 1.3     # 乘子上界：不允许 live weight > 130% of base
+DECAY_RATE           = 0.05    # 每次运行乘子向 1.0 衰减的速率（防止长期漂移）
+LOWER_QUANTILE       = 0.10    # Beta 后验下分位数（10th percentile lower bound）
 # 注：负权重因子保持负，不翻转符号
 
 # ── 辅助函数 ────────────────────────────────────────────────────────────────────
@@ -34,10 +40,62 @@ def _load_json(path: Path) -> dict | list:
         return json.load(f)
 
 
+def _beta_lower_bound(n_wins: int, n_total: int,
+                      q: float = LOWER_QUANTILE) -> float:
+    """
+    Beta-Binomial posterior lower bound on hit rate (uniform prior Beta(1,1)).
+    Returns the q-th quantile of Beta(1+n_wins, 1+n_total-n_wins).
+    Shrinks raw hit_rate toward 0.5 under small samples.
+    """
+    try:
+        from scipy.stats import beta as _beta
+        return float(_beta.ppf(q, 1 + n_wins, 1 + n_total - n_wins))
+    except ImportError:
+        # Wilson one-sided lower bound (no external dependency)
+        n = n_total
+        p_hat = n_wins / n if n > 0 else 0.5
+        z = 1.282  # z_{0.10}
+        denom = 1 + z * z / n
+        centre = p_hat + z * z / (2 * n)
+        spread = z * (p_hat * (1 - p_hat) / n + z * z / (4 * n * n)) ** 0.5
+        return max(0.0, (centre - spread) / denom)
+
+
+def _load_multipliers() -> dict[str, float]:
+    """Load overlay multipliers; default all 1.0 (no adjustment)."""
+    raw = _load_json(MULTIPLIER_FILE)
+    return {k: float(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+
+
+def _save_multipliers(multipliers: dict[str, float]) -> None:
+    _save_json(MULTIPLIER_FILE, {k: round(v, 4) for k, v in multipliers.items()})
+
+
+def _load_or_init_base_weights(current_weights: dict[str, float]) -> dict[str, float]:
+    """
+    Load IC-derived base weights from WEIGHT_BASE_FILE.
+    On first run, snapshots current_weights as the base (带时间戳).
+    Metadata keys prefixed with __ are stripped before returning.
+    """
+    raw = _load_json(WEIGHT_BASE_FILE)
+    if isinstance(raw, dict) and raw:
+        base = {k: float(v) for k, v in raw.items() if not k.startswith("__")}
+        if base:
+            created = raw.get("__created_at__", "未知")
+            print(f"  [base] IC基础权重快照（{created}）。如需重置请删除 {WEIGHT_BASE_FILE.name}。")
+            return base
+    snapshot: dict = {k: round(v, 4) for k, v in current_weights.items()}
+    snapshot["__created_at__"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    _save_json(WEIGHT_BASE_FILE, snapshot)
+    return dict(current_weights)
+
+
 def _save_json(path: Path, obj) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
+    tmp.replace(path)  # atomic rename — prevents partial-write corruption
 
 
 def _load_factor_weights() -> dict[str, float]:
@@ -97,85 +155,101 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 def compute_suggestions(
     factor_hit_rates: dict,
     current_weights: dict[str, float],
-) -> list[dict]:
+) -> tuple[list[dict], dict[str, float]]:
     """
-    根据因子胜率计算权重调整建议。
-    返回 list of {factor, current, suggested, delta, hit_rate, n}。
+    Base/Overlay架构：在IC-calibrated基础权重上，用Beta-Binomial收缩后的胜率
+    更新一个乘子（clip到[MULT_MIN, MULT_MAX]），live_weight = base × multiplier。
+    返回 (suggestions, updated_multipliers)。
     """
-    suggestions = []
+    base_weights = _load_or_init_base_weights(current_weights)
+    multipliers  = _load_multipliers()
+    suggestions: list[dict] = []
 
     for factor, stats in factor_hit_rates.items():
-        n = stats.get("total", 0)
+        n        = stats.get("total", 0)
         hit_rate = stats.get("hit_rate")
 
         if n < MIN_FACTOR_SAMPLES or hit_rate is None:
-            continue  # 样本不足，跳过
+            continue
+        if factor not in base_weights:
+            continue  # 因子不在IC-base中，跳过
 
-        if factor not in current_weights:
-            continue  # 因子不在 FACTOR_WEIGHTS 中（可能在其他 regime）
+        n_wins  = min(n, max(0, int(round(n * hit_rate))))
+        adj_hit = _beta_lower_bound(n_wins, n)
 
-        current_w = current_weights[factor]
+        # 先向1.0衰减，再根据调整后胜率更新乘子
+        m       = multipliers.get(factor, 1.0)
+        m       = (1 - DECAY_RATE) * m + DECAY_RATE * 1.0
+        delta_m = (adj_hit - 0.5) * SCALE
+        m       = _clamp(m + delta_m, MULT_MIN, MULT_MAX)
 
-        # delta = (hit_rate - 0.50) * 0.6，限制单次幅度
-        raw_delta = (hit_rate - 0.50) * SCALE
-        delta = _clamp(raw_delta, -MAX_DELTA_PER_RUN, MAX_DELTA_PER_RUN)
+        # Shrinkage toward equal-weight (multiplier=1.0) when sample count is low.
+        # α=1 at n=0 (no data → keep equal weight), α=0 at n=MIN_FACTOR_SAMPLES (full trust).
+        alpha = max(0.0, 1.0 - n / MIN_FACTOR_SAMPLES)
+        m     = alpha * 1.0 + (1 - alpha) * m
+        m     = _clamp(m, MULT_MIN, MULT_MAX)
+        multipliers[factor] = round(m, 4)
 
-        new_w = current_w + delta
+        base_w  = base_weights[factor]
+        live_w  = round(base_w * m, 2)
 
-        # 正权重因子：夹到 [WEIGHT_MIN_POS, WEIGHT_MAX]
-        if current_w >= 0:
-            new_w = _clamp(new_w, WEIGHT_MIN_POS, WEIGHT_MAX)
-        else:
-            # 负权重因子：保持负，上界 -WEIGHT_MIN_POS，下界 -WEIGHT_MAX
-            new_w = _clamp(new_w, -WEIGHT_MAX, -WEIGHT_MIN_POS)
+        # 保持符号方向，限制量级
+        if base_w > 0:
+            live_w = _clamp(live_w, WEIGHT_MIN_POS, WEIGHT_MAX)
+        elif base_w < 0:
+            live_w = _clamp(live_w, -WEIGHT_MAX, -WEIGHT_MIN_POS)
+        # base_w == 0 保持0，不进入suggestions
 
-        # 格式化为最多 2 位小数
-        new_w = round(new_w, 2)
-
-        if new_w == current_w:
-            continue  # 没有实质变化，跳过
+        current_w = current_weights.get(factor, base_w)
+        if live_w == current_w:
+            continue
 
         suggestions.append({
-            "factor":    factor,
-            "current":   current_w,
-            "suggested": new_w,
-            "delta":     round(new_w - current_w, 4),
-            "hit_rate":  hit_rate,
-            "n":         n,
+            "factor":     factor,
+            "current":    current_w,
+            "suggested":  live_w,
+            "delta":      round(live_w - current_w, 4),
+            "hit_rate":   hit_rate,
+            "adj_hit":    round(adj_hit, 3),
+            "multiplier": multipliers[factor],
+            "shrinkage_alpha": round(alpha, 3),
+            "n":          n,
         })
 
-    # 按 |delta| 降序排列
     suggestions.sort(key=lambda x: abs(x["delta"]), reverse=True)
-    return suggestions
+    return suggestions, multipliers
 
 
 def print_preview(suggestions: list[dict], total_signals: int) -> None:
-    """打印建议摘要。"""
-    print("\n" + "=" * 62)
-    print("  auto_tune — 因子权重调整预览")
+    """打印建议摘要（Base × 乘子架构）。"""
+    print("\n" + "=" * 76)
+    print("  auto_tune — 因子权重调整预览（Base × Multiplier架构）")
     print(f"  已完成 20d 买入信号总数: {total_signals}")
-    print("=" * 62)
+    print("=" * 76)
 
     if not suggestions:
         print("  当前没有满足条件的调整建议。")
-        print("=" * 62)
+        print("=" * 76)
         return
 
-    print(f"  {'因子':<28} {'当前':>6} {'建议':>6}  {'变化':>7}  {'胜率':>6}  N")
-    print("  " + "-" * 58)
+    print(f"  {'因子':<28} {'当前':>6} {'建议':>6}  {'变化':>7}  {'胜率':>6}  {'调整后':>6}  {'乘子':>7}  N")
+    print("  " + "-" * 72)
     for s in suggestions:
-        arrow = "↑" if s["delta"] > 0 else "↓"
+        arrow   = "↑" if s["delta"] > 0 else "↓"
+        adj     = s.get("adj_hit", s["hit_rate"])
+        mult    = s.get("multiplier", 1.0)
         print(f"  {s['factor']:<28} {s['current']:>6.2f} {s['suggested']:>6.2f}"
-              f"  {arrow}{abs(s['delta']):>6.3f}  {s['hit_rate']:.1%}  {s['n']}")
-    print("=" * 62)
+              f"  {arrow}{abs(s['delta']):>6.3f}  {s['hit_rate']:.1%}  {adj:.1%}  {mult:>7.4f}  {s['n']}")
+    print("=" * 76)
 
 
 def apply_suggestions(
     suggestions: list[dict],
     current_weights: dict[str, float],
+    multipliers: dict[str, float] | None = None,
     dry_run: bool = False,
 ) -> None:
-    """将建议写入 factor_config.py 并记录到 weight_history.json。"""
+    """将 live weights 写入 factor_config.py，并持久化乘子到 MULTIPLIER_FILE。"""
     if not suggestions:
         print("  没有需要应用的调整。")
         return
@@ -187,8 +261,13 @@ def apply_suggestions(
     if not dry_run:
         _apply_weights_to_file(new_weights)
         print(f"  已更新 factor_config.py（共 {len(suggestions)} 个因子）。")
+        if multipliers:
+            _save_multipliers(multipliers)
+            print(f"  乘子已保存到 {MULTIPLIER_FILE}。")
     else:
         print(f"  [dry-run] 跳过写入 factor_config.py。")
+        if multipliers:
+            print(f"  [dry-run] 跳过写入 {MULTIPLIER_FILE}。")
 
     # 记录历史
     history: list = _load_json(WEIGHT_HISTORY)  # type: ignore[assignment]
@@ -197,8 +276,8 @@ def apply_suggestions(
 
     history.append({
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "dry_run": dry_run,
-        "changes": suggestions,
+        "dry_run":   dry_run,
+        "changes":   suggestions,
     })
 
     if not dry_run:
@@ -377,12 +456,12 @@ def main() -> None:
         return
 
     factor_hit_rates = perf.get("factor_hit_rates", {})
-    suggestions = compute_suggestions(factor_hit_rates, current_weights)
+    suggestions, multipliers = compute_suggestions(factor_hit_rates, current_weights)
     print_preview(suggestions, total_signals)
 
     if do_apply:
         print("\n应用权重调整...")
-        apply_suggestions(suggestions, current_weights, dry_run=False)
+        apply_suggestions(suggestions, current_weights, multipliers=multipliers, dry_run=False)
     elif suggestions:
         print("\n  提示: 使用 --apply 参数将上述调整写入 factor_config.py")
 

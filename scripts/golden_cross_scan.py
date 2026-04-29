@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """
-金叉策略扫描 — 多维技术指标金叉共振筛选
+金叉策略扫描 — 多维技术指标金叉共振筛选（MA60 趋势门控）
 
-8项金叉信号：
-  1. MACD金叉     — DIF向上穿越DEA（近3日内）
-  2. KDJ金叉      — K线向上穿越D线（近3日内）
-  3. RSI金叉      — RSI(6)向上穿越RSI(12)（近3日内）
-  4. MA5/10金叉   — 5日均线穿越10日均线（近3日内）
-  5. MA10/20金叉  — 10日均线穿越20日均线（近5日内）
-  6. 量能金叉     — 量MA(5)穿越量MA(10)且价格上涨（近3日内）
-  7. OBV金叉      — OBV的MA(5)穿越MA(10)（近3日内）
-  8. 布林中轨金叉  — 价格向上穿越20日均线（近3日内）
+5项正交金叉信号（已去除 RSI/MA5-10/布林中轨 高相关冗余）：
+  1. MACD金叉   — DIF向上穿越DEA（EMA导数，趋势动量）
+  2. KDJ金叉    — K线向上穿越D线（随机指标，超卖反弹）
+  3. MA10/20金叉 — 10日均线穿越20日均线（中期趋势确认）
+  4. 量能金叉   — 量MA5穿越量MA10且价格上涨（成交量驱动）
+  5. OBV金叉    — OBV的MA5穿越MA10（资金累积/分配）
 
-档位（共振数量）：G1≥6 · G2=5 · G3=4 · G4=3
+前置条件：price > MA60 OR MA60 slope > 0（震荡市全部过滤）
+
+档位（共振数量）：G0=5 · G1=4 · G2=3
 
 用法：
     python -X utf8 scripts/golden_cross_scan.py [--push] [--dry-run]
@@ -37,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 UNIVERSE_PATH = ROOT / "data" / "universe_main.json"
 OUT_LATEST    = ROOT / "data" / "golden_cross_latest.json"
 
-_TIER_MIN = {"G0": 8, "G1": 7, "G2": 6, "G3": 5, "G4": 4, "G5": 3}
+_TIER_MIN = {"G0": 5, "G1": 4, "G2": 3}
 _MIN_BARS = 45   # EMA26 + EMA9 预热需要的最少 K 线数
 
 
@@ -62,25 +61,6 @@ def _macd(closes: np.ndarray, fast=12, slow=26, sig=9):
     dea = _ema(dif, sig)
     return dif, dea
 
-
-def _rsi(closes: np.ndarray, period: int) -> np.ndarray:
-    n = len(closes)
-    rsi = np.full(n, np.nan)
-    if n <= period:
-        return rsi
-    deltas = np.diff(closes)
-    gains  = np.where(deltas > 0, deltas, 0.0)
-    losses = np.where(deltas < 0, -deltas, 0.0)
-    ag = np.mean(gains[:period])
-    al = np.mean(losses[:period])
-    for i in range(period, n - 1):
-        ag = (ag * (period - 1) + gains[i]) / period
-        al = (al * (period - 1) + losses[i]) / period
-        if al > 0:
-            rsi[i + 1] = 100.0 - 100.0 / (1.0 + ag / al)
-        else:
-            rsi[i + 1] = 100.0
-    return rsi
 
 
 def _kdj(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, n=9):
@@ -113,24 +93,28 @@ def _obv(closes: np.ndarray, volumes: np.ndarray) -> np.ndarray:
     return obv
 
 
-def _crossed_up(a: np.ndarray, b: np.ndarray, lookback: int = 3) -> bool:
-    """True if `a` crossed above `b` within the last `lookback` bars."""
+
+def _cross_days_ago(a: np.ndarray, b: np.ndarray, lookback: int = 5) -> Optional[int]:
+    """Return bars ago of the most recent upward cross (0 = today's bar), or None."""
     n = len(a)
-    for i in range(max(1, n - lookback), n):
+    for lag in range(lookback):
+        i = n - 1 - lag
+        if i < 1:
+            continue
         ap, bp = a[i - 1], b[i - 1]
         ai, bi = a[i],     b[i]
         if any(not np.isfinite(x) for x in (ap, bp, ai, bi)):
             continue
         if ap <= bp and ai > bi:
-            return True
-    return False
+            return lag
+    return None
 
 
 # ── 单股评分 ─────────────────────────────────────────────────────────────────
 
-def _score_stock(df: pd.DataFrame) -> tuple[int, list[str]]:
+def _score_stock(df: pd.DataFrame) -> tuple[int, list[str], float]:
     if len(df) < _MIN_BARS:
-        return 0, []
+        return 0, [], 0.0
 
     c  = df["close"].values.astype(float)
     h  = df["high"].values.astype(float)
@@ -138,56 +122,51 @@ def _score_stock(df: pd.DataFrame) -> tuple[int, list[str]]:
     v  = df["volume"].values.astype(float)
 
     if not np.isfinite(c[-1]) or c[-1] <= 0:
-        return 0, []
+        return 0, [], 0.0
+
+    # MA60 gate: require uptrend context to avoid false crosses in choppy markets
+    ma60 = _sma(c, 60)
+    if not (np.isfinite(ma60[-1]) and np.isfinite(ma60[-6]) and
+            (c[-1] > ma60[-1] or ma60[-1] > ma60[-6])):
+        return 0, [], 0.0
 
     fired: list[str] = []
+    recency: list[int] = []
 
-    # 1. MACD金叉 —— DIF 穿越 DEA
+    def _try(a: np.ndarray, b: np.ndarray, label: str, lookback: int = 5) -> None:
+        d = _cross_days_ago(a, b, lookback)
+        if d is not None:
+            fired.append(label)
+            recency.append(d)
+
+    # 1. MACD金叉 —— DIF 穿越 DEA（EMA导数，趋势动量）
     dif, dea = _macd(c)
-    if _crossed_up(dif, dea, 3):
-        fired.append("MACD金叉")
+    _try(dif, dea, "MACD金叉")
 
-    # 2. KDJ金叉 —— K 穿越 D
+    # 2. KDJ金叉 —— K 穿越 D（随机指标，超卖反弹）
     K, D = _kdj(h, lo, c)
-    if _crossed_up(K, D, 3):
-        fired.append("KDJ金叉")
+    _try(K, D, "KDJ金叉")
 
-    # 3. RSI金叉 —— RSI(6) 穿越 RSI(12)
-    rsi6  = _rsi(c, 6)
-    rsi12 = _rsi(c, 12)
-    if _crossed_up(rsi6, rsi12, 3):
-        fired.append("RSI金叉")
-
-    # 4. MA5/10金叉
-    ma5  = _sma(c, 5)
+    # 3. MA10/20金叉 —— 中期趋势确认
     ma10 = _sma(c, 10)
-    if _crossed_up(ma5, ma10, 3):
-        fired.append("MA5/10金叉")
-
-    # 5. MA10/20金叉
     ma20 = _sma(c, 20)
-    if _crossed_up(ma10, ma20, 5):
-        fired.append("MA10/20金叉")
+    _try(ma10, ma20, "MA10/20金叉")
 
-    # 6. 量能金叉 —— VolMA5 穿越 VolMA10，且近3日价格上涨
+    # 4. 量能金叉 —— VolMA5 穿越 VolMA10，且近3日价格上涨
     vma5  = _sma(v, 5)
     vma10 = _sma(v, 10)
     price_up = len(c) >= 4 and np.isfinite(c[-1]) and np.isfinite(c[-4]) and c[-1] > c[-4]
-    if _crossed_up(vma5, vma10, 3) and price_up:
-        fired.append("量能金叉")
+    if price_up:
+        _try(vma5, vma10, "量能金叉")
 
-    # 7. OBV金叉 —— OBV MA(5) 穿越 MA(10)
+    # 5. OBV金叉 —— OBV MA(5) 穿越 MA(10)（资金累积/分配）
     obv_arr  = _obv(c, v)
     obv_ma5  = _sma(obv_arr, 5)
     obv_ma10 = _sma(obv_arr, 10)
-    if _crossed_up(obv_ma5, obv_ma10, 3):
-        fired.append("OBV金叉")
+    _try(obv_ma5, obv_ma10, "OBV金叉")
 
-    # 8. 布林中轨金叉 —— 价格向上穿越 MA20
-    if _crossed_up(c, ma20, 3):
-        fired.append("布林中轨金叉")
-
-    return len(fired), fired
+    freshness = float(np.mean([max(0.0, 1.0 - d * 0.2) for d in recency])) if recency else 0.0
+    return len(fired), fired, freshness
 
 
 # ── 主扫描 ────────────────────────────────────────────────────────────────────
@@ -226,7 +205,7 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
                 df = df[df["date"] <= as_of_date]
                 if df.empty:
                     return None
-            score, signals = _score_stock(df)
+            score, signals, freshness = _score_stock(df)
             if score < 3:
                 return None
             name = name_map.get(code, code)
@@ -236,12 +215,13 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
             if not (3.0 <= close <= 500.0):
                 return None
             return {
-                "code":     code,
-                "name":     name,
-                "industry": ind_map.get(code, ""),
-                "close":    round(close, 2),
-                "gc_score": score,
-                "signals":  signals,
+                "code":      code,
+                "name":      name,
+                "industry":  ind_map.get(code, ""),
+                "close":     round(close, 2),
+                "gc_score":  score,
+                "freshness": round(freshness, 3),
+                "signals":   signals,
             }
         except Exception:
             return None
@@ -255,22 +235,18 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
             if res:
                 results.append(res)
 
-    results.sort(key=lambda x: (-x["gc_score"], x["code"]))
+    results.sort(key=lambda x: (-x["gc_score"], -x.get("freshness", 0.0), x["code"]))
 
     tiers: dict[str, list] = {t: [] for t in _TIER_MIN}
     for r in results:
         sc = r["gc_score"]
-        if sc == 8:   tiers["G0"].append(r)
-        elif sc == 7: tiers["G1"].append(r)
-        elif sc == 6: tiers["G2"].append(r)
-        elif sc == 5: tiers["G3"].append(r)
-        elif sc == 4: tiers["G4"].append(r)
-        elif sc == 3: tiers["G5"].append(r)
+        if sc == 5:   tiers["G0"].append(r)
+        elif sc == 4: tiers["G1"].append(r)
+        elif sc == 3: tiers["G2"].append(r)
 
     total = sum(len(v) for v in tiers.values())
     print(f"[golden_cross] 共 {total} 只："
-          f"G0={len(tiers['G0'])} G1={len(tiers['G1'])} G2={len(tiers['G2'])} "
-          f"G3={len(tiers['G3'])} G4={len(tiers['G4'])} G5={len(tiers['G5'])}")
+          f"G0(5/5)={len(tiers['G0'])} G1(4/5)={len(tiers['G1'])} G2(3/5)={len(tiers['G2'])}")
 
     output = {"date": date, "tiers": tiers, "all_picks": results}
 

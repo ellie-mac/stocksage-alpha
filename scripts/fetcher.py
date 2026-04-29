@@ -13,6 +13,63 @@ from datetime import datetime, timedelta
 from typing import Optional
 import cache
 
+_quality_warned: set[str] = set()   # (code, date_str) pairs already warned today
+
+
+def check_price_quality(df: pd.DataFrame, code: str, *, print_ok: bool = False) -> list[str]:
+    """
+    Run data quality checks on a price DataFrame; print warnings and return issue list.
+    Called by factor_analysis / backtest after fetching price data.
+    Suppresses repeated warnings for the same stock within the same process run.
+    """
+    import numpy as np
+    from datetime import date as _date
+
+    today_key = f"{code}_{_date.today().isoformat()}"
+    if today_key in _quality_warned:
+        return []
+
+    issues: list[str] = []
+    try:
+        if df is None or df.empty:
+            return issues
+        n = len(df)
+
+        # 1. Excess zero-volume days in last 30 bars
+        if "volume" in df.columns and n >= 10:
+            window = min(30, n)
+            vol = pd.to_numeric(df["volume"].iloc[-window:], errors="coerce").fillna(0)
+            zero_pct = float((vol == 0).mean())
+            if zero_pct > 0.20:
+                issues.append(f"volume=0 占 {zero_pct:.0%} (last {window}d)")
+
+        # 2. Single-day price gap >30% (likely bad data, not genuine limit-up)
+        if "close" in df.columns and n >= 2:
+            cls = pd.to_numeric(df["close"], errors="coerce")
+            daily_ret = cls.pct_change().abs()
+            bad = daily_ret[daily_ret > 0.30]
+            if not bad.empty:
+                issues.append(f"price gap >30% on {len(bad)} day(s)")
+
+        # 3. Adj-factor jump heuristic: consecutive close ratio >1.5 (split not followed by adj)
+        if "close" in df.columns and n >= 2:
+            cls = pd.to_numeric(df["close"], errors="coerce").fillna(method="ffill")
+            ratio = (cls / cls.shift(1)).dropna()
+            large_jump = ratio[(ratio > 1.5) | (ratio < 0.4)]
+            if not large_jump.empty:
+                issues.append(f"possible un-adjusted split on {len(large_jump)} day(s)")
+
+    except Exception:
+        pass
+
+    if issues:
+        _quality_warned.add(today_key)
+        print(f"[DATA-WARN] {code}: {'; '.join(issues)}", flush=True)
+    elif print_ok:
+        print(f"[DATA-OK]   {code}: no issues", flush=True)
+    return issues
+
+
 _spot_lock = threading.Lock()
 _spot_em_failed = False       # True after a timeout; reset after _SPOT_RETRY_SEC
 _spot_em_failed_at: float = 0.0
@@ -1351,6 +1408,10 @@ def get_market_regime_data() -> Optional[pd.DataFrame]:
     """
     Fetch CSI 300 (沪深300) recent price history for market regime detection.
     Returns last 300 trading days. Cached for 2 hours.
+
+    The returned DataFrame always contains:
+      - "trade_date": string in YYYYMMDD format (the calendar date for each row)
+      - "close":      float closing price
     """
     cache_key = "market_regime_data"
     cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY * 2)
@@ -1368,14 +1429,86 @@ def get_market_regime_data() -> Optional[pd.DataFrame]:
             close_col = next((c for c in df.columns if "close" in c.lower() or "收盘" in c), None)
             if close_col is None:
                 continue
+            # Identify the date column (first column) and preserve it as "trade_date"
+            date_col = df.columns[0]
             df = df.rename(columns={close_col: "close"})
             df["close"] = pd.to_numeric(df["close"], errors="coerce")
-            df = df.dropna(subset=["close"]).tail(300).reset_index(drop=True)
+            # Normalise date column to YYYYMMDD string (strip any separators like '-' or '/')
+            try:
+                df["trade_date"] = (
+                    pd.to_datetime(df[date_col], errors="coerce")
+                    .dt.strftime("%Y%m%d")
+                )
+            except Exception:
+                df["trade_date"] = df[date_col].astype(str).str.replace("-", "", regex=False).str.replace("/", "", regex=False).str[:8]
+            # Keep only the columns we need
+            df = df[["trade_date", "close"]].dropna(subset=["close"]).tail(1500).reset_index(drop=True)
             cache.set_df(cache_key, df)
             return df
         except Exception:
             continue
     return None
+
+
+def get_index_universe(index_code: str = "000300.SH", trade_date: str = "") -> list:
+    """
+    Get CSI index constituents as of trade_date (YYYYMMDD).
+    Returns list of 6-digit stock codes. Empty list on failure (caller uses fallback).
+
+    index_weight is monthly data; we cache by (index_code, YYYYMM) and select the
+    most recent trade_date <= asof_date within the month to avoid look-ahead.
+    Falls back to the previous month's cache if the current month has no data yet.
+    """
+    if not trade_date or len(trade_date) < 6:
+        return []
+    yyyymm = trade_date[:6]
+
+    def _fetch_month(ym: str) -> list:
+        """Fetch and cache all rows for a given YYYYMM month."""
+        cache_key = f"idx_uni_{index_code}_{ym}"
+        cached = cache.get(cache_key, cache.TTL_VALUATION)
+        if cached is not None:
+            return cached
+        try:
+            pro = _get_tushare_pro()
+            if pro is None:
+                return []
+            # Compute month end: advance to first day of next month then subtract 1
+            y, m = int(ym[:4]), int(ym[4:])
+            nm_y, nm_m = (y + 1, 1) if m == 12 else (y, m + 1)
+            month_end = (datetime(nm_y, nm_m, 1) - timedelta(days=1)).strftime("%Y%m%d")
+            month_start = f"{ym}01"
+            df = pro.index_weight(index_code=index_code,
+                                  start_date=month_start, end_date=month_end)
+            if df is None or df.empty:
+                return []
+            # Store as list of (trade_date, con_code) pairs for later filtering
+            rows = [(str(r["trade_date"]), str(r["con_code"])[:6])
+                    for _, r in df.iterrows()]
+            cache.set(cache_key, rows)
+            return rows
+        except Exception:
+            return []
+
+    def _select(rows: list, asof: str) -> list:
+        """From (trade_date, code) rows pick the latest trade_date <= asof."""
+        valid = [td for td, _ in rows if td <= asof]
+        if not valid:
+            return []
+        latest = max(valid)
+        return sorted({code for td, code in rows if td == latest})
+
+    rows = _fetch_month(yyyymm)
+    result = _select(rows, trade_date)
+    if len(result) >= 50:
+        return result
+
+    # Current month has no data yet — try previous month
+    y, m = int(yyyymm[:4]), int(yyyymm[4:])
+    prev_ym = f"{y - 1}12" if m == 1 else f"{y}{m - 1:02d}"
+    rows_prev = _fetch_month(prev_ym)
+    result_prev = _select(rows_prev, trade_date)
+    return result_prev if len(result_prev) >= 50 else []
 
 
 def _get_concept_1m_ret(concept_name: str) -> Optional[float]:

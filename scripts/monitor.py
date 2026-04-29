@@ -317,14 +317,18 @@ def check_sell_signals(scored: dict, thresholds: dict,
 
 
 def check_buy_signal(scored: dict, thresholds: dict, held_codes: set) -> bool:
-    buy_trigger  = thresholds.get("buy_score_trigger", 65)
-    sell_trigger = thresholds.get("sell_score_trigger", 60)
+    buy_trigger   = thresholds.get("buy_score_trigger", 65)
+    sell_trigger  = thresholds.get("sell_score_trigger", 60)
+    # Explicit dead-band: score must be below this to open a new position.
+    # Replaces the implicit 0.85 * sell_trigger so the hysteresis window is transparent.
+    buy_open_trigger = thresholds.get("buy_open_trigger", max(buy_trigger, 70))
+    buy_sell_guard   = thresholds.get("buy_sell_guard",   max(0, sell_trigger - 10))
     bear_sell_cap = thresholds.get("_bear_sell_cap")   # set in bear regime only
     if scored["code"] in held_codes:
         return False
-    if scored["buy_score"] < buy_trigger:
+    if scored["buy_score"] < buy_open_trigger:
         return False
-    if scored["sell_score"] >= sell_trigger * 0.85:
+    if scored["sell_score"] >= buy_sell_guard:
         return False
     # Bear regime: additionally require sell_score below cap (rule out falling knives)
     if bear_sell_cap is not None and scored["sell_score"] >= bear_sell_cap:
@@ -553,6 +557,7 @@ def fast_check_holdings(
     alert_state: dict,                          # 急涨 / 做T: normal cooldown
     t_trade_state: Optional[dict] = None,       # {code: {sell_price, cover_price, date}}
     urgent_alert_state: Optional[dict] = None,  # 止损 / 急跌: separate shorter cooldown
+    atr_cache: Optional[dict] = None,           # {code: atr_value} pre-computed by caller
 ) -> list[dict]:
     """
     Quick scan using only realtime quotes.  Returns list of alert dicts with:
@@ -568,11 +573,18 @@ def fast_check_holdings(
         selling a tranche at current price and set a target buy-back price.
       Phase 2 — Buy back: when price drops back to ≤ cover_price, suggest covering.
       Requires pre-existing shares (use holdings with shares bought before today).
+
+    ATR-adaptive thresholds (optional):
+      If atr_cache is provided and contains a stock's ATR, the surge/drop trigger is
+      computed as k × ATR/price.  k_surge / k_drop configurable via thresholds.
+      Falls back to the fixed pct thresholds when atr_cache is missing/absent.
     """
     cooldown_min        = thresholds.get("fast_alert_cooldown_min", 30)
     urgent_cooldown_min = thresholds.get("fast_urgent_cooldown_min", 15)
-    intraday_drop_trigger  = thresholds.get("intraday_drop_trigger_pct", -5.0)
-    intraday_surge_trigger = thresholds.get("intraday_surge_trigger_pct", 7.0)
+    intraday_drop_trigger_default  = thresholds.get("intraday_drop_trigger_pct", -5.0)
+    intraday_surge_trigger_default = thresholds.get("intraday_surge_trigger_pct", 7.0)
+    atr_k_surge = thresholds.get("atr_k_surge", 2.0)   # surge = k × ATR/price
+    atr_k_drop  = thresholds.get("atr_k_drop",  1.5)   # drop  = -k × ATR/price
     t_sell_trigger = thresholds.get("t_trade_sell_pct", 3.0)
     t_cover_pct    = thresholds.get("t_trade_cover_pct", 1.5)  # drop % from T-sell price
 
@@ -595,10 +607,23 @@ def fast_check_holdings(
         pnl_pct    = ((price - cost) / cost * 100) if cost > 0 else 0.0
         change_pct = quote.get("change_pct") or 0.0
 
+        is_limit_up   = change_pct >= 9.5
+        is_limit_down = change_pct <= -9.5
+
+        # ATR-adaptive thresholds: use per-stock volatility if caller pre-computed ATR
+        if atr_cache and code in atr_cache and price > 0:
+            atr_pct = atr_cache[code] / price * 100
+            intraday_surge_trigger =  atr_k_surge * atr_pct
+            intraday_drop_trigger  = -atr_k_drop  * atr_pct
+        else:
+            intraday_surge_trigger = intraday_surge_trigger_default
+            intraday_drop_trigger  = intraday_drop_trigger_default
+
         # ── Urgent reasons (急跌) — own cooldown bucket ───────────────────────
         urgent_reasons = []
         if change_pct <= intraday_drop_trigger:
-            urgent_reasons.append(f"日内急跌 {change_pct:+.1f}%")
+            note = "（已跌停，委托可能无法成交）" if is_limit_down else ""
+            urgent_reasons.append(f"日内急跌 {change_pct:+.1f}%{note}")
 
         last_urgent = urgent_alert_state.get(code)
         if last_urgent and (now - last_urgent).total_seconds() / 60 < urgent_cooldown_min:
@@ -618,8 +643,8 @@ def fast_check_holdings(
                 t_trade_state.pop(code, None)  # evict stale entry so it doesn't accumulate
                 ts = {}
 
-            if not ts and change_pct >= t_sell_trigger:
-                # Phase 1: intraday high → suggest T-sell
+            if not ts and change_pct >= t_sell_trigger and not is_limit_up:
+                # Phase 1: intraday high → suggest T-sell (skip if limit-up: can't execute)
                 cover_price = round(price * (1 - t_cover_pct / 100), 2)
                 normal_reasons.append(
                     f"📈 做T卖出参考: 涨幅 {change_pct:+.1f}%，"

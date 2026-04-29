@@ -24,6 +24,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import datetime
+import hashlib
 import json
 import os
 import sys
@@ -199,6 +201,53 @@ def _detect_regime(regime_close: Optional[pd.Series],
     return r, REGIME_EXPOSURE[r], weights_table[r]
 
 
+def _precompute_regimes(
+    regime_close: Optional[pd.Series],
+    n_periods: int,
+    step: int,
+    weights_table: dict,
+    min_duration: int = 2,
+) -> list[tuple[str, float, dict]]:
+    """
+    Pre-compute regime for every period with causal minimum-duration smoothing.
+
+    A regime switch is only confirmed after it persists for min_duration consecutive
+    periods (processed oldest→newest). This replaces the prior isolated-blip filter
+    which required knowing the next period's regime — a look-ahead bias.
+
+    Array layout: index 0 = most recent period, index n-1 = oldest.
+    Causal direction: oldest→newest = high-index→low-index.
+    """
+    raw = [
+        _detect_regime(regime_close, i * step, weights_table)
+        for i in range(n_periods)
+    ]
+    if len(raw) <= 2:
+        return raw
+
+    smoothed       = list(raw)
+    confirmed      = raw[-1]   # oldest period starts as the confirmed regime
+    pending_regime = raw[-1]
+    pending_count  = 1
+
+    for i in range(len(raw) - 2, -1, -1):  # oldest→newest
+        if raw[i][0] == confirmed[0]:
+            smoothed[i]    = raw[i]
+            pending_regime = raw[i]
+            pending_count  = 1
+        elif raw[i][0] == pending_regime[0]:
+            pending_count += 1
+            if pending_count >= min_duration:
+                confirmed = raw[i]
+            smoothed[i] = confirmed
+        else:
+            pending_regime = raw[i]
+            pending_count  = 1
+            smoothed[i]    = confirmed
+
+    return smoothed
+
+
 # ---------------------------------------------------------------------------
 # Main backtest runner
 # ---------------------------------------------------------------------------
@@ -215,6 +264,7 @@ def run_backtest(
     use_regime: bool = True,    # apply market-regime exposure filter
     sector_neutral: bool = True, # demean scores within each sector before ranking
     weights_table: Optional[dict] = None,  # regime->weights map; None = REGIME_WEIGHTS (main)
+    min_liquidity_wan: float = 0.0,  # min avg daily trading amount in 万元; 0 = disabled
 ) -> dict:
     """
     Run a long-only quantile portfolio backtest.
@@ -247,12 +297,23 @@ def run_backtest(
         else:
             print("  Warning: sector map unavailable, falling back to global ranking\n")
 
-    # Load CSI 300 close series for regime filter
+    # Load market data: DataFrame (trade_date + close) for PIT slicing,
+    # and a plain close Series for regime detection.
+    _market_df: Optional[pd.DataFrame] = fetcher.get_market_regime_data()
     regime_close: Optional[pd.Series] = None
+    if _market_df is not None and "close" in _market_df.columns:
+        regime_close = pd.to_numeric(_market_df["close"], errors="coerce").dropna().reset_index(drop=True)
+
+    # Pre-compute (and smooth) all regimes before entering the period loop.
     if use_regime:
-        _rdf = fetcher.get_market_regime_data()
-        if _rdf is not None and "close" in _rdf.columns:
-            regime_close = pd.to_numeric(_rdf["close"], errors="coerce").dropna().reset_index(drop=True)
+        pre_regimes = _precompute_regimes(regime_close, n_periods, step,
+                                          weights_table or REGIME_WEIGHTS)
+    else:
+        wt = (weights_table or REGIME_WEIGHTS)["NORMAL"]
+        pre_regimes = [("NORMAL", REGIME_EXPOSURE["NORMAL"], wt)] * n_periods
+
+    # Pre-fetch shared spot data (used by sector_sympathy factor)
+    _spot_df = fetcher._get_spot_df()
 
     period_results: list[dict] = []
 
@@ -261,17 +322,35 @@ def run_backtest(
             price_offset = period_idx * step
             print(f"  Period {period_idx + 1}/{n_periods}  (price_offset={price_offset}d)")
 
+            # ── Historicize market data and derive asof_date ─────────────────
+            asof_date = ""
+            market_df_period: Optional[pd.DataFrame] = None
+            if _market_df is not None:
+                if price_offset > 0 and len(_market_df) > price_offset:
+                    market_df_period = _market_df.iloc[:-price_offset].copy()
+                else:
+                    market_df_period = _market_df
+                if (market_df_period is not None
+                        and not market_df_period.empty
+                        and "trade_date" in market_df_period.columns):
+                    asof_date = str(market_df_period["trade_date"].iloc[-1])
+
+            _shared: dict = {
+                "market_df":  market_df_period,
+                "spot_df":    _spot_df,
+                "market_ret": None,
+                "asof_date":  asof_date,
+            }
+
             futures = {
-                ex.submit(compute_stock_scores, code, forward_days, group, price_offset): code
+                ex.submit(compute_stock_scores, code, forward_days, group,
+                          price_offset, _shared): code
                 for code in codes
             }
 
-            # Detect regime BEFORE scoring so we use the right factor weights
-            if use_regime:
-                regime_name, exposure, regime_wts = _detect_regime(regime_close, price_offset, weights_table)
-            else:
-                wt = (weights_table or REGIME_WEIGHTS)["NORMAL"]
-                regime_name, exposure, regime_wts = "NORMAL", 1.0, wt
+            # Use pre-computed (smoothed) regime for this period
+            regime_name, exposure, regime_wts = pre_regimes[period_idx]
+            print(f"    Regime: {regime_name} ({exposure:.0%})  asof={asof_date}")
 
             period_rows: list[dict] = []
             per_period_timeout = len(codes) * 60  # 60s budget per stock
@@ -287,15 +366,27 @@ def run_backtest(
                         if comp is None:
                             continue
                         period_rows.append({
-                            "code":         code,
-                            "composite":    comp,
-                            "forward_ret":  r.get("forward_ret"),
+                            "code":              code,
+                            "composite":         comp,
+                            "forward_ret":       r.get("forward_ret"),
+                            "_avg_daily_amt_wan": r.get("_avg_daily_amt_wan", 0.0),
                         })
                     except Exception:
                         pass
             except concurrent.futures.TimeoutError:
                 print(f"    Warning: period timed out after {per_period_timeout}s, "
                       f"collected {len(period_rows)} stocks so far")
+
+            if min_liquidity_wan > 0:
+                n_before = len(period_rows)
+                period_rows = [
+                    r for r in period_rows
+                    if (r.get("_avg_daily_amt_wan") or 0.0) >= min_liquidity_wan
+                ]
+                n_dropped = n_before - len(period_rows)
+                if n_dropped:
+                    print(f"    Liquidity filter (≥{min_liquidity_wan:.0f}万/d): "
+                          f"removed {n_dropped} illiquid stocks, {len(period_rows)} remain")
 
             if len(period_rows) < max(10, top_n * 2):
                 print(f"    Skipped — only {len(period_rows)} valid stocks\n")
@@ -333,6 +424,13 @@ def run_backtest(
             else:
                 df_period = df_period.sort_values("composite", ascending=False).reset_index(drop=True)
 
+            # Signals cache: save snapshot & compare with previous run for drift detection
+            cache_stats = {}
+            if asof_date:
+                cache_stats = _signals_cache_save_and_compare(
+                    asof_date, df_period, group, regime_wts, top_n
+                )
+
             long_basket  = df_period.head(top_n)
             short_basket = df_period.tail(top_n)  # bottom quantile for reference
 
@@ -368,6 +466,8 @@ def run_backtest(
                 ),
                 "decile_rets":     decile_rets,
                 "top_stocks":      long_basket["code"].tolist(),
+                "signal_id":       cache_stats.get("signal_id", ""),
+                "cache_drift":     {k: v for k, v in cache_stats.items() if k != "signal_id"},
             })
 
             regime_tag = (f"  [{regime_name} exp={exposure:.0%}]"
@@ -394,17 +494,18 @@ def run_backtest(
 
     return {
         "meta": {
-            "n_stocks":      n_stocks,
-            "n_periods":     len(period_results),
-            "forward_days":  forward_days,
-            "step_days":     step,
-            "top_pct":       top_pct,
-            "top_n":         top_n,
-            "txn_cost_pct":  txn_cost_pct,
-            "group":         group,
-            "use_regime":    use_regime,
-            "sector_neutral": sector_neutral,
-            "strategy":      strategy_label,
+            "n_stocks":        n_stocks,
+            "n_periods":       len(period_results),
+            "forward_days":    forward_days,
+            "step_days":       step,
+            "top_pct":         top_pct,
+            "top_n":           top_n,
+            "txn_cost_pct":    txn_cost_pct,
+            "group":           group,
+            "use_regime":      use_regime,
+            "sector_neutral":  sector_neutral,
+            "strategy":        strategy_label,
+            "min_liquidity_wan": min_liquidity_wan,
         },
         "period_results":      period_results,
         "cumulative_portfolio": cum_port,
@@ -481,6 +582,109 @@ def _cumulative(rets: list[Optional[float]]) -> list[Optional[float]]:
 
 
 # ---------------------------------------------------------------------------
+# Signals cache — lightweight snapshot & drift detection
+# ---------------------------------------------------------------------------
+_SIGNALS_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "signals_cache")
+
+
+def _signals_cache_save_and_compare(
+    asof_date: str,
+    df_sorted: "pd.DataFrame",
+    group: str,
+    regime_wts: dict,
+    top_n: int,
+) -> dict:
+    """
+    Save composite scores for this period to a local cache and compare with the
+    previous run for the same asof_date.
+
+    Cache file: signals_cache/{asof_date}_{group}.json
+    Saved fields: signal_id, scores {code→composite}, top20, bottom20.
+
+    Comparison (if previous exists): Spearman rank correlation + top-N Jaccard.
+    Returns a dict with signal_id and comparison stats (or empty dict on error).
+    """
+    os.makedirs(_SIGNALS_CACHE_DIR, exist_ok=True)
+
+    score_col = "score_adj" if "score_adj" in df_sorted.columns else "composite"
+    if "code" not in df_sorted.columns or score_col not in df_sorted.columns:
+        return {}
+
+    scores_map: dict[str, float] = {
+        str(row["code"]): round(float(row[score_col]), 4)
+        for _, row in df_sorted.iterrows()
+    }
+    sorted_codes = list(df_sorted["code"].astype(str))
+    top20 = sorted_codes[:min(20, top_n)]
+    bottom20 = sorted_codes[max(0, len(sorted_codes) - 20):]
+
+    # signal_id = hash(asof_date + universe + group + weights)
+    universe_hash = hashlib.md5(",".join(sorted(scores_map.keys())).encode()).hexdigest()[:8]
+    weights_str = json.dumps(regime_wts, sort_keys=True)
+    weights_hash = hashlib.md5(weights_str.encode()).hexdigest()[:8]
+    signal_id = hashlib.md5(
+        f"{asof_date}|{universe_hash}|{group}|{weights_hash}".encode()
+    ).hexdigest()[:12]
+
+    cache_path = os.path.join(_SIGNALS_CACHE_DIR, f"{asof_date}_{group}.json")
+
+    comparison: dict = {}
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, encoding="utf-8") as f:
+                prev = json.load(f)
+            prev_scores: dict = prev.get("scores", {})
+            common_codes = [c for c in scores_map if c in prev_scores]
+            if len(common_codes) >= 10:
+                cur_vals = pd.Series([scores_map[c] for c in common_codes])
+                prv_vals = pd.Series([prev_scores[c] for c in common_codes])
+                spearman = float(
+                    cur_vals.rank().corr(prv_vals.rank())
+                )
+                prev_top20 = set(prev.get("top20", []))
+                curr_top20 = set(top20)
+                jaccard = (
+                    len(prev_top20 & curr_top20) / len(prev_top20 | curr_top20)
+                    if prev_top20 | curr_top20
+                    else 1.0
+                )
+                comparison = {
+                    "prev_signal_id": prev.get("signal_id", ""),
+                    "prev_saved_at": prev.get("saved_at", ""),
+                    "n_common": len(common_codes),
+                    "spearman_vs_prev": round(spearman, 4),
+                    "top20_jaccard_vs_prev": round(jaccard, 4),
+                }
+                flag = ""
+                if spearman < 0.90:
+                    flag = " ⚠ LARGE DRIFT"
+                elif spearman < 0.95:
+                    flag = " (minor drift)"
+                print(f"    signals_cache [{asof_date}]: "
+                      f"Spearman={spearman:.3f}  top20_overlap={jaccard:.2f}{flag}")
+        except Exception:
+            pass
+
+    snapshot = {
+        "signal_id": signal_id,
+        "asof_date": asof_date,
+        "group": group,
+        "n_stocks": len(scores_map),
+        "scores": scores_map,
+        "top20": top20,
+        "bottom20": bottom20,
+        "saved_at": datetime.datetime.now().isoformat(timespec="seconds"),
+    }
+    try:
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(snapshot, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+    return {"signal_id": signal_id, **comparison}
+
+
+# ---------------------------------------------------------------------------
 # CLI output helpers
 # ---------------------------------------------------------------------------
 
@@ -548,6 +752,54 @@ def _print_results(result: dict) -> None:
         bar = "#" * max(0, int((val + 5) * 2))
         print(f"  {label:<9} {val:>+6.2f}%  {bar}")
 
+    _print_bias_audit(meta)
+
+
+def _print_bias_audit(meta: dict) -> None:
+    """Print a structured backtest integrity checklist."""
+    print("\n" + "=" * 62)
+    print("BACKTEST INTEGRITY AUDIT")
+    print("=" * 62)
+
+    group   = meta.get("group", "A")
+    fwd     = meta.get("forward_days", 20)
+    step    = meta.get("step_days", 20)
+    cost    = meta.get("txn_cost_pct", 0.0)
+    n_per   = meta.get("n_periods", 0)
+    liq     = meta.get("min_liquidity_wan", 0)
+
+    def _chk(ok: bool, msg: str) -> None:
+        print(f"  {'[✓]' if ok else '[!]'} {msg}")
+
+    _chk(True, "Suspension: pre-signal 0-volume lookback applied")
+    _chk(True, "Signal-day limit: |change_pct| ≥ 9.5% excluded before scoring")
+    _chk(liq > 0,
+         f"Liquidity: {'≥' + str(int(liq)) + '万/d ADV filter applied'  if liq > 0 else 'OFF — add --min-liquidity to filter illiquid stocks'}")
+    _chk(group.upper() == "A",
+         f"Look-ahead (group={group}): " + (
+             "price-only, no structural look-ahead"
+             if group.upper() == "A"
+             else "[!] fundamental/social factors use CURRENT data for all historical periods"
+         ))
+    _chk(step >= fwd,
+         f"Period overlap: step={step}d, fwd={fwd}d — " + (
+             "non-overlapping"
+             if step >= fwd
+             else f"[!] {fwd - step}d overlap → serial correlation in IC series"
+         ))
+    _chk(cost > 0,
+         f"Transaction cost: {cost:.2f}%/period" + (" applied" if cost > 0 else " — [!] MISSING"))
+    _chk(n_per >= 8,
+         f"Period count: {n_per}" + (
+             " (≥8, statistically meaningful)"
+             if n_per >= 8
+             else " (<8, noise-dominated)"
+         ))
+    print("  [!] Survivorship: fixed universe does not exclude delisted stocks")
+    print("  [!] PIT proxy: mandatory disclosure deadlines, not actual announcement dates")
+    print("  [!] Execution: equal-weight full-fill; no market-impact or partial-fill model")
+    print("  [!] walk-forward OOS: no true train/test split — all periods use current weights")
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -568,6 +820,7 @@ if __name__ == "__main__":
     parser.add_argument("--no-regime",         action="store_true",      help="Disable market-regime exposure filter")
     parser.add_argument("--no-sector-neutral", action="store_true",      help="Disable sector neutralization (use raw composite scores)")
     parser.add_argument("--smallcap",          action="store_true",      help="Use small-cap regime weights (REGIME_WEIGHTS_SMALLCAP)")
+    parser.add_argument("--min-liquidity",     type=float, default=0.0,  help="Min avg daily trading amount in 万元 (default 0 = disabled)")
     args = parser.parse_args()
 
     if args.universe:
@@ -583,17 +836,18 @@ if __name__ == "__main__":
     wt = REGIME_WEIGHTS_SMALLCAP if args.smallcap else REGIME_WEIGHTS
 
     result = run_backtest(
-        codes          = codes,
-        forward_days   = args.fwd,
-        n_periods      = args.periods,
-        step           = args.step,
-        top_pct        = args.top / 100,
-        txn_cost_pct   = args.cost,
-        group          = args.group,
-        max_workers    = args.workers,
-        use_regime     = not args.no_regime,
-        sector_neutral = not args.no_sector_neutral,
-        weights_table  = wt,
+        codes            = codes,
+        forward_days     = args.fwd,
+        n_periods        = args.periods,
+        step             = args.step,
+        top_pct          = args.top / 100,
+        txn_cost_pct     = args.cost,
+        group            = args.group,
+        max_workers      = args.workers,
+        use_regime       = not args.no_regime,
+        sector_neutral   = not args.no_sector_neutral,
+        weights_table    = wt,
+        min_liquidity_wan = args.min_liquidity,
     )
 
     _print_results(result)
@@ -602,3 +856,30 @@ if __name__ == "__main__":
         with open(args.out, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
         print(f"\nFull results saved to {args.out}")
+        # Run manifest for reproducibility
+        meta = result.get("meta", {})
+        manifest = {
+            "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+            "params": {
+                "periods": args.periods, "fwd": args.fwd, "step": args.step,
+                "top_pct": args.top, "group": args.group, "cost": args.cost,
+                "use_regime": not args.no_regime,
+                "sector_neutral": not args.no_sector_neutral,
+                "min_liquidity_wan": args.min_liquidity,
+                "strategy": "smallcap" if args.smallcap else "main",
+            },
+            "data_stats": {
+                "n_stocks": meta.get("n_stocks"),
+                "n_periods_completed": meta.get("n_periods"),
+            },
+            "stats_summary": result.get("stats", {}),
+            "signals_cache_dir": _SIGNALS_CACHE_DIR,
+            "params_hash": hashlib.md5(json.dumps({
+                "periods": args.periods, "fwd": args.fwd, "step": args.step,
+                "top_pct": args.top, "group": args.group, "cost": args.cost,
+            }, sort_keys=True).encode()).hexdigest()[:8],
+        }
+        manifest_path = args.out.rsplit(".", 1)[0] + ".manifest.json"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        print(f"Run manifest saved to {manifest_path}")
