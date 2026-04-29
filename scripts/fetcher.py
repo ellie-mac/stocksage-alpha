@@ -472,7 +472,10 @@ def _get_realtime_quote_tdx(code: str) -> Optional[dict]:
 def get_realtime_quote(code: str) -> Optional[dict]:
     """Return real-time quote fields for a single stock code."""
     try:
-        df = _get_spot_df()
+        try:
+            df = _get_spot_df()
+        except Exception:
+            df = pd.DataFrame()
         if not df.empty:
             row = df[df["代码"] == code]
             if not row.empty:
