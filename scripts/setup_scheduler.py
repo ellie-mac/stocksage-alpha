@@ -128,8 +128,9 @@ TASKS = [
     # ── 收盘 ────────────────────────────────────────────────────────────────
     ("xhs_Evening",     "15:30", "chip_evening",    "小红书收盘筹码分析推送 📱",                      True),
     # ── 收盘后数据预热 ───────────────────────────────────────────────────────
-    ("market_Warm",     "15:35", "market_warm",     "预热市场数据：CSI300/PE/申万/停牌表，不推送",    False),
-    ("price_Prefetch",  "15:45", "price_prefetch",  "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
+    ("market_Warm",      "15:35", "market_warm",      "预热市场数据：CSI300/PE/申万/停牌表，不推送",    False),
+    ("price_Prefetch",   "15:45", "price_prefetch",  "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
+    ("fundflow_Prefetch","16:00", "fundflow_prefetch","预热全市场资金流向缓存（~20min），不推送",       False),
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
     ("daily_PerfLog",   "16:05", "daily_perf_log",  "主策略+筹码+金叉三合一收盘胜率 📱",              True),
     ("chip_Night",      "18:00", "chip_night",      "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
@@ -236,6 +237,9 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
     elif slot == "concept_warm":
         path = TASKS_DIR / "run_concept_warm.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --concept >> "{log}\\prefetch_concept.log" 2>&1'
+    elif slot == "fundflow_prefetch":
+        path = TASKS_DIR / "run_fundflow_prefetch.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH}" --fundflow --force >> "{log}\\prefetch_fundflow.log" 2>&1'
     elif slot == "integrity_check":
         path = TASKS_DIR / "run_integrity_check.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{INTEGRITY_CHECK}" >> "{log}\\integrity_check.log" 2>&1'
