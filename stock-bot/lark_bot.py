@@ -114,7 +114,7 @@ def send_to_chat(chat_id: str, text: str) -> None:
 
 # ── Text constants ────────────────────────────────────────────────────────────
 _HELP = """\
-  cmh 筹码策略 | hot 热榜策略 | gc 金叉共振 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
+  cmh 筹码策略 | hot 热榜策略 | gc 金叉共振 | pos 高低位 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
 
 _FACTOR_HELP = """\
 因子 & 分析
@@ -247,7 +247,7 @@ def _h_status() -> str:
         "factor_analysis.py", "backtest.py", "etf_backtest.py",
         "batch_financials.py", "build_universe.py", "chip_strategy.py",
         "daily_chip_scan.py", "chip_cad.py", "run_cad_pipeline.py",
-        "prefetch.py", "research.py", "integrity_check.py", "hot_scan.py",
+        "prefetch.py", "research.py", "integrity_check.py", "hot_scan.py", "pos_check.py",
     }
     ss_procs, other_procs = [], []
     for pid, cmd in proc_list:
@@ -617,6 +617,27 @@ def _h_hot_scan(top_pct: float = 5.0, cah: bool = False) -> str:
     return f"热榜扫描 {label} 已启动（约1-2分钟）✅\n结果推送到微信 📱"
 
 
+def _h_pos(code: str) -> str:
+    code = re.sub(r'\D', '', code)[:6].zfill(6)
+    if not code.isdigit() or len(code) != 6:
+        return "用法: pos000001 或 pos 600519"
+    try:
+        r = subprocess.run(
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "pos_check.py"), code],
+            cwd=str(ROOT), capture_output=True, text=True, timeout=60,
+            encoding="utf-8", errors="replace",
+        )
+        out = (r.stdout or "").strip()
+        if not out:
+            err = (r.stderr or "").strip()
+            return f"❌ {code} 无输出\n{err[-300:]}" if err else f"❌ {code} 无数据"
+        return out
+    except subprocess.TimeoutExpired:
+        return f"❌ {code} 查询超时（>60s）"
+    except Exception as e:
+        return f"❌ 位置查询失败: {e}"
+
+
 def _h_restart() -> str:
     pid = _find_monitor_pid()
     killed = False
@@ -977,6 +998,12 @@ def _dispatch_sync(t: str) -> str | None:
         top_pct = 20.0 if "20" in rest else (10.0 if "10" in rest else 5.0)
         cah = "h" in rest.replace("10", "").replace("20", "")
         return _h_hot_scan(top_pct=top_pct, cah=cah)
+    if t.startswith("pos"):
+        code = t[3:].strip()
+        return _h_pos(code) if code else "用法: pos000001 或 pos 600519"
+    if t.startswith("位置") or t.startswith("高低位"):
+        code = t.split(None, 1)[1].strip() if " " in t else ""
+        return _h_pos(code) if code else "用法: 位置 000001"
     if t == "cad" or t.startswith("cad"):
         mods = (t[4:].strip().replace(" ", "") or "bekhm") if t.startswith("cadm") else \
                (t[3:].strip().replace(" ", "") or "bekh")
