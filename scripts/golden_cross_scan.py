@@ -293,21 +293,17 @@ def _push_results(data: dict) -> None:
     total  = sum(len(v) for v in tiers.values())
     date_s = f"{date[4:6]}/{date[6:]}"
 
-    # 信号名缩写，放同一行不占空间
     _SIG_SHORT = {
-        "MACD金叉":   "MACD",
-        "KDJ金叉":    "KDJ",
-        "RSI金叉":    "RSI",
-        "MA5/10金叉": "5/10",
-        "MA10/20金叉":"10/20",
-        "量能金叉":   "量",
-        "OBV金叉":    "OBV",
-        "布林中轨金叉":"布林",
+        "MACD金叉":    "MACD",
+        "KDJ金叉":     "KDJ",
+        "MA10/20金叉": "10/20",
+        "量能金叉":    "量",
+        "OBV金叉":     "OBV",
     }
 
-    # G0-G2 列股票（每档最多20只）
-    DETAIL_TIERS  = {"G0": "8信号", "G1": "7信号", "G2": "6信号"}
-    # SUMMARY_TIERS = {"G3": "5信号", "G4": "4信号", "G5": "3信号"}
+    # G0/G1 全量展示；G2 只推前15只（3/5门槛低，全市场可能出数百只）
+    DETAIL_TIERS = {"G0": "5信号", "G1": "4信号"}
+    G2_CAP = 15
 
     lines = []
 
@@ -320,10 +316,13 @@ def _push_results(data: dict) -> None:
             sig_s = "·".join(_SIG_SHORT.get(s, s) for s in p["signals"])
             lines.append(f"{p['code']} {p['name']} ¥{p['close']:.2f}  `{sig_s}`  ")
 
-    # summary_parts = [f"{label} {len(tiers.get(t,[]))}只"
-    #                  for t, label in SUMMARY_TIERS.items() if tiers.get(t)]
-    # if summary_parts:
-    #     lines.append("\n" + "  |  ".join(summary_parts) + "（未展开）  ")
+    g2_picks = tiers.get("G2", [])
+    if g2_picks:
+        suffix = f"（仅展示前{G2_CAP}，共{len(g2_picks)}只）" if len(g2_picks) > G2_CAP else ""
+        lines.append(f"\n**【G2 3信号  {len(g2_picks)}只{suffix}】**  ")
+        for p in g2_picks[:G2_CAP]:
+            sig_s = "·".join(_SIG_SHORT.get(s, s) for s in p["signals"])
+            lines.append(f"{p['code']} {p['name']} ¥{p['close']:.2f}  `{sig_s}`  ")
 
     lines.append("\n⚠️ 仅供参考，不构成投资建议")
     lines.append("#量化记录 #技术指标 #金叉共振 #数据实验")
