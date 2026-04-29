@@ -123181,5 +123181,1844 @@
         ]
       }
     ]
+  },
+  {
+    "date": "2026-04-29",
+    "run_time": "2026-04-29 09:00",
+    "regime_score": 9.0,
+    "source": "monitor",
+    "buy_signals": [],
+    "sell_signals": [
+      {
+        "code": "605358",
+        "name": "立昂微",
+        "signal_price": 0,
+        "change_pct": -100.0,
+        "buy_score": 40.8,
+        "sell_score": 50.0,
+        "bullish": [
+          {
+            "factor": "momentum",
+            "score": 17.7,
+            "signal": ""
+          },
+          {
+            "factor": "market_regime",
+            "score": 9.0,
+            "signal": "bull market (MA5>MA20>MA60)"
+          },
+          {
+            "factor": "nearness_to_high",
+            "score": 8.5,
+            "signal": "near 20d high (3.7% below) — strong momentum"
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "cash_flow_quality",
+            "sell_score": 10.0,
+            "signal": "weak cash backing: CF/NI=1%"
+          },
+          {
+            "factor": "max_return",
+            "sell_score": 10.0,
+            "signal": "extreme spike 8.3% — strong lottery effect, expect underperformance"
+          },
+          {
+            "factor": "piotroski",
+            "sell_score": 9.0,
+            "signal": "weak fundamentals at high price (value trap risk)"
+          }
+        ],
+        "industry": "半导体",
+        "market_cap_b": 0.0,
+        "pe_ttm": null,
+        "pb": null,
+        "turnover_rate": null,
+        "volume_ratio": null,
+        "volume_million": 0.0,
+        "factor_scores": {
+          "value": {
+            "buy": 0,
+            "sell": 0
+          },
+          "growth": {
+            "buy": 4.0,
+            "sell": 15.8
+          },
+          "momentum": {
+            "buy": 17.7,
+            "sell": 5.0
+          },
+          "quality": {
+            "buy": 5.4,
+            "sell": 11.0
+          },
+          "northbound": {
+            "buy": 5.0,
+            "sell": 2.0
+          },
+          "volume": {
+            "buy": 3.5,
+            "sell": 7.1
+          },
+          "position_52w": {
+            "buy": 3.0,
+            "sell": 0
+          },
+          "div_yield": {
+            "buy": 0,
+            "sell": 2.0
+          },
+          "volume_ratio": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "ma_alignment": {
+            "buy": 7.0,
+            "sell": 5.0
+          },
+          "low_volatility": {
+            "buy": 2.5,
+            "sell": 0
+          },
+          "reversal": {
+            "buy": 1.0,
+            "sell": 7.5
+          },
+          "accruals": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "asset_growth": {
+            "buy": 3.6,
+            "sell": 7.0
+          },
+          "piotroski": {
+            "buy": 2.0,
+            "sell": 9.0
+          },
+          "short_interest": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "rsi_signal": {
+            "buy": 4.1,
+            "sell": 0
+          },
+          "macd_signal": {
+            "buy": 6.0,
+            "sell": 3.3
+          },
+          "turnover_percentile": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "chip_distribution": {
+            "buy": 4.0,
+            "sell": 4.0
+          },
+          "shareholder_change": {
+            "buy": 6.0,
+            "sell": 3.0
+          },
+          "lhb": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "lockup_pressure": {
+            "buy": 2.0,
+            "sell": 2.0
+          },
+          "insider": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "institutional_visits": {
+            "buy": 2.0,
+            "sell": 2.0
+          },
+          "industry_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "northbound_actual": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "earnings_revision": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "limit_hits": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "price_inertia": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "social_heat": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "market_regime": {
+            "buy": 9.0,
+            "sell": 0
+          },
+          "concept_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "idiosyncratic_vol": {
+            "buy": 5.4,
+            "sell": 4.6
+          },
+          "gap_frequency": {
+            "buy": 4.5,
+            "sell": 5.5
+          },
+          "atr_normalized": {
+            "buy": 3.0,
+            "sell": 7.0
+          },
+          "return_skewness": {
+            "buy": 4.5,
+            "sell": 5.5
+          },
+          "ma60_deviation": {
+            "buy": 4.3,
+            "sell": 5.7
+          },
+          "divergence": {
+            "buy": 6.1,
+            "sell": 3.9
+          },
+          "main_inflow": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "cash_flow_quality": {
+            "buy": 0,
+            "sell": 10.0
+          },
+          "amihud_illiquidity": {
+            "buy": 7.6,
+            "sell": 2.4
+          },
+          "max_return": {
+            "buy": 0,
+            "sell": 10.0
+          },
+          "turnover_acceleration": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "upday_ratio": {
+            "buy": 7.0,
+            "sell": 3.0
+          },
+          "roe_trend": {
+            "buy": 3.6,
+            "sell": 6.4
+          },
+          "nearness_to_high": {
+            "buy": 8.5,
+            "sell": 1.5
+          },
+          "hammer_bottom": {
+            "buy": 7.0,
+            "sell": 0
+          },
+          "limit_open_rate": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "medium_term_momentum": {
+            "buy": 1.4,
+            "sell": 8.6
+          },
+          "price_volume_corr": {
+            "buy": 4.0,
+            "sell": 2.0
+          }
+        },
+        "shares": 200,
+        "cost_price": 38.487,
+        "pnl_pct": -100.0,
+        "t1_locked": false,
+        "reasons": [
+          "逢高减仓参考: 卖出信号 **50** 显示动能减弱（阈值 40–60）"
+        ]
+      },
+      {
+        "code": "600362",
+        "name": "江西铜业",
+        "signal_price": 0,
+        "change_pct": -100.0,
+        "buy_score": 35.4,
+        "sell_score": 49.3,
+        "bullish": [
+          {
+            "factor": "market_regime",
+            "score": 9.0,
+            "signal": "bull market (MA5>MA20>MA60)"
+          },
+          {
+            "factor": "rsi_signal",
+            "score": 7.6,
+            "signal": "recovering"
+          },
+          {
+            "factor": "ma60_deviation",
+            "score": 7.6,
+            "signal": "大幅低于MA60 -13.0% — 均值回归机会"
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "growth",
+            "sell_score": 19.0,
+            "signal": ""
+          },
+          {
+            "factor": "cash_flow_quality",
+            "sell_score": 9.8,
+            "signal": "weak cash backing: CF/NI=2%"
+          },
+          {
+            "factor": "medium_term_momentum",
+            "sell_score": 9.0,
+            "signal": "中期明显下跌 mom40d=-26.6%"
+          }
+        ],
+        "industry": "Unknown",
+        "market_cap_b": 0.0,
+        "pe_ttm": null,
+        "pb": null,
+        "turnover_rate": null,
+        "volume_ratio": null,
+        "volume_million": 0.0,
+        "factor_scores": {
+          "value": {
+            "buy": 0,
+            "sell": 0
+          },
+          "growth": {
+            "buy": 4.0,
+            "sell": 19.0
+          },
+          "momentum": {
+            "buy": 12.3,
+            "sell": 11.0
+          },
+          "quality": {
+            "buy": 5.4,
+            "sell": 13.0
+          },
+          "northbound": {
+            "buy": 5.0,
+            "sell": 2.0
+          },
+          "volume": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "position_52w": {
+            "buy": 3.0,
+            "sell": 0
+          },
+          "div_yield": {
+            "buy": 0,
+            "sell": 2.0
+          },
+          "volume_ratio": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "ma_alignment": {
+            "buy": 4.0,
+            "sell": 9.0
+          },
+          "low_volatility": {
+            "buy": 1.5,
+            "sell": 0
+          },
+          "reversal": {
+            "buy": 4.8,
+            "sell": 0
+          },
+          "accruals": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "asset_growth": {
+            "buy": 4.6,
+            "sell": 2.0
+          },
+          "piotroski": {
+            "buy": 3.0,
+            "sell": 4.0
+          },
+          "short_interest": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "rsi_signal": {
+            "buy": 7.6,
+            "sell": 0
+          },
+          "macd_signal": {
+            "buy": 6.0,
+            "sell": 3.6
+          },
+          "turnover_percentile": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "chip_distribution": {
+            "buy": 4.0,
+            "sell": 4.0
+          },
+          "shareholder_change": {
+            "buy": 6.0,
+            "sell": 3.0
+          },
+          "lhb": {
+            "buy": 4.9,
+            "sell": 2.0
+          },
+          "lockup_pressure": {
+            "buy": 2.0,
+            "sell": 2.0
+          },
+          "insider": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "institutional_visits": {
+            "buy": 2.0,
+            "sell": 2.0
+          },
+          "industry_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "northbound_actual": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "earnings_revision": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "limit_hits": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "price_inertia": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "social_heat": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "market_regime": {
+            "buy": 9.0,
+            "sell": 0
+          },
+          "concept_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "idiosyncratic_vol": {
+            "buy": 5.3,
+            "sell": 4.7
+          },
+          "gap_frequency": {
+            "buy": 3.0,
+            "sell": 7.0
+          },
+          "atr_normalized": {
+            "buy": 6.1,
+            "sell": 3.9
+          },
+          "return_skewness": {
+            "buy": 5.4,
+            "sell": 4.6
+          },
+          "ma60_deviation": {
+            "buy": 7.6,
+            "sell": 2.4
+          },
+          "divergence": {
+            "buy": 6.7,
+            "sell": 3.3
+          },
+          "main_inflow": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "cash_flow_quality": {
+            "buy": 0.2,
+            "sell": 9.8
+          },
+          "amihud_illiquidity": {
+            "buy": 6.8,
+            "sell": 3.2
+          },
+          "max_return": {
+            "buy": 2.2,
+            "sell": 7.8
+          },
+          "turnover_acceleration": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "upday_ratio": {
+            "buy": 3.0,
+            "sell": 7.0
+          },
+          "roe_trend": {
+            "buy": 4.4,
+            "sell": 5.6
+          },
+          "nearness_to_high": {
+            "buy": 7.5,
+            "sell": 2.5
+          },
+          "hammer_bottom": {
+            "buy": 6.0,
+            "sell": 0
+          },
+          "limit_open_rate": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "medium_term_momentum": {
+            "buy": 1.0,
+            "sell": 9.0
+          },
+          "price_volume_corr": {
+            "buy": 4.0,
+            "sell": 2.0
+          }
+        },
+        "shares": 100,
+        "cost_price": 33.827,
+        "pnl_pct": -100.0,
+        "t1_locked": false,
+        "reasons": [
+          "逢高减仓参考: 卖出信号 **49** 显示动能减弱（阈值 40–60）"
+        ]
+      },
+      {
+        "code": "002050",
+        "name": "三花智控",
+        "signal_price": 0,
+        "change_pct": -100.0,
+        "buy_score": 27.5,
+        "sell_score": 45.3,
+        "bullish": [
+          {
+            "factor": "institutional_visits",
+            "score": 10.0,
+            "signal": "high attention"
+          },
+          {
+            "factor": "divergence",
+            "score": 10.0,
+            "signal": "strong bullish divergence (4/4 signals)"
+          },
+          {
+            "factor": "asset_growth",
+            "score": 9.2,
+            "signal": "moderate"
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "cash_flow_quality",
+            "sell_score": 9.8,
+            "signal": "weak cash backing: CF/NI=2%"
+          },
+          {
+            "factor": "medium_term_momentum",
+            "sell_score": 8.1,
+            "signal": "中期明显下跌 mom40d=-20.4%"
+          },
+          {
+            "factor": "piotroski",
+            "sell_score": 8.0,
+            "signal": "weak"
+          }
+        ],
+        "industry": "家电零部件Ⅱ",
+        "market_cap_b": 0.0,
+        "pe_ttm": null,
+        "pb": null,
+        "turnover_rate": null,
+        "volume_ratio": null,
+        "volume_million": 0.0,
+        "factor_scores": {
+          "value": {
+            "buy": 0,
+            "sell": 0
+          },
+          "growth": {
+            "buy": 4.0,
+            "sell": 16.8
+          },
+          "momentum": {
+            "buy": 3.7,
+            "sell": 11.0
+          },
+          "quality": {
+            "buy": 8.6,
+            "sell": 0
+          },
+          "northbound": {
+            "buy": 5.0,
+            "sell": 2.0
+          },
+          "volume": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "position_52w": {
+            "buy": 3.0,
+            "sell": 0
+          },
+          "div_yield": {
+            "buy": 0,
+            "sell": 2.0
+          },
+          "volume_ratio": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "ma_alignment": {
+            "buy": 4.0,
+            "sell": 9.0
+          },
+          "low_volatility": {
+            "buy": 5.9,
+            "sell": 0
+          },
+          "reversal": {
+            "buy": 4.5,
+            "sell": 0
+          },
+          "accruals": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "asset_growth": {
+            "buy": 9.2,
+            "sell": 0
+          },
+          "piotroski": {
+            "buy": 2.0,
+            "sell": 8.0
+          },
+          "short_interest": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "rsi_signal": {
+            "buy": 6.4,
+            "sell": 0
+          },
+          "macd_signal": {
+            "buy": 6.0,
+            "sell": 3.8
+          },
+          "turnover_percentile": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "chip_distribution": {
+            "buy": 4.0,
+            "sell": 4.0
+          },
+          "shareholder_change": {
+            "buy": 6.0,
+            "sell": 3.0
+          },
+          "lhb": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "lockup_pressure": {
+            "buy": 2.0,
+            "sell": 2.0
+          },
+          "insider": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "institutional_visits": {
+            "buy": 10.0,
+            "sell": 0
+          },
+          "industry_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "northbound_actual": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "earnings_revision": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "limit_hits": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "price_inertia": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "social_heat": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "market_regime": {
+            "buy": 9.0,
+            "sell": 0
+          },
+          "concept_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "idiosyncratic_vol": {
+            "buy": 7.1,
+            "sell": 2.9
+          },
+          "gap_frequency": {
+            "buy": 3.5,
+            "sell": 6.5
+          },
+          "atr_normalized": {
+            "buy": 5.5,
+            "sell": 4.5
+          },
+          "return_skewness": {
+            "buy": 4.4,
+            "sell": 5.6
+          },
+          "ma60_deviation": {
+            "buy": 6.3,
+            "sell": 3.7
+          },
+          "divergence": {
+            "buy": 10.0,
+            "sell": 0
+          },
+          "main_inflow": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "cash_flow_quality": {
+            "buy": 0.2,
+            "sell": 9.8
+          },
+          "amihud_illiquidity": {
+            "buy": 6.0,
+            "sell": 4.0
+          },
+          "max_return": {
+            "buy": 2.8,
+            "sell": 7.2
+          },
+          "turnover_acceleration": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "upday_ratio": {
+            "buy": 3.0,
+            "sell": 7.0
+          },
+          "roe_trend": {
+            "buy": 2.7,
+            "sell": 7.3
+          },
+          "nearness_to_high": {
+            "buy": 8.3,
+            "sell": 1.7
+          },
+          "hammer_bottom": {
+            "buy": 0,
+            "sell": 0
+          },
+          "limit_open_rate": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "medium_term_momentum": {
+            "buy": 1.9,
+            "sell": 8.1
+          },
+          "price_volume_corr": {
+            "buy": 4.0,
+            "sell": 2.0
+          }
+        },
+        "shares": 100,
+        "cost_price": 53.902,
+        "pnl_pct": -100.0,
+        "t1_locked": false,
+        "reasons": [
+          "逢高减仓参考: 卖出信号 **45** 显示动能减弱（阈值 40–60）"
+        ]
+      },
+      {
+        "code": "688114",
+        "name": "华大智造",
+        "signal_price": 0,
+        "change_pct": -100.0,
+        "buy_score": 34.8,
+        "sell_score": 44.9,
+        "bullish": [
+          {
+            "factor": "growth",
+            "score": 21.0,
+            "signal": ""
+          },
+          {
+            "factor": "ma_alignment",
+            "score": 11.0,
+            "signal": ""
+          },
+          {
+            "factor": "macd_signal",
+            "score": 10.0,
+            "signal": "bullish strengthening (low position — base breakout) (bull market — 趋势延续概率高)"
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "momentum",
+            "sell_score": 20.0,
+            "signal": ""
+          },
+          {
+            "factor": "max_return",
+            "sell_score": 10.0,
+            "signal": "extreme spike 11.0% — strong lottery effect, expect underperformance"
+          },
+          {
+            "factor": "cash_flow_quality",
+            "sell_score": 9.8,
+            "signal": "weak cash backing: CF/NI=3%"
+          }
+        ],
+        "industry": "医疗器械",
+        "market_cap_b": 0.0,
+        "pe_ttm": null,
+        "pb": null,
+        "turnover_rate": null,
+        "volume_ratio": null,
+        "volume_million": 0.0,
+        "factor_scores": {
+          "value": {
+            "buy": 0,
+            "sell": 0
+          },
+          "growth": {
+            "buy": 21.0,
+            "sell": 2.0
+          },
+          "momentum": {
+            "buy": 0.2,
+            "sell": 20.0
+          },
+          "quality": {
+            "buy": 7.8,
+            "sell": 0
+          },
+          "northbound": {
+            "buy": 5.0,
+            "sell": 2.0
+          },
+          "volume": {
+            "buy": 6.9,
+            "sell": 0
+          },
+          "position_52w": {
+            "buy": 3.5,
+            "sell": 0
+          },
+          "div_yield": {
+            "buy": 0,
+            "sell": 2.0
+          },
+          "volume_ratio": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "ma_alignment": {
+            "buy": 11.0,
+            "sell": 0
+          },
+          "low_volatility": {
+            "buy": 3.7,
+            "sell": 0
+          },
+          "reversal": {
+            "buy": 3.7,
+            "sell": 2.0
+          },
+          "accruals": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "asset_growth": {
+            "buy": 8.0,
+            "sell": 0
+          },
+          "piotroski": {
+            "buy": 3.0,
+            "sell": 4.0
+          },
+          "short_interest": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "rsi_signal": {
+            "buy": 4.5,
+            "sell": 0
+          },
+          "macd_signal": {
+            "buy": 10.0,
+            "sell": 0
+          },
+          "turnover_percentile": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "chip_distribution": {
+            "buy": 4.0,
+            "sell": 4.0
+          },
+          "shareholder_change": {
+            "buy": 6.0,
+            "sell": 3.0
+          },
+          "lhb": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "lockup_pressure": {
+            "buy": 2.0,
+            "sell": 2.0
+          },
+          "insider": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "institutional_visits": {
+            "buy": 2.0,
+            "sell": 2.0
+          },
+          "industry_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "northbound_actual": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "earnings_revision": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "limit_hits": {
+            "buy": 8.5,
+            "sell": 0
+          },
+          "price_inertia": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "social_heat": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "market_regime": {
+            "buy": 9.0,
+            "sell": 0
+          },
+          "concept_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "idiosyncratic_vol": {
+            "buy": 6.1,
+            "sell": 3.9
+          },
+          "gap_frequency": {
+            "buy": 4.0,
+            "sell": 6.0
+          },
+          "atr_normalized": {
+            "buy": 3.5,
+            "sell": 6.5
+          },
+          "return_skewness": {
+            "buy": 1.3,
+            "sell": 8.7
+          },
+          "ma60_deviation": {
+            "buy": 6.3,
+            "sell": 3.7
+          },
+          "divergence": {
+            "buy": 8.9,
+            "sell": 1.1
+          },
+          "main_inflow": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "cash_flow_quality": {
+            "buy": 0.2,
+            "sell": 9.8
+          },
+          "amihud_illiquidity": {
+            "buy": 8.4,
+            "sell": 1.6
+          },
+          "max_return": {
+            "buy": 0,
+            "sell": 10.0
+          },
+          "turnover_acceleration": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "upday_ratio": {
+            "buy": 4.0,
+            "sell": 6.0
+          },
+          "roe_trend": {
+            "buy": 3.7,
+            "sell": 6.3
+          },
+          "nearness_to_high": {
+            "buy": 9.4,
+            "sell": 0.6
+          },
+          "hammer_bottom": {
+            "buy": 0,
+            "sell": 0
+          },
+          "limit_open_rate": {
+            "buy": 10.0,
+            "sell": 0
+          },
+          "medium_term_momentum": {
+            "buy": 0.5,
+            "sell": 9.5
+          },
+          "price_volume_corr": {
+            "buy": 4.0,
+            "sell": 2.0
+          }
+        },
+        "shares": 200,
+        "cost_price": 60.094,
+        "pnl_pct": -100.0,
+        "t1_locked": false,
+        "reasons": [
+          "[momentum]  (卖出分=20)",
+          "逢高减仓参考: 卖出信号 **45** 显示动能减弱（阈值 40–60）"
+        ]
+      },
+      {
+        "code": "000821",
+        "name": "ST京机",
+        "signal_price": 0,
+        "change_pct": -100.0,
+        "buy_score": 28.7,
+        "sell_score": 42.1,
+        "bullish": [
+          {
+            "factor": "asset_growth",
+            "score": 10.0,
+            "signal": "disciplined"
+          },
+          {
+            "factor": "institutional_visits",
+            "score": 10.0,
+            "signal": "high attention (at low price — 低位调研=抄底发现低估标的)"
+          },
+          {
+            "factor": "rsi_signal",
+            "score": 9.5,
+            "signal": "recovering"
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "growth",
+            "sell_score": 19.0,
+            "signal": ""
+          },
+          {
+            "factor": "ma_alignment",
+            "sell_score": 13.0,
+            "signal": ""
+          },
+          {
+            "factor": "cash_flow_quality",
+            "sell_score": 10.0,
+            "signal": "negative cash ratio (earnings not backed by cash): CF/NI=-6%"
+          }
+        ],
+        "industry": "Unknown",
+        "market_cap_b": 0.0,
+        "pe_ttm": null,
+        "pb": null,
+        "turnover_rate": null,
+        "volume_ratio": null,
+        "volume_million": 0.0,
+        "factor_scores": {
+          "value": {
+            "buy": 0,
+            "sell": 0
+          },
+          "growth": {
+            "buy": 4.0,
+            "sell": 19.0
+          },
+          "momentum": {
+            "buy": 2.2,
+            "sell": 12.2
+          },
+          "quality": {
+            "buy": 6.2,
+            "sell": 8.0
+          },
+          "northbound": {
+            "buy": 5.0,
+            "sell": 2.0
+          },
+          "volume": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "position_52w": {
+            "buy": 2.0,
+            "sell": 0
+          },
+          "div_yield": {
+            "buy": 0,
+            "sell": 2.0
+          },
+          "volume_ratio": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "ma_alignment": {
+            "buy": 2.0,
+            "sell": 13.0
+          },
+          "low_volatility": {
+            "buy": 2.4,
+            "sell": 0
+          },
+          "reversal": {
+            "buy": 6.5,
+            "sell": 2.0
+          },
+          "accruals": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "asset_growth": {
+            "buy": 10.0,
+            "sell": 0
+          },
+          "piotroski": {
+            "buy": 3.0,
+            "sell": 4.0
+          },
+          "short_interest": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "rsi_signal": {
+            "buy": 9.5,
+            "sell": 0
+          },
+          "macd_signal": {
+            "buy": 0,
+            "sell": 7.0
+          },
+          "turnover_percentile": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "chip_distribution": {
+            "buy": 4.0,
+            "sell": 4.0
+          },
+          "shareholder_change": {
+            "buy": 6.0,
+            "sell": 3.0
+          },
+          "lhb": {
+            "buy": 5.0,
+            "sell": 2.0
+          },
+          "lockup_pressure": {
+            "buy": 2.0,
+            "sell": 2.0
+          },
+          "insider": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "institutional_visits": {
+            "buy": 10.0,
+            "sell": 0
+          },
+          "industry_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "northbound_actual": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "earnings_revision": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "limit_hits": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "price_inertia": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "social_heat": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "market_regime": {
+            "buy": 9.0,
+            "sell": 0
+          },
+          "concept_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "idiosyncratic_vol": {
+            "buy": 3.5,
+            "sell": 6.5
+          },
+          "gap_frequency": {
+            "buy": 5.0,
+            "sell": 5.0
+          },
+          "atr_normalized": {
+            "buy": 3.1,
+            "sell": 6.9
+          },
+          "return_skewness": {
+            "buy": 4.5,
+            "sell": 5.5
+          },
+          "ma60_deviation": {
+            "buy": 9.2,
+            "sell": 0.8
+          },
+          "divergence": {
+            "buy": 6.7,
+            "sell": 3.3
+          },
+          "main_inflow": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "cash_flow_quality": {
+            "buy": 0,
+            "sell": 10.0
+          },
+          "amihud_illiquidity": {
+            "buy": 8.3,
+            "sell": 1.7
+          },
+          "max_return": {
+            "buy": 5.1,
+            "sell": 4.9
+          },
+          "turnover_acceleration": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "upday_ratio": {
+            "buy": 3.0,
+            "sell": 7.0
+          },
+          "roe_trend": {
+            "buy": 4.1,
+            "sell": 5.9
+          },
+          "nearness_to_high": {
+            "buy": 4.0,
+            "sell": 6.0
+          },
+          "hammer_bottom": {
+            "buy": 9.0,
+            "sell": 0
+          },
+          "limit_open_rate": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "medium_term_momentum": {
+            "buy": 4.2,
+            "sell": 5.8
+          },
+          "price_volume_corr": {
+            "buy": 4.0,
+            "sell": 2.0
+          }
+        },
+        "shares": 200,
+        "cost_price": 13.059,
+        "pnl_pct": -100.0,
+        "t1_locked": false,
+        "reasons": [
+          "逢高减仓参考: 卖出信号 **42** 显示动能减弱（阈值 40–60）"
+        ]
+      },
+      {
+        "code": "601600",
+        "name": "中国铝业",
+        "signal_price": 0,
+        "change_pct": -100.0,
+        "buy_score": 45.5,
+        "sell_score": 40.4,
+        "bullish": [
+          {
+            "factor": "asset_growth",
+            "score": 10.0,
+            "signal": "disciplined"
+          },
+          {
+            "factor": "market_regime",
+            "score": 9.0,
+            "signal": "bull market (MA5>MA20>MA60)"
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "cash_flow_quality",
+            "sell_score": 9.0,
+            "signal": "weak cash backing: CF/NI=15%"
+          },
+          {
+            "factor": "max_return",
+            "sell_score": 8.8,
+            "signal": "large spike 7.4% — elevated lottery overpricing"
+          },
+          {
+            "factor": "gap_frequency",
+            "sell_score": 8.5,
+            "signal": "very high gap frequency (85%) — extreme tail risk"
+          }
+        ],
+        "industry": "Unknown",
+        "market_cap_b": 0.0,
+        "pe_ttm": null,
+        "pb": null,
+        "turnover_rate": null,
+        "volume_ratio": null,
+        "volume_million": 0.0,
+        "factor_scores": {
+          "value": {
+            "buy": 0,
+            "sell": 0
+          },
+          "growth": {
+            "buy": 4.0,
+            "sell": 15.0
+          },
+          "momentum": {
+            "buy": 16.2,
+            "sell": 12.1
+          },
+          "quality": {
+            "buy": 4.5,
+            "sell": 13.0
+          },
+          "northbound": {
+            "buy": 5.0,
+            "sell": 2.0
+          },
+          "volume": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "position_52w": {
+            "buy": 3.0,
+            "sell": 0
+          },
+          "div_yield": {
+            "buy": 0,
+            "sell": 2.0
+          },
+          "volume_ratio": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "ma_alignment": {
+            "buy": 4.0,
+            "sell": 9.0
+          },
+          "low_volatility": {
+            "buy": 0,
+            "sell": 5.0
+          },
+          "reversal": {
+            "buy": 5.9,
+            "sell": 0
+          },
+          "accruals": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "asset_growth": {
+            "buy": 10.0,
+            "sell": 0
+          },
+          "piotroski": {
+            "buy": 1.0,
+            "sell": 8.0
+          },
+          "short_interest": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "rsi_signal": {
+            "buy": 6.8,
+            "sell": 0
+          },
+          "macd_signal": {
+            "buy": 1.0,
+            "sell": 8.0
+          },
+          "turnover_percentile": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "chip_distribution": {
+            "buy": 4.0,
+            "sell": 4.0
+          },
+          "shareholder_change": {
+            "buy": 6.0,
+            "sell": 3.0
+          },
+          "lhb": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "lockup_pressure": {
+            "buy": 2.0,
+            "sell": 2.0
+          },
+          "insider": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "institutional_visits": {
+            "buy": 2.0,
+            "sell": 2.0
+          },
+          "industry_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "northbound_actual": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "earnings_revision": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "limit_hits": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "price_inertia": {
+            "buy": 3.0,
+            "sell": 3.0
+          },
+          "social_heat": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "market_regime": {
+            "buy": 9.0,
+            "sell": 0
+          },
+          "concept_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "idiosyncratic_vol": {
+            "buy": 2.2,
+            "sell": 7.8
+          },
+          "gap_frequency": {
+            "buy": 1.5,
+            "sell": 8.5
+          },
+          "atr_normalized": {
+            "buy": 4.3,
+            "sell": 5.7
+          },
+          "return_skewness": {
+            "buy": 5.2,
+            "sell": 4.8
+          },
+          "ma60_deviation": {
+            "buy": 6.8,
+            "sell": 3.2
+          },
+          "divergence": {
+            "buy": 3.9,
+            "sell": 6.1
+          },
+          "main_inflow": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "cash_flow_quality": {
+            "buy": 1.0,
+            "sell": 9.0
+          },
+          "amihud_illiquidity": {
+            "buy": 6.4,
+            "sell": 3.6
+          },
+          "max_return": {
+            "buy": 1.2,
+            "sell": 8.8
+          },
+          "turnover_acceleration": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "upday_ratio": {
+            "buy": 3.0,
+            "sell": 7.0
+          },
+          "roe_trend": {
+            "buy": 5.0,
+            "sell": 5.0
+          },
+          "nearness_to_high": {
+            "buy": 6.4,
+            "sell": 3.6
+          },
+          "hammer_bottom": {
+            "buy": 0,
+            "sell": 0
+          },
+          "limit_open_rate": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "medium_term_momentum": {
+            "buy": 3.6,
+            "sell": 6.4
+          },
+          "price_volume_corr": {
+            "buy": 4.0,
+            "sell": 2.0
+          }
+        },
+        "shares": 600,
+        "cost_price": 5.434,
+        "pnl_pct": -100.0,
+        "t1_locked": false,
+        "reasons": [
+          "逢高减仓参考: 卖出信号 **40** 显示动能减弱（阈值 40–60）"
+        ]
+      },
+      {
+        "code": "001208",
+        "name": "华菱线缆",
+        "signal_price": 0,
+        "change_pct": -100.0,
+        "buy_score": 41.2,
+        "sell_score": 40.0,
+        "bullish": [
+          {
+            "factor": "institutional_visits",
+            "score": 10.0,
+            "signal": "high attention"
+          },
+          {
+            "factor": "market_regime",
+            "score": 9.0,
+            "signal": "bull market (MA5>MA20>MA60)"
+          },
+          {
+            "factor": "limit_hits",
+            "score": 8.5,
+            "signal": "net limit-ups (bull market — 牛市连板延续性强)"
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "atr_normalized",
+            "sell_score": 10.0,
+            "signal": "高ATR=0.060 — 盘中大幅震荡，操纵/炒作风险高"
+          },
+          {
+            "factor": "cash_flow_quality",
+            "sell_score": 10.0,
+            "signal": "negative cash ratio (earnings not backed by cash): CF/NI=-27%"
+          },
+          {
+            "factor": "max_return",
+            "sell_score": 10.0,
+            "signal": "extreme spike 10.0% — strong lottery effect, expect underperformance"
+          }
+        ],
+        "industry": "Unknown",
+        "market_cap_b": 0.0,
+        "pe_ttm": null,
+        "pb": null,
+        "turnover_rate": null,
+        "volume_ratio": null,
+        "volume_million": 0.0,
+        "factor_scores": {
+          "value": {
+            "buy": 0,
+            "sell": 0
+          },
+          "growth": {
+            "buy": 6.3,
+            "sell": 7.0
+          },
+          "momentum": {
+            "buy": 14.7,
+            "sell": 13.1
+          },
+          "quality": {
+            "buy": 7.1,
+            "sell": 3.0
+          },
+          "northbound": {
+            "buy": 5.0,
+            "sell": 2.0
+          },
+          "volume": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "position_52w": {
+            "buy": 3.0,
+            "sell": 0
+          },
+          "div_yield": {
+            "buy": 0,
+            "sell": 2.0
+          },
+          "volume_ratio": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "ma_alignment": {
+            "buy": 4.0,
+            "sell": 9.0
+          },
+          "low_volatility": {
+            "buy": 0,
+            "sell": 0
+          },
+          "reversal": {
+            "buy": 6.4,
+            "sell": 0
+          },
+          "accruals": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "asset_growth": {
+            "buy": 8.4,
+            "sell": 0
+          },
+          "piotroski": {
+            "buy": 4.0,
+            "sell": 4.0
+          },
+          "short_interest": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "rsi_signal": {
+            "buy": 7.5,
+            "sell": 0
+          },
+          "macd_signal": {
+            "buy": 0,
+            "sell": 9.0
+          },
+          "turnover_percentile": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "chip_distribution": {
+            "buy": 4.0,
+            "sell": 4.0
+          },
+          "shareholder_change": {
+            "buy": 6.0,
+            "sell": 3.0
+          },
+          "lhb": {
+            "buy": 4.7,
+            "sell": 2.0
+          },
+          "lockup_pressure": {
+            "buy": 2.0,
+            "sell": 2.0
+          },
+          "insider": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "institutional_visits": {
+            "buy": 10.0,
+            "sell": 0
+          },
+          "industry_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "northbound_actual": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "earnings_revision": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "limit_hits": {
+            "buy": 8.5,
+            "sell": 0
+          },
+          "price_inertia": {
+            "buy": 5.0,
+            "sell": 0
+          },
+          "social_heat": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "market_regime": {
+            "buy": 9.0,
+            "sell": 0
+          },
+          "concept_momentum": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "idiosyncratic_vol": {
+            "buy": 1.6,
+            "sell": 8.4
+          },
+          "gap_frequency": {
+            "buy": 2.0,
+            "sell": 8.0
+          },
+          "atr_normalized": {
+            "buy": 0,
+            "sell": 10.0
+          },
+          "return_skewness": {
+            "buy": 4.6,
+            "sell": 5.4
+          },
+          "ma60_deviation": {
+            "buy": 7.4,
+            "sell": 2.6
+          },
+          "divergence": {
+            "buy": 3.9,
+            "sell": 6.1
+          },
+          "main_inflow": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "cash_flow_quality": {
+            "buy": 0,
+            "sell": 10.0
+          },
+          "amihud_illiquidity": {
+            "buy": 7.8,
+            "sell": 2.2
+          },
+          "max_return": {
+            "buy": 0,
+            "sell": 10.0
+          },
+          "turnover_acceleration": {
+            "buy": 4.0,
+            "sell": 2.0
+          },
+          "upday_ratio": {
+            "buy": 3.0,
+            "sell": 7.0
+          },
+          "roe_trend": {
+            "buy": 3.0,
+            "sell": 7.0
+          },
+          "nearness_to_high": {
+            "buy": 2.6,
+            "sell": 7.4
+          },
+          "hammer_bottom": {
+            "buy": 0,
+            "sell": 0
+          },
+          "limit_open_rate": {
+            "buy": 5.0,
+            "sell": 5.0
+          },
+          "medium_term_momentum": {
+            "buy": 1.7,
+            "sell": 8.3
+          },
+          "price_volume_corr": {
+            "buy": 4.0,
+            "sell": 2.0
+          }
+        },
+        "shares": 200,
+        "cost_price": 19.2546,
+        "pnl_pct": -100.0,
+        "t1_locked": false,
+        "reasons": [
+          "逢高减仓参考: 卖出信号 **40** 显示动能减弱（阈值 40–60）"
+        ]
+      }
+    ]
   }
 ]
