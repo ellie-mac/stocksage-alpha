@@ -614,16 +614,12 @@ def _h_restart() -> str:
 
 
 def _h_restart_bot() -> str:
+    # bat file's :loop auto-restarts after 10s — just exit cleanly
     def _do():
         time.sleep(2)
-        bot_script = Path(__file__).resolve()
-        subprocess.Popen(
-            [sys.executable, "-X", "utf8", str(bot_script)],
-            cwd=str(ROOT),
-        )
         os._exit(0)
     threading.Thread(target=_do, daemon=False).start()
-    return "Feishu bot 正在重启… ✅"
+    return "Feishu bot 正在重启，10秒后自动恢复 ✅"
 
 
 def _h_start_monitor() -> str:
