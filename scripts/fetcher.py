@@ -978,10 +978,11 @@ def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
         market = _market_from_code(code)
         if not _v8_initialised.is_set():
             with _v8_lock:
-                df = ak.stock_individual_fund_flow(stock=code, market=market)
-                _v8_initialised.set()
+                df = _call_with_timeout(ak.stock_individual_fund_flow, 25.0, stock=code, market=market)
+                if df is not None:
+                    _v8_initialised.set()
         else:
-            df = ak.stock_individual_fund_flow(stock=code, market=market)
+            df = _call_with_timeout(ak.stock_individual_fund_flow, 25.0, stock=code, market=market)
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]

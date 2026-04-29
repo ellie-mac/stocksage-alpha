@@ -217,7 +217,13 @@ def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
 
     # Extended A: spot / price-based
     div_factor   = score_dividend_yield(quote.get("div_yield", 0), financial_df, regime_score, price_df, industry_ret, market_ret, revision_df)
-    vr_factor    = score_volume_ratio(quote.get("volume_ratio", 0), quote.get("change_pct", 0), price_df, regime_score, revision_df)
+    _vr = quote.get("volume_ratio") or 0
+    if not _vr and price_df is not None and len(price_df) >= 6:
+        _today_vol = float(price_df["volume"].iloc[-1])
+        _avg5 = float(price_df["volume"].iloc[-6:-1].mean())
+        if _avg5 > 0:
+            _vr = round(_today_vol / _avg5, 2)
+    vr_factor    = score_volume_ratio(_vr, quote.get("change_pct", 0), price_df, regime_score, revision_df)
     ma_factor    = score_ma_alignment(price_df, revision_df, regime_score, industry_ret, market_ret)
     lv_factor    = score_low_volatility(price_df, regime_score, industry_ret, market_ret)
     rev_factor   = score_reversal(price_df, financial_df, revision_df, regime_score, industry_ret, market_ret, best_concept_ret)

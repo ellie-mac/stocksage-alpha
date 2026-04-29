@@ -114,7 +114,7 @@ def send_to_chat(chat_id: str, text: str) -> None:
 
 # ── Text constants ────────────────────────────────────────────────────────────
 _HELP = """\
-  cmh 筹码策略 | gc 金叉共振 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
+  cmh 筹码策略 | hot 热榜策略 | gc 金叉共振 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
 
 _FACTOR_HELP = """\
 因子 & 分析
@@ -144,6 +144,15 @@ _CHIP_LIST = """\
 修饰符（可叠加）
   b BOLL  e ≤50元  k 排科创  h 排高位  m MACD绿柱  z MACD近零
   示例：c1bmz  c2mz  c4kh  cad  cadm"""
+
+_HOT_LIST = """\
+热榜策略（东方财富实时热榜）
+  hs    热度扫描 top5%（动量过滤）⭐
+  hsh   热度扫描 top5% + 排高位（距6月高点≥10%）⭐
+  hs10  热度扫描 top10%
+  hs10h 热度扫描 top10% + 排高位
+
+热度来源：东方财富热榜，每2小时刷新"""
 
 # ── Chip tier config ──────────────────────────────────────────────────────────
 _CHIP_TIERS = {
@@ -238,7 +247,7 @@ def _h_status() -> str:
         "factor_analysis.py", "backtest.py", "etf_backtest.py",
         "batch_financials.py", "build_universe.py", "chip_strategy.py",
         "daily_chip_scan.py", "chip_cad.py", "run_cad_pipeline.py",
-        "prefetch.py", "research.py", "integrity_check.py",
+        "prefetch.py", "research.py", "integrity_check.py", "hot_scan.py",
     }
     ss_procs, other_procs = [], []
     for pid, cmd in proc_list:
@@ -590,6 +599,22 @@ def _h_chip_data_driven(mods: str = "bekhm") -> str:
         stderr=subprocess.STDOUT,
     )
     return f"筹码数据驱动扫描（T4→T1→T2→T3→T5 {mods}）已启动 ✅\n约3-5分钟后推一条微信 📱"
+
+
+def _h_hot_scan(top_pct: float = 5.0, cah: bool = False) -> str:
+    pct_s = str(int(top_pct)) if top_pct == int(top_pct) else str(top_pct)
+    label = f"top{pct_s}%" + ("排高位" if cah else "")
+    log_path = LOGS / "hot_scan.log"
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write(f"--- hot_scan {label} started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+    cmd = [sys.executable, "-X", "utf8", str(SCRIPTS / "hot_scan.py"),
+           "--top-pct", str(top_pct), "--push"]
+    if cah:
+        cmd += ["--cah"]
+    subprocess.Popen(cmd, cwd=str(ROOT),
+                     stdout=open(log_path, "a", encoding="utf-8"),
+                     stderr=subprocess.STDOUT)
+    return f"热榜扫描 {label} 已启动（约1-2分钟）✅\n结果推送到微信 📱"
 
 
 def _h_restart() -> str:
@@ -945,6 +970,13 @@ def _dispatch_sync(t: str) -> str | None:
         return _h_gc()
     if t == "cmh":
         return _CHIP_LIST
+    if t == "hot":
+        return _HOT_LIST
+    if t.startswith("hs"):
+        rest = t[2:]
+        top_pct = 20.0 if "20" in rest else (10.0 if "10" in rest else 5.0)
+        cah = "h" in rest.replace("10", "").replace("20", "")
+        return _h_hot_scan(top_pct=top_pct, cah=cah)
     if t == "cad" or t.startswith("cad"):
         mods = (t[4:].strip().replace(" ", "") or "bekhm") if t.startswith("cadm") else \
                (t[3:].strip().replace(" ", "") or "bekh")
