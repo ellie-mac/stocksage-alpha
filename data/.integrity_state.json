@@ -1,10 +1,15 @@
 {
-  "date": "2026-04-23",
+  "date": "2026-04-29",
   "verified": {
-    "universe": "16:24:17",
-    "stock_names": "16:24:17",
-    "batch_financials": "16:24:18",
-    "latest_picks": "16:24:18"
+    "universe": "08:00:03",
+    "stock_names": "08:00:03",
+    "market_data": "08:00:03",
+    "chip_scan": "08:00:15",
+    "price_cache": "08:00:16",
+    "batch_financials": "08:00:16",
+    "latest_picks": "08:00:16"
   },
-  "notified": {}
+  "notified": {
+    "concept_map": "08:00:15"
+  }
 }
