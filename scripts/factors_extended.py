@@ -339,22 +339,26 @@ def score_accruals(
     if financial_df is None or financial_df.empty:
         return _neutral(10)
 
-    net_income = _extract(financial_df, ["净利润(元)", "归母净利润(元)", "净利润"])
-    op_cf = _extract(financial_df, [
+    net_income   = _extract(financial_df, [
+        "净利润(元)", "归母净利润(元)", "扣除非经常性损益后的净利润(元)", "净利润",
+    ])
+    op_cf        = _extract(financial_df, [
         "经营活动现金流量净额(元)", "经营活动产生的现金流量净额",
         "经营现金流净额", "经营活动净现金流量",
     ])
     total_assets = _extract(financial_df, ["总资产(元)", "资产总计(元)", "资产总额"])
 
+    _cf_ratio = _extract(financial_df, [
+        "经营现金净流量与净利润的比率(%)", "经营活动净现金流/营业收入",
+        "现金流量比率(%)", "现金流量比率",
+    ])
+    if op_cf is None and net_income is not None and _cf_ratio is not None:
+        op_cf = net_income * _cf_ratio / 100.0
+
     if net_income is None or op_cf is None:
-        # Try ratio-based fallback
-        ratio_raw = _extract(financial_df, [
-            "经营活动净现金流/营业收入", "现金流量比率",
-        ])
-        if ratio_raw is None:
+        if _cf_ratio is None:
             return _neutral(10)
-        # Interpret as % of revenue; assume neutral if can't compute vs assets
-        accruals_pct = -ratio_raw  # high CF/revenue -> low accruals
+        accruals_pct = -(_cf_ratio - 100.0) / 4.0  # ratio=120 -> -5, ratio=80 -> +5
     else:
         accruals = net_income - op_cf
         denom = total_assets if (total_assets and total_assets > 0) else abs(net_income) * 10
