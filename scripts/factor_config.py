@@ -383,36 +383,27 @@ REGIME_MA_LONG  = 60    # long  MA — price below this → CRISIS
 # ---------------------------------------------------------------------------
 EXCLUDED_FACTORS: dict[str, str] = {
     # ── Signal collapsed / noise (2026-04-14 rerun) ───────────────────────
+    # Note: factors re-activated in the 2026-04-15 run (705-stock CSI300+CSI500) are
+    # removed from this list — see FACTOR_WEIGHTS for their current IC/ICIR.
     "idiosyncratic_vol":    "weak: IC=+0.059, ICIR=0.262; borderline, below ICIR threshold",
-    "gap_frequency":        "weak: IC=+0.026, ICIR=0.131; noise territory",
     "atr_normalized":       "weak: IC=+0.052, ICIR=0.262; borderline, below ICIR threshold",
     "asset_growth":         "noise: IC=+0.009, ICIR=0.067",
     "amihud_illiquidity":   "noise: IC=-0.001, ICIR=-0.004; no signal across periods",
-    "price_inertia":        "weak: IC=+0.044, ICIR=0.342; borderline positive but subsumed by reversal",
     "turnover_percentile":  "noise: IC=-0.002, ICIR=-0.033; no signal",
     "price_efficiency":     "weak: IC=+0.021, ICIR=0.168; below threshold",
-    "momentum":             "noise: IC=+0.013, ICIR=0.097; unstable direction across periods",
     "price_volume_corr":    "noise: IC=-0.029, ICIR=-0.306; below -0.50 threshold",
-    "hammer_bottom":        "noise: IC=+0.018, ICIR=0.350; positive but weak IC",
     "low_volatility":       "weak: IC=+0.066, ICIR=0.311; below ICIR threshold; subsumed by return_skewness",
-    "nearness_to_high":     "weak: IC=+0.043, ICIR=0.352; borderline; subsumed by ma60_deviation",
+    "nearness_to_high":     "weak: IC=+0.043, ICIR=0.352; borderline; subsumed by ma60_deviation (main universe only; active in smallcap)",
     "turnover_acceleration": "noise: IC=+0.030, ICIR=0.280; unstable (N=4 periods)",
     "bb_squeeze":           "noise: IC=+0.017, ICIR=0.112",
-    "piotroski":            "noise: IC=+0.004, ICIR=0.044",
+    "piotroski":            "noise: IC=+0.004, ICIR=0.044 (main universe only; active in smallcap)",
     "bollinger_position":   "inverted-noise: IC=-0.039, ICIR=-0.234; below -0.50 threshold",
-    "growth":               "noise: IC=+0.009, ICIR=0.080",
     "market_relative_strength": "inverted-noise: IC=-0.047, ICIR=-0.396; below -0.50 threshold",
     "momentum_concavity":   "noise: IC=+0.029, ICIR=0.133",
     "trend_linearity":      "noise: IC=-0.017, ICIR=-0.162",
-    "position_52w":         "noise: IC=+0.022, ICIR=0.159",
     "concept_momentum":     "noise: IC=+0.016, ICIR=0.221; Group B",
     "lhb":                  "no data: N=0 periods; Group B",
     "ma_alignment":         "noise: IC=+0.001, ICIR=0.008",
-    # ── Previously active, now degraded to noise ──────────────────────────
-    "market_beta":          "degraded: IC=+0.020, ICIR=0.226 (was IC=+0.082, ICIR=0.761); removed 2026-04-14 rerun",
-    "main_inflow":          "reversed: IC=-0.025, ICIR=-0.402 (was IC=+0.040, ICIR=0.631); removed 2026-04-14 rerun",
-    "chip_distribution":    "reversed: IC=-0.022, ICIR=-0.220 (was IC=+0.045, ICIR=0.604); removed 2026-04-14 rerun",
-    "overhead_resistance":  "no data: N=0 periods in rerun (was IC=-0.050 in 2026-04-14); removed 2026-04-14 rerun",
 
     # ── Data unavailable ──────────────────────────────────────────────────
     "value":               "no data: EM quote blocked, PE/PB=0 -> NaN score",

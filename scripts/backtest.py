@@ -55,7 +55,7 @@ import fetcher
 from factor_analysis import compute_stock_scores, TEST_UNIVERSE
 from industry import build_industry_map
 from factor_config import (FACTOR_WEIGHTS,
-                           REGIME_MA_SHORT, REGIME_MA_LONG,
+                           REGIME_MA_LONG,
                            REGIME_EXPOSURE, REGIME_WEIGHTS,
                            REGIME_WEIGHTS_SMALLCAP,
                            REGIME_CAUTION_THRESHOLD, REGIME_CRISIS_THRESHOLD,
