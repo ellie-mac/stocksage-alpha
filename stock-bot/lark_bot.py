@@ -613,6 +613,19 @@ def _h_restart() -> str:
     return f"monitor.py 已重启 ✅ {note}"
 
 
+def _h_restart_bot() -> str:
+    def _do():
+        time.sleep(2)
+        bot_script = Path(__file__).resolve()
+        subprocess.Popen(
+            [sys.executable, "-X", "utf8", str(bot_script)],
+            cwd=str(ROOT),
+        )
+        os._exit(0)
+    threading.Thread(target=_do, daemon=False).start()
+    return "Feishu bot 正在重启… ✅"
+
+
 def _h_start_monitor() -> str:
     pid = _find_monitor_pid()
     if pid:
@@ -913,8 +926,8 @@ def _dispatch_sync(t: str) -> str | None:
         return _FACTOR_HELP
     if t in ("状态", "status", "z"):
         return _h_status()
-    if t in ("重启", "重启monitor", "重启 monitor", "restart monitor", "r"):
-        return _h_restart()
+    if t in ("重启", "重启bot", "重启 bot", "restart bot", "r"):
+        return _h_restart_bot()
     if t in ("ic", "因子ic", "因子IC"):
         try: return _h_ic()
         except Exception as e: return f"❌ ic 出错: {e}"
