@@ -1024,16 +1024,49 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
 
 _FUND_FLOW_MAX_DAYS = 20
 
+# tushare moneyflow_ths column → Chinese name used by factors.py
+_TS_FUNDFLOW_RENAME = {
+    "net_amount":          "主力净流入-净额",
+    "buy_lg_amount":       "大单净流入-净额",
+    "buy_lg_amount_rate":  "大单净流入-净占比",
+    "buy_md_amount":       "中单净流入-净额",
+    "buy_md_amount_rate":  "中单净流入-净占比",
+    "buy_sm_amount":       "小单净流入-净额",
+    "buy_sm_amount_rate":  "小单净流入-净占比",
+}
+
+
+def _fetch_fund_flow_ts(code: str) -> Optional["pd.DataFrame"]:
+    """Fallback: fetch fund flow from tushare moneyflow_ths (works from non-CN IPs)."""
+    pro = _get_tushare_pro()
+    if pro is None:
+        return None
+    try:
+        suffix = ".SH" if _market_from_code(code) == "sh" else ".SZ"
+        df = pro.moneyflow_ths(ts_code=code + suffix, limit=_FUND_FLOW_MAX_DAYS)
+        if df is None or df.empty:
+            return None
+        df = df.rename(columns=_TS_FUNDFLOW_RENAME)
+        if "trade_date" in df.columns:
+            df = df.sort_values("trade_date").reset_index(drop=True)
+        return df
+    except Exception:
+        return None
+
+
 def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
     """
     Fetch per-stock order-flow breakdown (large / medium / small orders).
     Used as an institutional money-flow proxy.
     Always fetches _FUND_FLOW_MAX_DAYS rows so the cache key is days-agnostic.
+    Primary source: EastMoney (ak). Fallback: tushare moneyflow_ths.
     """
     cache_key = f"fundflow_{code}"
     cached = cache.get_df(cache_key, cache.smart_price_ttl())
     if cached is not None:
         return cached.tail(days).reset_index(drop=True)
+    # Source 1: EastMoney (full large/medium/small breakdown)
+    df = None
     try:
         market = _market_from_code(code)
         if not _v8_initialised.is_set():
@@ -1043,14 +1076,20 @@ def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
                     _v8_initialised.set()
         else:
             df = _call_with_timeout(ak.stock_individual_fund_flow, 25.0, stock=code, market=market)
-        if df is None or df.empty:
-            return None
-        df.columns = [c.strip() for c in df.columns]
-        df = df.tail(_FUND_FLOW_MAX_DAYS).reset_index(drop=True)
-        cache.set_df(cache_key, df)
-        return df.tail(days).reset_index(drop=True)
+        if df is not None and not df.empty:
+            df.columns = [c.strip() for c in df.columns]
+        else:
+            df = None
     except Exception:
+        df = None
+    # Source 2: tushare moneyflow_ths (fallback when EM is unreachable)
+    if df is None:
+        df = _fetch_fund_flow_ts(code)
+    if df is None or df.empty:
         return None
+    df = df.tail(_FUND_FLOW_MAX_DAYS).reset_index(drop=True)
+    cache.set_df(cache_key, df)
+    return df.tail(days).reset_index(drop=True)
 
 
 def get_margin_data(code: str) -> Optional[pd.DataFrame]:
@@ -1545,19 +1584,21 @@ def _get_concept_1m_ret(concept_name: str) -> Optional[float]:
 
 _concept_reverse_map_lock = threading.Lock()
 
+_CONCEPT_MAP_TTL = 7 * 24 * 3600  # 7 days: EM may be unreachable from non-CN IPs
+
 def _build_concept_reverse_map() -> dict:
     """
     Build {stock_code: [concept_name, ...]} reverse lookup map.
     Iterates all concept boards in parallel (16 workers) and indexes their constituents.
-    Cached for 6 hours — expensive first call (~30s), free on subsequent calls.
+    Cached for 7 days — once built it stays valid even when EM is unreachable.
     Lock prevents concurrent cold-start fetches from doubling EM requests.
     """
     cache_key = "concept_reverse_map"
-    cached = cache.get(cache_key, 6 * 3600)
+    cached = cache.get(cache_key, _CONCEPT_MAP_TTL)
     if cached is not None:
         return cached
     with _concept_reverse_map_lock:
-        cached = cache.get(cache_key, 6 * 3600)  # double-checked after acquiring lock
+        cached = cache.get(cache_key, _CONCEPT_MAP_TTL)  # double-checked after acquiring lock
         if cached is not None:
             return cached
         try:
