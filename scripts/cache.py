@@ -195,10 +195,14 @@ def smart_price_ttl() -> int:
     )
     if in_trading:
         return TTL_PRICE_HISTORY  # 1 hour
-    # After close (15:10+): today's bars are final — cache until 10 min after next open
+    # After close (15:10+): today's bars are final, but we must reject cache entries
+    # that were written BEFORE close (they have yesterday's data).
+    # TTL = seconds elapsed since close + 60s buffer → only post-close fetches pass.
     CLOSE_HM = 15 * 60 + 10
     if hour_min >= CLOSE_HM:
-        return _secs_to_next_open() + 600
+        close_ts = now.replace(hour=15, minute=10, second=0, microsecond=0)
+        elapsed = int((now - close_ts).total_seconds())
+        return elapsed + 60  # cache valid only if written after today's close
     # Pre-market / lunch break: cache until 10 min after next open
     return _secs_to_next_open() + 600
 
