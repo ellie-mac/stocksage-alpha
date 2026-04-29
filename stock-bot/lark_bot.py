@@ -120,7 +120,7 @@ def send_to_chat(chat_id: str, text: str) -> None:
 
 # ── Text constants ────────────────────────────────────────────────────────────
 _HELP = """\
-  cmh 筹码策略 | hot 热榜策略 | gc 金叉共振 | pos 高低位 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
+  cmh 筹码策略 | hot 热榜策略 | gc 金叉共振 | pos 高低位 | p 持仓 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
 
 _FACTOR_HELP = """\
 因子 & 分析
@@ -137,7 +137,11 @@ _SC_LIST = """\
   sc1 启动 monitor | sc2 重启 monitor
   sc3 终止回测 | sc4 因子IC回测
   sc5 预热财务缓存 | sc6 重建股票池
-  sc7 扫盘推送 | sc8 monitor日志"""
+  sc7 扫盘推送 | sc8 monitor日志
+
+数据查询快捷
+  p 持仓  hr 热榜结果  cr 筹码结果
+  sg 近期信号  perf 策略表现"""
 
 _CHIP_LIST = """\
 筹码命令
@@ -326,6 +330,59 @@ _TOOLS: list[dict] = [
         "description": "启动因子IC回测分析（约1-2小时），分析各因子的预测能力。",
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
+    {
+        "name": "show_holdings",
+        "description": "显示当前持仓列表：股票代码、名称、股数、成本价、估算市值。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_hot_scan_result",
+        "description": "获取最近一次热榜扫描的结果缓存（不重新扫描），包含股票排名、动量、综合得分。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_chip_scan_result",
+        "description": "获取最近一次筹码扫描结果缓存，按档位分组显示。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "description": "结果类型：'cad'（CAD扫描）、'cadm'（CAD+MACD）、'cah'（全档排高位）、'scan'（普通全档）",
+                    "enum": ["cad", "cadm", "cah", "scan"],
+                    "default": "cad",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_recent_signals",
+        "description": "获取最近N天的买卖信号历史记录（signals_log.json），包含买卖只数、市场状态。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "查询最近几天，默认7", "default": 7},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_strategy_perf",
+        "description": "获取主策略/筹码策略/金叉策略的近期胜率和收益表现统计。",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "read_file",
+        "description": "读取项目目录内的文件内容，用于调试或查看配置。只能读取项目目录内的文件。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "相对于项目根目录的文件路径，如 'data/factor_ic.json' 或 'alert_config.json'"},
+            },
+            "required": ["path"],
+        },
+    },
 ]
 
 # ── Chip tier config ──────────────────────────────────────────────────────────
@@ -398,8 +455,11 @@ def _describe_cmdline(cmd: str) -> str:
         ("prefetch.py",        "--price",              "价格缓存预热"),
         ("prefetch.py",        "--market",             "市场数据预热"),
         ("prefetch.py",        "--concept",            "概念 map 预热"),
-        ("integrity_check.py", "",                     "完整性检查"),
-        ("research.py",        "",                     "单股分析"),
+        ("integrity_check.py",    "",                  "完整性检查"),
+        ("research.py",           "",                  "单股分析"),
+        ("golden_cross_scan.py",  "",                  "金叉扫描"),
+        ("hot_scan.py",           "",                  "热榜扫描"),
+        ("pos_check.py",          "",                  "位置分析"),
     ]
     for script, arg_pattern, label in rules:
         if script in cmd:
@@ -812,6 +872,136 @@ def _h_pos(code: str) -> str:
         return f"❌ 位置查询失败: {e}"
 
 
+def _h_show_holdings() -> str:
+    path = ROOT / "holdings.json"
+    if not path.exists():
+        return "holdings.json 不存在"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not data:
+        return "持仓为空"
+    lines = [f"当前持仓 ({len(data)} 只)\n"]
+    total_cost = 0.0
+    for h in data:
+        code  = h.get("code", "?")
+        name  = h.get("name", code)
+        shares = h.get("shares", 0)
+        cost  = h.get("cost_price", 0)
+        if cost:
+            mv = shares * cost
+            total_cost += mv
+            lines.append(f"  {code} {name}  {shares}股  成本¥{cost:.3f}  市值≈{mv:,.0f}")
+        else:
+            lines.append(f"  {code} {name}  {shares}股  (成本未录入)")
+    if total_cost:
+        lines.append(f"\n总成本估算: ¥{total_cost:,.0f}")
+    return "\n".join(lines)
+
+
+def _h_hot_scan_result() -> str:
+    path = ROOT / "data" / "hot_scan_latest.json"
+    if not path.exists():
+        return "hot_scan_latest.json 不存在，先运行 hs 触发扫描"
+    data  = json.loads(path.read_text(encoding="utf-8"))
+    picks = data.get("picks", [])
+    date_s   = data.get("date", "?")
+    top_pct  = data.get("top_pct", 5)
+    suffix   = "（排高位）" if data.get("cah") else ""
+    lines = [f"热榜扫描 {date_s} top{top_pct}%{suffix}  共{len(picks)}只\n"]
+    for p in picks[:20]:
+        chg = f"+{p['change_pct']}%" if p.get("change_pct", 0) >= 0 else f"{p['change_pct']}%"
+        lines.append(
+            f"  {p['code']} {p['name']}  ¥{p['close']}  {chg}"
+            f"  热度#{p['rank']}  动量{p['momentum']:.0f}  综合{p['score']:.0f}"
+        )
+    return "\n".join(lines)
+
+
+def _h_chip_scan_result(mode: str = "cad") -> str:
+    fname_map = {
+        "cad":  "chip_cad_latest.json",
+        "cadm": "chip_cadm_latest.json",
+        "cah":  "chip_cah_latest.json",
+        "scan": "chip_scan_latest.json",
+    }
+    fname = fname_map.get(mode, "chip_scan_latest.json")
+    path  = ROOT / "data" / fname
+    if not path.exists():
+        return f"{fname} 不存在"
+    data   = json.loads(path.read_text(encoding="utf-8"))
+    date_s = data.get("date", "?")
+    tiers  = data.get("tiers", {})
+    if not tiers:
+        picks = data.get("picks", data.get("results", []))
+        lines = [f"筹码扫描 {date_s} {mode.upper()}  共{len(picks)}只\n"]
+        for p in picks[:20]:
+            lines.append(f"  {p.get('code','?')} {p.get('name','?')}  ¥{p.get('close',0):.2f}  赢家率{p.get('winner_rate',0):.1f}%")
+        return "\n".join(lines)
+    total = sum(len(v) for v in tiers.values())
+    lines = [f"筹码扫描 {date_s} {mode.upper()}  共{total}只\n"]
+    for tier, items in tiers.items():
+        lines.append(f"{tier}  {len(items)}只")
+        for p in items[:5]:
+            lines.append(f"  {p.get('code','?')} {p.get('name','?')}  ¥{p.get('close',0):.2f}  赢家率{p.get('winner_rate',0):.1f}%")
+    return "\n".join(lines)
+
+
+def _h_recent_signals(days: int = 7) -> str:
+    path = ROOT / "data" / "signals_log.json"
+    if not path.exists():
+        return "signals_log.json 不存在"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not data:
+        return "无信号记录"
+    from datetime import timedelta
+    cutoff = (datetime.now().date() - timedelta(days=days)).isoformat()
+    recent = [e for e in data if e.get("date", "") >= cutoff]
+    if not recent:
+        return f"过去 {days} 天无信号"
+    lines = [f"近 {days} 天信号（{len(recent)} 次扫描）\n"]
+    for entry in recent[-10:]:
+        d      = entry.get("date", "?")
+        buys   = entry.get("buy_signals", [])
+        sells  = entry.get("sell_signals", [])
+        regime = entry.get("regime_score", "?")
+        lines.append(f"{d}  市场{regime}  买{len(buys)}只 卖{len(sells)}只")
+        for b in buys[:3]:
+            lines.append(f"  ↑ {b.get('code','')} {b.get('name','')}  买分{b.get('buy_score',0):.0f}")
+        for s in sells[:3]:
+            lines.append(f"  ↓ {s.get('code','')} {s.get('name','')}  卖分{s.get('sell_score',0):.0f}")
+    return "\n".join(lines)
+
+
+def _h_strategy_perf() -> str:
+    perf_files = {
+        "主策略": ROOT / "data" / "main_daily_perf.json",
+        "筹码策略": ROOT / "data" / "chip_daily_perf.json",
+        "金叉策略": ROOT / "data" / "gc_daily_perf.json",
+    }
+    lines = [f"策略近期表现 @ {datetime.now():%m/%d}\n"]
+    any_data = False
+    for label, path in perf_files.items():
+        if not path.exists():
+            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not data:
+            continue
+        recent = [e for e in data if e.get("n", 0) > 0][-10:]
+        if not recent:
+            continue
+        any_data = True
+        n_total = sum(e.get("n", 0) for e in recent)
+        wins    = sum(e.get("n", 0) * e.get("win_rate", 0) / 100 for e in recent)
+        wr      = wins / n_total * 100 if n_total else 0
+        avg_rets = [e["avg_ret"] for e in recent if e.get("avg_ret") is not None]
+        avg_ret  = sum(avg_rets) / len(avg_rets) if avg_rets else 0
+        latest   = recent[-1]
+        lines.append(
+            f"{label}: 近{len(recent)}次  {n_total}只  胜率{wr:.0f}%  均收益{avg_ret:+.2f}%"
+            f"  (最近: {latest.get('date','?')[:8]})"
+        )
+    return "\n".join(lines) if any_data else "暂无策略表现数据"
+
+
 def _h_restart() -> str:
     pid = _find_monitor_pid()
     killed = False
@@ -1127,8 +1317,6 @@ def _h_read_file(path: str) -> str:
         return f"读取失败: {e}"
 
 
-_AI_BOT_NAME = "太子"  # cc-connect AI bot name for unknown commands
-
 
 # ── Agent tool executor ───────────────────────────────────────────────────────
 def _call_tool(name: str, args: dict) -> str:
@@ -1166,6 +1354,14 @@ def _call_tool(name: str, args: dict) -> str:
                 cwd=str(ROOT), stdout=open(log_path, "a", encoding="utf-8"), stderr=subprocess.STDOUT,
             )
             return "因子IC回测已启动（约1-2小时）✅"
+        if name == "show_holdings":           return _h_show_holdings()
+        if name == "get_hot_scan_result":     return _h_hot_scan_result()
+        if name == "get_chip_scan_result":
+            return _h_chip_scan_result(str(args.get("mode", "cad")))
+        if name == "get_recent_signals":
+            return _h_recent_signals(int(args.get("days", 7)))
+        if name == "get_strategy_perf":       return _h_strategy_perf()
+        if name == "read_file":               return _h_read_file(args.get("path", ""))
         return f"❌ 未知工具: {name}"
     except Exception as e:
         return f"❌ {name} 执行失败: {e}"
@@ -1180,9 +1376,10 @@ def _dispatch_ai(text: str) -> str:
         import anthropic as _ant
         client = _ant.Anthropic(api_key=key)
         system = (
-            "你是 StockSage 量化交易系统的助手，只处理A股投资和系统操作相关的问题。"
-            "用中文简洁回答。遇到需要查数据或执行操作的请求，直接调用工具，不要询问确认。"
-            "如果问题与系统功能无关，简短说明无法帮助。"
+            "你是 StockSage 量化交易系统的助手。用中文简洁回答。"
+            "遇到需要数据或执行操作的请求，直接调用工具，不要先询问确认。"
+            "可以连续调用多个工具来组合回答复杂问题（如先查持仓再查每只股票位置）。"
+            "对于无关问题，正常回答即可。"
         )
         messages: list[dict] = [{"role": "user", "content": text}]
 
@@ -1254,14 +1451,22 @@ def _dispatch_sync(t: str) -> str | None:
         return _h_shortcut(t[2:].strip())
     if t in ("sch", "快捷列表"):
         return _SC_LIST
-    if t == "ch":
+    if t in ("cmh", "ch"):              # ch kept as alias; both show chip menu
         return _CHIP_LIST
     if t in ("gc", "金叉"):
         return _h_gc()
-    if t == "cmh":
-        return _CHIP_LIST
     if t == "hot":
         return _HOT_LIST
+    if t in ("p", "持仓", "portfolio"):
+        return _h_show_holdings()
+    if t in ("hr", "热榜结果"):
+        return _h_hot_scan_result()
+    if t in ("cr", "筹码结果"):
+        return _h_chip_scan_result("cad")
+    if t in ("sg", "信号", "signals"):
+        return _h_recent_signals(7)
+    if t in ("perf", "表现", "策略表现"):
+        return _h_strategy_perf()
     if t.startswith("hs"):
         rest = t[2:]
         top_pct = 20.0 if "20" in rest else (10.0 if "10" in rest else 5.0)
