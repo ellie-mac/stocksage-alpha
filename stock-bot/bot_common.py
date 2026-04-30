@@ -302,13 +302,13 @@ _TASK_DESC = {
     "xhs_Morning":        "量化早报 📱",
     "xhs_Midday":         "午间快报 📱",
     "xhs_Evening":        "收盘总结 📱",
-    "daily_PerfLog":      "三合一收盘胜率 📱",
+    "daily_PerfLog":      "策略收盘胜率 📱",
     "market_Warm":        "市场数据预热",
     "price_Prefetch":     "价格缓存预热",
     "chip_Night":         "夜间筹码扫描",
     "main_Scan":          "主策略扫盘 📱",
     "gc_Scan":            "金叉策略扫描 📱",
-    "chip_CadScan":       "筹码三模型扫描 📱",
+    "chip_CadScan":       "筹码策略扫描 📱",
     "main_Night":         "夜间数据预热",
     "StockSageFeishuBot": "飞书机器人",
 }
@@ -636,9 +636,9 @@ def h_tasks() -> str:
                 tick = "❌"
             else:
                 tick = "⬜"
-            last_s = f"  上次{last_run}" if last_run != "--" else ""
-            next_s = f"  下次{next_run}" if next_run != "--" else ""
-            lines.append(f"{tick} {name} — {desc}{last_s}{next_s}")
+            last_s = f"\n  ⬆️{last_run}" if last_run != "--" else ""
+            next_s = f"\n  ⬇️{next_run}" if next_run != "--" else ""
+            lines.append(f"{tick} {name} / {desc}{last_s}{next_s}")
         return "\n".join(lines)
     except Exception as e:
         return f"❌ 查询失败: {e}"
