@@ -216,13 +216,13 @@ def parse_weights(query: str) -> FactorWeights:
 def _get_price_position_f(price_df: Optional[pd.DataFrame]) -> Optional[float]:
     """Return 52-week price position (0.0–1.0) or None if unavailable.
 
-    Requires at least 252 trading days of history; returns None for newer stocks
+    Uses 240 trading days (A股全年约240个交易日); returns None for newer stocks
     so callers receive a genuine "no data" rather than a spurious partial-window value.
     """
     if price_df is None or len(price_df) < 20 or "close" not in price_df.columns:
         return None
-    window = price_df["close"].tail(252)
-    if len(window) < 252:   # not enough history for a true 52-week metric
+    window = price_df["close"].tail(240)
+    if len(window) < 240:   # not enough history for a true 52-week metric
         return None
     high_52w = float(window.max())
     low_52w  = float(window.min())
@@ -299,7 +299,7 @@ def score_value(
             if "pe_ttm" in val_history.columns:
                 hist = val_history["pe_ttm"].replace(0, np.nan).dropna()
                 hist = hist[hist > 0]
-                if len(hist) >= 10:
+                if len(hist) >= 20:
                     pct = float((hist < pe_ttm).sum() / len(hist))
                     pe_pct = round(pct * 100, 1)
                     pe_score = (1 - pct) * 15

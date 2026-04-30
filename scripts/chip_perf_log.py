@@ -246,11 +246,11 @@ def main() -> None:
         cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
         sendkey = cfg.get("serverchan", {}).get("sendkey", "")
         configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
-        parts = [
-            f"{lbl}{b.get('total_win_rate','-')}%"
-            for lbl, b in blocks if b.get("total_win_rate") is not None
+        wr_parts = [
+            f"{b.get('total_win_rate','-')}%"
+            for _, b in blocks if b.get("total_win_rate") is not None
         ]
-        title = f"筹码胜率 T1-T4 {date_fmt} | {' / '.join(parts)}"
+        title = f"筹码胜率 {date_fmt} | {' / '.join(wr_parts)}"
         send_wechat(title, push_body, sendkey)
         print("[perf] 微信推送成功")
     except Exception as e:

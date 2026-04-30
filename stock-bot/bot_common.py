@@ -948,7 +948,8 @@ def h_chip_scan_result(mode: str = "cad") -> str:
     if not path.exists():
         return f"{fname} 不存在"
     data   = json.loads(path.read_text(encoding="utf-8"))
-    date_s = data.get("date", "?")
+    raw_date = data.get("date", "?")
+    date_s = f"{raw_date[4:6]}/{raw_date[6:]}" if len(raw_date) == 8 else raw_date
     tiers  = data.get("tiers", {})
     if not tiers:
         picks = data.get("picks", data.get("results", []))

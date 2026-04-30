@@ -624,7 +624,7 @@ def fast_check_holdings(
 
         # ATR-adaptive thresholds: use per-stock volatility if caller pre-computed ATR
         if atr_cache and code in atr_cache and price > 0:
-            atr_pct = atr_cache[code] / price * 100
+            atr_pct = min(15.0, max(0.5, atr_cache[code] / price * 100))
             intraday_surge_trigger =  atr_k_surge * atr_pct
             intraday_drop_trigger  = -atr_k_drop  * atr_pct
         else:
@@ -667,7 +667,7 @@ def fast_check_holdings(
                     "cover_price": cover_price,
                     "date":        now.date(),
                 }
-            elif ts and price <= ts["cover_price"]:
+            elif ts and price < ts["cover_price"]:
                 # Phase 2: price retraced to target → suggest T-buy
                 drop = (price - ts["sell_price"]) / ts["sell_price"] * 100
                 normal_reasons.append(
@@ -852,7 +852,7 @@ def _check_opening_auction(
         """Return score-based recommendation string."""
         s = scores.get(code)
         if not s or s.get("error"):
-            return "评分不可用"
+            return "(评分延迟)"
         bs = s.get("buy_score",  0)
         ss = s.get("sell_score", 0)
         if ss >= _sell_thr:
@@ -970,6 +970,8 @@ def _run_smallcap_scan(
     df = df[~df["代码"].isin(suspended)]
     mktcap = pd.to_numeric(df["总市值"], errors="coerce")
     df = df[(mktcap > 0) & (mktcap <= max_cap)].copy()
+    # 过滤次新股：名称含"N "前缀（东财标记当日新股）或上市年份为当年且代码序号偏大
+    df = df[~df["名称"].str.match(r"^N ", na=False)]
 
     if df.empty:
         return []

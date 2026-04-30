@@ -149,7 +149,7 @@ def _score_stock(df: pd.DataFrame) -> tuple[int, list[str], float]:
     # MA60 gate: require uptrend context to avoid false crosses in choppy markets
     ma60 = _sma(c, 60)
     if not (np.isfinite(ma60[-1]) and np.isfinite(ma60[-6]) and
-            (c[-1] > ma60[-1] or ma60[-1] > ma60[-6])):
+            c[-1] > ma60[-1] and ma60[-1] > ma60[-6]):
         return 0, [], 0.0
 
     fired: list[str] = []

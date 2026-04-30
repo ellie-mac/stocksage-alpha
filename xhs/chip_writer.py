@@ -151,7 +151,9 @@ def _fmt_gc_section(gc_data: dict, prices: dict[str, dict] | None = None) -> lis
     overall_s = (f"  胜率{overall['win_rate']:.0f}%  均{overall['avg_ret']:+.2f}%"
                  if overall["results"] else "")
 
-    out = ["", f"**【金叉共振 {total}只】{overall_s}**  "]
+    gc_date = gc_data.get("date", "")
+    gc_date_s = f" {gc_date[4:6]}/{gc_date[6:]}" if len(gc_date) == 8 else ""
+    out = ["", f"**【金叉共振{gc_date_s} {total}只】{overall_s}**  "]
     for t, label in _LABELS.items():
         picks = tiers.get(t, [])
         if not picks:
@@ -313,7 +315,11 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
             continue
         lines.append(f"**{tier_key} {tier_label}（{len(picks)}只）**  ")
         for p in picks:
-            close_s = f"¥{float(p['close']):.2f}" if p.get("close") and not __import__("math").isnan(float(p["close"])) else ""
+            _price_raw = p.get("close") or p.get("price")
+            try:
+                close_s = f"¥{float(_price_raw):.2f}" if _price_raw and not __import__("math").isnan(float(_price_raw)) else ""
+            except (TypeError, ValueError):
+                close_s = ""
             lines.append(f"{p['code']} {p['name']} {p.get('industry', '')} {close_s}  ")
         lines.append("")
 
@@ -417,12 +423,17 @@ def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
     if not s["results"]:
         print("[evening] 行情获取失败，发送无数据版本")
         title = f"收盘总结 {_fmt_date(date)}"
-        stock_list = "、".join(f"{p['code']}{p.get('name', '')}" for p in picks[:10])
-        suffix = "等" if len(picks) > 10 else ""
-        body  = (f"📊 收盘总结 {_fmt_date(date)}\n"
-                 f"筹码选股 {len(picks)} 只（行情暂不可用）\n"
-                 f"{stock_list}{suffix}\n"
-                 f"\n⚠️ 仅供参考，不构成投资建议\n#量化记录 #筹码分布 #数据实验 #记录帖")
+        fb_lines = [f"📊 收盘总结 {_fmt_date(date)}（行情延迟，数据已锁定）\n"]
+        all_tiers = data.get("tiers", {})
+        for tier_key in ("T1", "T2", "T3", "T4"):
+            tier_picks = all_tiers.get(tier_key, [])
+            if not tier_picks:
+                continue
+            stock_list = "、".join(f"{p['code']}{p.get('name', '')}" for p in tier_picks[:8])
+            suffix = "等" if len(tier_picks) > 8 else ""
+            fb_lines.append(f"**{tier_key}**（{len(tier_picks)}只）: {stock_list}{suffix}")
+        fb_lines.append("\n⚠️ 仅供参考，不构成投资建议\n#量化记录 #筹码分布 #数据实验 #记录帖")
+        body = "\n".join(fb_lines)
         if not dry_run:
             _push(title, body)
         return
