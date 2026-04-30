@@ -477,6 +477,9 @@ def run_backtest(
             long_basket  = df_period.head(top_n)
             short_basket = df_period.tail(top_n)  # bottom quantile for reference
 
+            if long_basket.empty:
+                continue
+
             basket_ret = float(long_basket["forward_ret"].mean())
             # regime_name / exposure already set above (before scoring)
             regime_label = f"{regime_name} ({exposure:.0%})"
@@ -583,12 +586,13 @@ def _compute_stats(
     max_dd      = float(drawdowns.min())
 
     # Beat-benchmark win rate: fraction of periods where portfolio outperforms index
-    beat_bench  = np.array(alphas) > 0 if alphas else np.array([])
+    valid_alphas = [a for a in alphas if a is not None]
+    beat_bench  = np.array(valid_alphas) > 0 if valid_alphas else np.array([])
     win_rate    = float(np.mean(beat_bench)) * 100 if len(beat_bench) > 0 else 0.0
 
     annualized  = (float(np.prod(1 + arr / 100)) ** (periods_per_year / len(arr)) - 1) * 100
 
-    mean_alpha  = float(np.mean(alphas))  if alphas  else None
+    mean_alpha  = float(np.mean(valid_alphas)) if valid_alphas else None
     mean_spread = float(np.mean(ls_spreads)) if ls_spreads else None
 
     # Information ratio (alpha / tracking error)

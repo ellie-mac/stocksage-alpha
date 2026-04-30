@@ -109,7 +109,7 @@ def main():
 
     icon   = "❌" if failed else "✅"
     status = "失败" if failed else "完成"
-    now    = time.strftime("%H:%M")
+    now    = time.strftime("%m-%d %H:%M")
     text   = f"{icon} [{now}] {task_name} {status}\n{desc}"
 
     remaining = _get_remaining_tasks()

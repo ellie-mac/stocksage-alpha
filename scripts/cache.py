@@ -29,6 +29,17 @@ import pandas as pd
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache")
 _CACHE_DELETED = os.path.join(CACHE_DIR, "_deleted")
 
+
+def _sanitize_nan(obj):
+    """Recursively replace NaN/inf with None so json.dump(allow_nan=False) never raises ValueError."""
+    if isinstance(obj, float) and (obj != obj or obj == float('inf') or obj == float('-inf')):
+        return None
+    if isinstance(obj, dict):
+        return {k: _sanitize_nan(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_nan(v) for v in obj]
+    return obj
+
 # prefix → subdirectory mapping (longest-prefix wins)
 _SUBDIR_MAP = {
     "chip_data":        "chip",
@@ -103,7 +114,7 @@ def set(key: str, data: Any) -> None:
         if isinstance(data, pd.DataFrame):
             payload = {"__type": "dataframe", "records": data.to_json(orient="records", date_format="iso", force_ascii=False)}
         else:
-            payload = data
+            payload = _sanitize_nan(data)
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"ts": time.time(), "data": payload}, f,
                       ensure_ascii=False, allow_nan=False)

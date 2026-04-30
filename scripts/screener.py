@@ -568,9 +568,10 @@ def screen_stocks(
 
     if financial_unavailable:
         result["unapplied_conditions"] = {k: conditions[k] for k in financial_unavailable}
-        result["note"] += (
-            f" Financial filters {financial_unavailable} need batch data"
-            " — run scripts/batch_financials.py first."
+        result["degraded"] = True
+        result["note"] = (
+            f"⚠️ 以下财务条件未生效（需先运行 batch_financials.py）："
+            f"{', '.join(financial_unavailable)}\n" + result["note"]
         )
 
     return result

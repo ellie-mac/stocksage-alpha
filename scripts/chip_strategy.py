@@ -479,6 +479,7 @@ def fetch_chip_data_ak(trade_date: str) -> pd.DataFrame:
     print(f"[chip_ak] 完成，共 {len(df_out)} 只")
     _cache.set(_chip_cache_key(trade_date, "ak"), df_out)
     print(f"[chip cache] 已写入 chip_data_ak_{trade_date}（akshare自算）")
+    df_out.attrs["source"] = "akshare"
     return df_out
 
 
@@ -858,9 +859,9 @@ def _cad_run_one(df_all, mods: str, trade_date: str, pro) -> tuple[dict, int]:
 
         if max_6m_ratio is not None and not result.empty:
             six_m  = fetch_6m_high(result["ts_code"].tolist(), trade_date, pro)
-            result = screen(df_all, min_win, max_win=max_win, max_today_pct=9.4,
+            result = screen(result, min_win, max_win=max_win, max_today_pct=None,
                             max_6m_ratio=max_6m_ratio, six_month_high=six_m,
-                            max_price=max_price, exclude_kcb=no_kcb)
+                            max_price=None, exclude_kcb=False)
 
         if (boll_near or macd_conv or macd_zero) and not result.empty:
             result = add_indicators(result)
@@ -916,7 +917,7 @@ def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
 
 
 def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_date: str,
-                     sendkey: str, dry_run: bool) -> None:
+                     sendkey: str, dry_run: bool, src_note: str = "") -> None:
     """三段推送：cadm T1-T4（三者共有精华）→ cah独有 T1-T4 → cad独有（全档）。cadm T5 不推。"""
     date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
     top_tiers = [t for t in _TIER_ORDER if t[0] in ("T1", "T2", "T3", "T4")]
@@ -960,7 +961,7 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
             if s:
                 sections.append(s)
 
-    body  = "\n".join(sections) + "\n\n> ⚠️ 仅供参考，不构成投资建议"
+    body  = "\n".join(sections) + "\n\n> ⚠️ 仅供参考，不构成投资建议" + (f"\n_{src_note}_" if src_note else "")
     title = f"筹码驱动 {date_fmt} 三筛:{cadm_top_total} cah独有:{cah_only_total} cad独有:{cad_only_total}"
     print(f"\n{title}\n")
     send_wechat(title, body, sendkey, dry_run=dry_run)
@@ -1010,6 +1011,7 @@ def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool =
         return
 
     trade_date = str(df_all["trade_date"].iloc[0]) if "trade_date" in df_all.columns else query_date
+    _src_note = "数据源：akshare自算（Tushare限额已耗尽，结果仅供参考）" if df_all.attrs.get("source") == "akshare" else ""
 
     names = load_names()
     if names:
@@ -1025,7 +1027,7 @@ def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool =
         cah_saves,  _ = _cad_run_one(df_all, "h",     trade_date, pro)
         cadm_saves, _ = _cad_run_one(df_all, "bekhm", trade_date, pro)
         cad_saves,  _ = _cad_run_one(df_all, "bekh",  trade_date, pro)
-        _cad_merged_push(cah_saves, cadm_saves, cad_saves, trade_date, sendkey, dry_run)
+        _cad_merged_push(cah_saves, cadm_saves, cad_saves, trade_date, sendkey, dry_run, src_note=_src_note)
     else:
         for mods_str in mods_list:
             saves, total = _cad_run_one(df_all, mods_str, trade_date, pro)
@@ -1033,7 +1035,7 @@ def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool =
             body  = "\n".join(
                 _cad_build_section(t, saves.get(t, []), mods_str)
                 for t, _, _ in _TIER_ORDER
-            ) + "\n\n> ⚠️ 仅供参考，不构成投资建议"
+            ) + "\n\n> ⚠️ 仅供参考，不构成投资建议" + (f"\n_{_src_note}_" if _src_note else "")
             title = f"筹码驱动 {date_fmt} ({mods_str}) 共{total}只"
             send_wechat(title, body, sendkey, dry_run=dry_run)
 
