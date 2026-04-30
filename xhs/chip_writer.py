@@ -155,7 +155,10 @@ def _fmt_gc_section(gc_data: dict, prices: dict[str, dict] | None = None) -> lis
         out.append(f"**{t} {label}（{len(picks)}只）{stat_s}**  ")
         for p in picks[:10]:
             pr = prices.get(p["code"])
-            pct_s = f" **{pr['change_pct']:+.2f}%**" if pr else ""
+            if pr:
+                pct_s = f" ¥{pr['price']:.2f} **{pr['change_pct']:+.2f}%**"
+            else:
+                pct_s = ""
             out.append(f"{p['code']} {p['name']}{pct_s}  ")
         if len(picks) > 10:
             out.append(f"  ……共{len(picks)}只  ")
@@ -175,7 +178,8 @@ def _fmt_main_section(main_picks: list[dict], chip_win: float, chip_avg: float,
         out.append(f"主策略 胜率{ms['win_rate']:.0f}%  均{ms['avg_ret']:+.2f}%"
                    f"  |  筹码 胜率{chip_win:.0f}%  均{chip_avg:+.2f}%  ")
         for r in ms["results"]:
-            out.append(f"{r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
+            price_s = f" ¥{r['price']:.2f}" if r.get("price") else ""
+            out.append(f"{r['code']} {r['name']}{price_s} {r['change_pct']:+.2f}%  ")
     else:
         for p in main_picks:
             out.append(f"{p['code']} {p['name']} {p.get('industry', '')}  ")
@@ -228,6 +232,7 @@ def _calc_stats(picks: list[dict], prices: dict[str, dict]) -> dict:
             "code":       code,
             "name":       p.get("name", code),
             "industry":   p.get("industry", ""),
+            "price":      pr.get("price"),
             "change_pct": pr["change_pct"],
             "tier":       p.get("tier", ""),
         })
@@ -422,7 +427,8 @@ def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
 
     lines.append("**收益前五：**")
     for i, r in enumerate(s["top5"], 1):
-        lines.append(f"{i}. {r['code']} {r['name']} **{r['change_pct']:+.2f}%**  ")
+        price_s = f" ¥{r['price']:.2f}" if r.get("price") else ""
+        lines.append(f"{i}. {r['code']} {r['name']}{price_s} **{r['change_pct']:+.2f}%**  ")
 
     lines.append(f"\n筹码选股 {s['n_total']} 只（覆盖 {len(s['results'])} 只）")
     lines.append(f"**最终胜率 {s['win_rate']:.0f}%**（{s['n_win']}/{s['n_total']}只盈利）")
