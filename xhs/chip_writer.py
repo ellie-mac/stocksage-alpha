@@ -115,7 +115,10 @@ def _load_scan() -> dict:
 def _load_main_picks() -> list[dict]:
     if not MAIN_PICKS_PATH.exists():
         return []
-    return json.loads(MAIN_PICKS_PATH.read_text(encoding="utf-8")).get("picks", [])
+    data = json.loads(MAIN_PICKS_PATH.read_text(encoding="utf-8"))
+    if data.get("date") != datetime.now().strftime("%Y-%m-%d"):
+        return []
+    return data.get("picks", [])
 
 
 def _load_gc_picks() -> dict:
@@ -125,7 +128,7 @@ def _load_gc_picks() -> dict:
 
 
 def _fmt_gc_section(gc_data: dict, prices: dict[str, dict] | None = None) -> list[str]:
-    """金叉共振区块：G0+G1（8/7信号）。"""
+    """金叉共振区块：G0+G1（8/7信号）含胜率和均收益。"""
     if not gc_data:
         return []
     tiers = gc_data.get("tiers", {})
@@ -134,18 +137,25 @@ def _fmt_gc_section(gc_data: dict, prices: dict[str, dict] | None = None) -> lis
     if total == 0:
         return []
 
-    out = ["", f"**【金叉共振 {total}只】**  "]
+    prices = prices or {}
+    all_picks = [dict(p, tier=t) for t in _LABELS for p in tiers.get(t, [])]
+    overall = _calc_stats(all_picks, prices)
+    overall_s = (f"  胜率{overall['win_rate']:.0f}%  均{overall['avg_ret']:+.2f}%"
+                 if overall["results"] else "")
+
+    out = ["", f"**【金叉共振 {total}只】{overall_s}**  "]
     for t, label in _LABELS.items():
         picks = tiers.get(t, [])
         if not picks:
             continue
-        out.append(f"**{t} {label}（{len(picks)}只）**  ")
+        tier_picks = [dict(p, tier=t) for p in picks]
+        ts = _calc_stats(tier_picks, prices)
+        stat_s = (f"  胜率{ts['win_rate']:.0f}%  均{ts['avg_ret']:+.2f}%"
+                  if ts["results"] else "")
+        out.append(f"**{t} {label}（{len(picks)}只）{stat_s}**  ")
         for p in picks[:10]:
-            pct_s = ""
-            if prices:
-                pr = prices.get(p["code"])
-                if pr:
-                    pct_s = f" **{pr['change_pct']:+.2f}%**"
+            pr = prices.get(p["code"])
+            pct_s = f" **{pr['change_pct']:+.2f}%**" if pr else ""
             out.append(f"{p['code']} {p['name']}{pct_s}  ")
         if len(picks) > 10:
             out.append(f"  ……共{len(picks)}只  ")
@@ -383,7 +393,7 @@ def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
     if not data:
         return
 
-    date  = data.get("date", datetime.now().strftime("%Y%m%d"))
+    date  = datetime.now().strftime("%Y%m%d")
     picks = data.get("all_picks", [])
     if not picks:
         print("[evening] 无选股")
