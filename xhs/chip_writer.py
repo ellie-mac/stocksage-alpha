@@ -456,7 +456,7 @@ def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
         lines.append(f"{i}. {r['code']} {r['name']}{price_s} **{r['change_pct']:+.2f}%**  ")
 
     _fallback_s = "" if data.get("filter") == "CAH∩CAD∩CADM" else "  ⚡仅CAD"
-    lines.append(f"\n筹码选股 {s['n_total']} 只（覆盖 {len(s['results'])} 只）{_fallback_s}")
+    lines.append(f"\n筹码选股 {s['n_total']} 只（{len(s['results'])} 只已更新行情）{_fallback_s}")
     lines.append(f"**最终胜率 {s['win_rate']:.0f}%**（{s['n_win']}/{s['n_total']}只盈利）")
     lines.append(f"**综合收益率 {s['avg_ret']:+.2f}%**\n")
 

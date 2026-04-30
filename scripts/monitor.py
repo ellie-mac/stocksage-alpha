@@ -411,8 +411,14 @@ def _append_signals_log(buy_alerts: list[dict], sell_alerts: list[dict],
     except (FileNotFoundError, json.JSONDecodeError):
         log = []
     log.append(entry)
-    with open(SIGNALS_LOG_PATH, "w", encoding="utf-8") as f:
-        json.dump(log, f, ensure_ascii=False, indent=2)
+    _stmp = SIGNALS_LOG_PATH + ".tmp"
+    try:
+        with open(_stmp, "w", encoding="utf-8") as f:
+            json.dump(log, f, ensure_ascii=False, indent=2)
+        os.replace(_stmp, SIGNALS_LOG_PATH)
+    except Exception:
+        try: os.remove(_stmp)
+        except OSError: pass
 
     # Write latest_picks.json so xhs/writer.py can read results without re-running screener
     if buy_alerts:
@@ -434,8 +440,14 @@ def _append_signals_log(buy_alerts: list[dict], sell_alerts: list[dict],
             ],
             "regime": source,
         }
-        with open(LATEST_PICKS_PATH, "w", encoding="utf-8") as f:
-            json.dump(latest, f, ensure_ascii=False, indent=2)
+        _ltmp = LATEST_PICKS_PATH + ".tmp"
+        try:
+            with open(_ltmp, "w", encoding="utf-8") as f:
+                json.dump(latest, f, ensure_ascii=False, indent=2)
+            os.replace(_ltmp, LATEST_PICKS_PATH)
+        except Exception:
+            try: os.remove(_ltmp)
+            except OSError: pass
 
     print(f"  Signals logged → signals_log.json "
           f"(buy={len(buy_alerts)}, sell={len(sell_alerts)})")
@@ -512,7 +524,13 @@ def _fmt_holdings_table_md(scored_holdings: list[dict],
             flag = "🔴"
         elif buy >= buy_trigger:
             flag = "✅"
-        chips.append(f"【{name}】卖{sell:.0f}买{buy:.0f}{flag}")
+        if sell >= sell_trigger:
+            label = f"减仓🔴(卖{sell:.0f})"
+        elif buy >= buy_trigger:
+            label = f"可加仓✅(买{buy:.0f})"
+        else:
+            label = f"观望(买{buy:.0f}卖{sell:.0f})"
+        chips.append(f"【{name}】{label}")
     # Group 3 per row
     rows = []
     for i in range(0, len(chips), 3):
@@ -815,25 +833,25 @@ def _check_opening_auction(
         gp = r.get("gap_pct", 0)
         if ng is None:
             tag  = "normal"
-            text = f"{'高开' if gp > 0 else ('低开' if gp < 0 else '平开')} {gp:+.1f}%（ATR不可用）"
+            text = f"{'高开' if gp > 0 else ('低开' if gp < 0 else '平开')} {gp:+.1f}%（波动数据暂缺）"
         elif ng >= 2.5:
             tag  = "big_gap_up"
-            text = f"大幅高开 {gp:+.1f}%（{ng}×ATR）⚠️ 追高风险"
+            text = f"大幅高开 {gp:+.1f}%（超正常波动 {ng:.1f}倍）⚠️ 追高风险"
         elif ng >= 1.5:
             tag  = "gap_up"
-            text = f"高开 {gp:+.1f}%（{ng}×ATR）— 注意成本抬升"
+            text = f"高开 {gp:+.1f}%（超正常波动 {ng:.1f}倍）— 注意成本抬升"
         elif ng >= 0.3:
             tag  = "small_gap_up"
-            text = f"小幅高开 {gp:+.1f}%（{ng}×ATR）"
+            text = f"小幅高开 {gp:+.1f}%（超正常波动 {ng:.1f}倍）"
         elif ng <= -2.5:
             tag  = "big_gap_down"
-            text = f"大幅低开 {gp:+.1f}%（{ng}×ATR）⚠️ 信号可能失效"
+            text = f"大幅低开 {gp:+.1f}%（超正常波动 {ng:.1f}倍）⚠️ 信号可能失效"
         elif ng <= -1.5:
             tag  = "gap_down"
-            text = f"低开 {gp:+.1f}%（{ng}×ATR）— 谨慎"
+            text = f"低开 {gp:+.1f}%（超正常波动 {ng:.1f}倍）— 谨慎"
         elif ng <= -0.3:
             tag  = "small_gap_down"
-            text = f"小幅低开 {gp:+.1f}%（{ng}×ATR）"
+            text = f"小幅低开 {gp:+.1f}%（超正常波动 {ng:.1f}倍）"
         else:
             tag  = "normal"
             text = f"平开 {gp:+.1f}%（{ng}×ATR）"
@@ -1366,7 +1384,7 @@ def run(
                 _alert_mark = " ✅" if _se in etf_alerts else ""
                 etf_lines.append(
                     f"- **{_se['name']}** ({_se['code']}): "
-                    f"买 {_se.get('buy_score', 0):.0f} / 卖 {_se.get('sell_score', 0):.0f}"
+                    f"买入分:{_se.get('buy_score', 0):.0f} 卖出分:{_se.get('sell_score', 0):.0f}"
                     f" | 价 {_p}{_pnl_str}{_alert_mark}"
                 )
             buy_desp_parts.append("\n\n" + "\n".join(etf_lines))

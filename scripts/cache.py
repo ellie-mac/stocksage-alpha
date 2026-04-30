@@ -20,12 +20,14 @@ Cache files are organized into subdirectories by data type:
 
 import json
 import os
+import shutil
 import time
 from datetime import datetime
 from typing import Any, Optional
 import pandas as pd
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache")
+_CACHE_DELETED = os.path.join(CACHE_DIR, "_deleted")
 
 # prefix → subdirectory mapping (longest-prefix wins)
 _SUBDIR_MAP = {
@@ -87,7 +89,8 @@ def get(key: str, ttl_seconds: int) -> Optional[Any]:
     except Exception as e:
         print(f"[cache] warn: corrupt cache '{key}': {e}")
         try:
-            os.remove(path)
+            os.makedirs(_CACHE_DELETED, exist_ok=True)
+            shutil.move(path, os.path.join(_CACHE_DELETED, os.path.basename(path)))
         except OSError:
             pass
         return None
@@ -234,7 +237,8 @@ def purge_expired(max_age_seconds: int = TTL_FINANCIAL) -> int:
             path = os.path.join(root, fname)
             try:
                 if os.stat(path).st_mtime < cutoff:
-                    os.remove(path)
+                    os.makedirs(_CACHE_DELETED, exist_ok=True)
+                    shutil.move(path, os.path.join(_CACHE_DELETED, os.path.basename(path)))
                     deleted += 1
             except OSError:
                 pass

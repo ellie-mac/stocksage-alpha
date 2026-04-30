@@ -476,6 +476,8 @@ def score_value(
     if price_df is not None and len(price_df) >= 20 and "close" in price_df.columns:
         try:
             window = price_df["close"].tail(252)
+            if len(window) < 240:
+                raise ValueError("insufficient history")
             hi = float(window.max()); lo = float(window.min()); cur = float(window.iloc[-1])
             if hi > lo:
                 position_val = (cur - lo) / (hi - lo)
@@ -757,6 +759,8 @@ def score_growth(
     if price_df is not None and len(price_df) >= 20 and "close" in price_df.columns and profit_growth is not None:
         try:
             window = price_df["close"].tail(252)
+            if len(window) < 240:
+                raise ValueError("insufficient history")
             hi = float(window.max()); lo = float(window.min()); cur = float(window.iloc[-1])
             if hi > lo and profit_growth >= 25:
                 pos_g = (cur - lo) / (hi - lo)
@@ -1012,6 +1016,8 @@ def score_momentum(
     if price_df is not None and len(price_df) >= 20 and "close" in price_df.columns:
         try:
             window = price_df["close"].tail(252)
+            if len(window) < 240:
+                raise ValueError("insufficient history")
             hi = float(window.max()); lo = float(window.min()); cur = float(window.iloc[-1])
             if hi > lo:
                 pos = (cur - lo) / (hi - lo)
@@ -1171,9 +1177,10 @@ def score_quality(
     position = None
     if price_df is not None and len(price_df) >= 20 and "close" in price_df.columns:
         window = price_df["close"].tail(252)
-        hi = float(window.max()); lo = float(window.min()); cur = float(window.iloc[-1])
-        if hi > lo:
-            position = (cur - lo) / (hi - lo)
+        if len(window) >= 240:
+            hi = float(window.max()); lo = float(window.min()); cur = float(window.iloc[-1])
+            if hi > lo:
+                position = (cur - lo) / (hi - lo)
 
     if position is not None:
         quality_high = (rs >= 7.0 and ms >= 6.0)  # strong ROE + decent margin
@@ -1553,6 +1560,8 @@ def score_volume_breakout(
     position_vb = None
     try:
         window = price_df["close"].tail(252)
+        if len(window) < 240:
+            raise ValueError("insufficient history")
         hi = float(window.max())
         lo = float(window.min())
         cur = float(window.iloc[-1])
@@ -2046,6 +2055,8 @@ def score_volume_ratio(
     if price_df is not None and len(price_df) >= 20 and "close" in price_df.columns:
         try:
             window = price_df["close"].tail(252)
+            if len(window) < 240:
+                raise ValueError("insufficient history")
             hi = float(window.max()); lo = float(window.min()); cur = float(window.iloc[-1])
             if hi > lo:
                 position_vr = (cur - lo) / (hi - lo)

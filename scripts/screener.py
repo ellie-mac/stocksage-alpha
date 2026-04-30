@@ -275,6 +275,32 @@ def _build_industry_pe_lookup(df_full: pd.DataFrame) -> dict[str, float]:
         return {}
 
 
+def _build_industry_pb_lookup(df_full: pd.DataFrame) -> dict[str, float]:
+    """
+    Returns {code: industry_pb_percentile_0_to_100} using cached industry map.
+    Higher percentile means more expensive within the industry.
+    Returns empty dict if the map is not cached yet.
+    """
+    try:
+        import cache as _cache
+        industry_map = _cache.get("industry_map", 7 * 86400)
+        if not industry_map:
+            return {}
+
+        tmp = df_full[["code", "pb"]].copy()
+        tmp["code"] = tmp["code"].astype(str).str.zfill(6)
+        tmp["industry"] = tmp["code"].map(industry_map)
+        tmp["pb"] = pd.to_numeric(tmp["pb"], errors="coerce")
+        tmp = tmp[(tmp["pb"] > 0)].dropna(subset=["industry"])
+        if tmp.empty:
+            return {}
+
+        tmp["pb_pct"] = tmp.groupby("industry", group_keys=False)["pb"].rank(pct=True) * 100
+        return dict(zip(tmp["code"], tmp["pb_pct"]))
+    except Exception:
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # Main screening function
 # ---------------------------------------------------------------------------
@@ -337,8 +363,9 @@ def screen_stocks(
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Build industry PE lookup from full pre-filter market
+    # Build industry PE/PB lookup from full pre-filter market
     industry_pe_pct = _build_industry_pe_lookup(df)
+    industry_pb_pct = _build_industry_pb_lookup(df)
 
     # Basic hygiene
     df = df[(df["price"] > 1) & (df["pe_ttm"] > 0)].copy()
@@ -363,8 +390,13 @@ def screen_stocks(
             df = df[df["pe_ttm"] <= threshold]
 
     if "pb_percentile_max" in conditions and "pb" in df.columns:
-        threshold = float(df["pb"].dropna().quantile(conditions["pb_percentile_max"] / 100))
-        df = df[df["pb"] <= threshold]
+        if industry_pb_pct:
+            df["_ind_pb_pct"] = df["code"].map(industry_pb_pct).fillna(50.0)
+            df = df[df["_ind_pb_pct"] <= conditions["pb_percentile_max"]]
+            df = df.drop(columns=["_ind_pb_pct"])
+        else:
+            threshold = float(df["pb"].dropna().quantile(conditions["pb_percentile_max"] / 100))
+            df = df[df["pb"] <= threshold]
 
     if "return_3m_min" in conditions and "return_3m" in df.columns:
         df = df[df["return_3m"] >= conditions["return_3m_min"]]

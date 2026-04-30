@@ -68,13 +68,45 @@ def _get_pro():
 # Latest trade date
 # ---------------------------------------------------------------------------
 
+def _get_trade_dates(year: str | None = None) -> set[str]:
+    """Return valid trading dates (YYYYMMDD) from Tushare trade_cal. Cached 24h."""
+    if year is None:
+        year = datetime.now().strftime("%Y")
+    cached = _cache.get(f"trade_calendar_{year}", 24 * 3600)
+    if cached:
+        return set(cached)
+    try:
+        import tushare as ts
+        cfg = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
+        token = cfg.get("tushare", {}).get("token", "")
+        if not token:
+            return set()
+        ts.set_token(token)
+        pro = ts.pro_api()
+        df = pro.trade_cal(exchange="SSE", start_date=f"{year}0101", end_date=f"{year}1231")
+        if df is None or df.empty:
+            return set()
+        open_dates = df[df["is_open"] == 1]["cal_date"].tolist()
+        _cache.set(f"trade_calendar_{year}", open_dates)
+        return set(open_dates)
+    except Exception:
+        return set()
+
+
 def _latest_trade_date() -> str:
     now = datetime.now()
     d   = now.date()
     if now.hour < 15 or (now.hour == 15 and now.minute < 30) or d.weekday() >= 5:
         d -= timedelta(days=1)
-    while d.weekday() >= 5:
-        d -= timedelta(days=1)
+    trade_dates = _get_trade_dates(d.strftime("%Y"))
+    if trade_dates:
+        for _ in range(20):
+            if d.strftime("%Y%m%d") in trade_dates:
+                break
+            d -= timedelta(days=1)
+    else:
+        while d.weekday() >= 5:
+            d -= timedelta(days=1)
     return d.strftime("%Y%m%d")
 
 
