@@ -107,10 +107,22 @@ def _load_state() -> dict:
 
 
 def _save_state(state: dict) -> None:
-    """Persist loop state to disk (best-effort, never raises)."""
+    """Persist loop state to disk (best-effort, never raises). Atomic write."""
     try:
-        with open(STATE_PATH, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False)
+        import tempfile
+        state_dir = os.path.dirname(STATE_PATH)
+        os.makedirs(state_dir, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=state_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False)
+            os.replace(tmp_path, STATE_PATH)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            raise
     except Exception:
         pass
 
@@ -320,8 +332,8 @@ def check_buy_signal(scored: dict, thresholds: dict, held_codes: set) -> bool:
     buy_trigger   = thresholds.get("buy_score_trigger", 65)
     sell_trigger  = thresholds.get("sell_score_trigger", 60)
     # Explicit dead-band: score must be below this to open a new position.
-    # Replaces the implicit 0.85 * sell_trigger so the hysteresis window is transparent.
-    buy_open_trigger = thresholds.get("buy_open_trigger", max(buy_trigger, 70))
+    # Default ensures at least a 5-point gap above buy_trigger (minimum 70).
+    buy_open_trigger = thresholds.get("buy_open_trigger", max(buy_trigger + 5, 70))
     buy_sell_guard   = thresholds.get("buy_sell_guard",   max(0, sell_trigger - 10))
     bear_sell_cap = thresholds.get("_bear_sell_cap")   # set in bear regime only
     if scored["code"] in held_codes:

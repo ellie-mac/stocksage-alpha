@@ -177,7 +177,7 @@ def _push_results(data: dict) -> None:
     if not picks:
         body = f"[热榜扫描 {date_s}] top{top_pct}%{suffix}\n无符合条件的股票"
     else:
-        d = f"{date_s[:4]}/{date_s[4:6]}/{date_s[6:]}"
+        d = f"{date_s[4:6]}/{date_s[6:]}"
         lines = [f"🔥 热榜扫描 {d} top{top_pct}%{suffix}  共{len(picks)}只\n"]
         for p in picks[:15]:
             chg = f"+{p['change_pct']}%" if p["change_pct"] >= 0 else f"{p['change_pct']}%"

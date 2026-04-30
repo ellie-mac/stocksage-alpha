@@ -331,7 +331,7 @@ def _push_results(data: dict) -> None:
         "MACD金叉":    "MACD",
         "KDJ金叉":     "KDJ",
         "RSI金叉":     "RSI",
-        "MA10/20金叉": "10/20",
+        "MA10/20金叉": "MA10/20",
         "量能金叉":    "量",
         "OBV金叉":     "OBV",
         "布林中轨金叉": "布林",

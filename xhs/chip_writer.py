@@ -57,6 +57,9 @@ def _in_window(slot: str) -> bool:
     now_dt   = datetime.now()
     sched_dt = datetime.combine(now_dt.date(), sched)
     delay    = (now_dt - sched_dt).total_seconds() / 60
+    if delay < 0:
+        print(f"[{slot}] 计划时间未到（还有 {-delay:.0f}min），跳过")
+        return False
     if delay > MAX_DELAY.get(slot, 60):
         print(f"[{slot}] 超出执行窗口（延迟 {delay:.0f}min），跳过")
         return False
@@ -133,7 +136,7 @@ def _load_gc_picks() -> dict:
 
 
 def _fmt_gc_section(gc_data: dict, prices: dict[str, dict] | None = None) -> list[str]:
-    """金叉共振区块：G0+G1（8/7信号）含胜率和均收益。"""
+    """金叉共振区块：G0+G1（7/6信号）含胜率和均收益。"""
     if not gc_data:
         return []
     tiers = gc_data.get("tiers", {})

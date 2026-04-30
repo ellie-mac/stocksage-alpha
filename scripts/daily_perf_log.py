@@ -51,7 +51,7 @@ def _fetch_prices(codes: list[str]) -> dict[str, float]:
 
 _SIG_SHORT = {
     "MACD金叉": "MACD", "KDJ金叉": "KDJ", "RSI金叉": "RSI",
-    "MA5/10金叉": "5/10", "MA10/20金叉": "10/20",
+    "MA5/10金叉": "MA5/10", "MA10/20金叉": "MA10/20",
     "量能金叉": "量", "OBV金叉": "OBV", "布林中轨金叉": "布林",
 }
 
@@ -126,15 +126,13 @@ def _find_prev(glob_pat: str, today: str) -> dict | None:
 
 
 def _load_chip(today: str) -> dict[str, list[dict]]:
-    """三者共有 T1-T4，按档返回"""
+    """三者共有 T1-T4（严格交集），缺任一来源则返回空"""
     empty = {t: [] for t in CHIP_TIERS}
     cah  = _find_prev("chip_cah_????????.json",  today)
     cad  = _find_prev("chip_cad_????????.json",  today)
     cadm = _find_prev("chip_cadm_????????.json", today)
-    if not cad:
+    if not (cah and cad and cadm):
         return empty
-    if not (cah and cadm):
-        return {t: cad.get("tiers", {}).get(t, []) for t in CHIP_TIERS}
     cadm_codes = {p["code"] for t in CHIP_TIERS for p in cadm.get("tiers", {}).get(t, [])}
     cah_codes  = {p["code"] for t in CHIP_TIERS for p in cah.get("tiers",  {}).get(t, [])}
     return {

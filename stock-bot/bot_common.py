@@ -567,7 +567,7 @@ def h_gc() -> str:
     date_s = f"{date_[4:6]}/{date_[6:]}" if len(date_) == 8 else date_
     _SIG_SHORT = {
         "MACD金叉": "MACD", "KDJ金叉": "KDJ", "RSI金叉": "RSI",
-        "MA5/10金叉": "5/10", "MA10/20金叉": "10/20",
+        "MA5/10金叉": "MA5/10", "MA10/20金叉": "MA10/20",
         "量能金叉": "量", "OBV金叉": "OBV", "布林中轨金叉": "布林",
     }
     TIERS = {"G0": "7信号", "G1": "6信号", "G2": "5信号"}

@@ -172,7 +172,7 @@ def main() -> None:
     groups = [
         ("筹码精华", g_cadm),
         ("排高位组",  g_cah_only),
-        ("基础组",    g_cad_only),
+        ("MACD待收",  g_cad_only),
     ]
 
     # Fetch prices once for all codes
