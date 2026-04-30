@@ -87,10 +87,13 @@ def _ar(s: dict) -> str:
 # ── 各策略数据加载 ─────────────────────────────────────────────────────────────
 
 def _load_main(today: str) -> list[dict]:
+    from datetime import datetime, timedelta
+    cutoff = (datetime.strptime(today, "%Y%m%d") - timedelta(days=3)).strftime("%Y%m%d")
     if MAIN_PICKS_PATH.exists():
         raw = json.loads(MAIN_PICKS_PATH.read_text(encoding="utf-8"))
         ts  = raw.get("timestamp", "")
-        if ts[:10].replace("-", "") < today:
+        ts_date = ts[:10].replace("-", "")
+        if cutoff <= ts_date < today:
             picks = raw.get("results", [])
             return [{"code": str(p.get("code", "")).split(".")[0],
                      "name": p.get("name", "")}
@@ -98,7 +101,8 @@ def _load_main(today: str) -> list[dict]:
     if SIG_PATH.exists():
         entries = json.loads(SIG_PATH.read_text(encoding="utf-8"))
         for entry in reversed(entries):
-            if entry.get("date", "") < today:
+            entry_date = entry.get("date", "")
+            if cutoff <= entry_date < today:
                 buys = entry.get("buy_signals", [])
                 if buys:
                     return [{"code": str(p.get("code", "")).split(".")[0],
