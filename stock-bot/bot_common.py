@@ -22,7 +22,7 @@ LOGS.mkdir(exist_ok=True)
 
 # ── Text constants ────────────────────────────────────────────────────────────
 HELP = """\
-  cmh 筹码策略 | hot 热榜策略 | gc 金叉共振 | pos 高低位 | p 持仓 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
+  cmh 筹码策略 | hot 热榜策略 | gc 金叉共振 | pos 高低位 | p 今日推荐 | z 状态 | t 定时任务 | sch 快捷命令 | fh 因子/回测 | 其他走AI对话"""
 
 FACTOR_HELP = """\
 因子 & 分析
@@ -42,7 +42,7 @@ SC_LIST = """\
   sc7 扫盘推送 | sc8 monitor日志
 
 数据查询快捷
-  p 持仓  hr 热榜结果  cr 筹码结果
+  p 今日推荐  hr 热榜结果  cr 筹码结果
   sg 近期信号  perf 策略表现"""
 
 CHIP_LIST = """\
