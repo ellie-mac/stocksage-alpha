@@ -124,7 +124,12 @@ def _load_main_picks() -> list[dict]:
 def _load_gc_picks() -> dict:
     if not GC_PATH.exists():
         return {}
-    return json.loads(GC_PATH.read_text(encoding="utf-8"))
+    data = json.loads(GC_PATH.read_text(encoding="utf-8"))
+    from datetime import timedelta
+    cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y%m%d")
+    if data.get("date", "") < cutoff:
+        return {}
+    return data
 
 
 def _fmt_gc_section(gc_data: dict, prices: dict[str, dict] | None = None) -> list[str]:
@@ -275,7 +280,7 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
     if not data:
         return
 
-    date      = data.get("date", datetime.now().strftime("%Y%m%d"))
+    date      = datetime.now().strftime("%Y%m%d")
     all_tiers = data.get("tiers", {})
     total     = sum(len(v) for v in all_tiers.values())
 
@@ -330,7 +335,7 @@ def cmd_midday(dry_run: bool = False, force: bool = False) -> None:
     if not data:
         return
 
-    date  = data.get("date", datetime.now().strftime("%Y%m%d"))
+    date  = datetime.now().strftime("%Y%m%d")
     picks = data.get("all_picks", [])
     if not picks:
         print("[midday] 无选股")

@@ -111,8 +111,10 @@ def _load_main(today: str) -> list[dict]:
 
 
 def _find_prev(glob_pat: str, today: str) -> dict | None:
+    from datetime import datetime as _dt, timedelta
+    cutoff = (_dt.strptime(today, "%Y%m%d") - timedelta(days=3)).strftime("%Y%m%d")
     candidates = sorted(
-        (p for p in DATA_DIR.glob(glob_pat) if p.stem[-8:] < today),
+        (p for p in DATA_DIR.glob(glob_pat) if cutoff <= p.stem[-8:] < today),
         key=lambda p: p.stem[-8:], reverse=True,
     )
     if not candidates:
