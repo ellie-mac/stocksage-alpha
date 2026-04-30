@@ -820,13 +820,13 @@ def _cad_run_one(df_all, mods: str, trade_date: str, pro) -> tuple[dict, int]:
     for tier_name, min_win, max_win in _TIER_ORDER:
         win_range = f"{min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{min_win:.0f}%"
 
-        result = screen(df_all, min_win, max_win=max_win, max_today_pct=None,
+        result = screen(df_all, min_win, max_win=max_win, max_today_pct=9.4,
                         max_6m_ratio=None, six_month_high=None,
                         max_price=max_price, exclude_kcb=no_kcb)
 
         if max_6m_ratio is not None and not result.empty:
             six_m  = fetch_6m_high(result["ts_code"].tolist(), trade_date, pro)
-            result = screen(df_all, min_win, max_win=max_win, max_today_pct=None,
+            result = screen(df_all, min_win, max_win=max_win, max_today_pct=9.4,
                             max_6m_ratio=max_6m_ratio, six_month_high=six_m,
                             max_price=max_price, exclude_kcb=no_kcb)
 

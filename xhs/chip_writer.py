@@ -137,7 +137,7 @@ def _fmt_gc_section(gc_data: dict, prices: dict[str, dict] | None = None) -> lis
     if not gc_data:
         return []
     tiers = gc_data.get("tiers", {})
-    _LABELS = {"G0": "8信号", "G1": "7信号"}
+    _LABELS = {"G0": "7信号", "G1": "6信号"}
     total = sum(len(tiers.get(t, [])) for t in _LABELS)
     if total == 0:
         return []
@@ -288,7 +288,7 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
         "T1": "极强 ≥95%",
         "T2": "强势 90-95%",
         "T3": "稳健 85-90%",
-        # "T4": "潜力 75-85%",
+        "T4": "潜力 75-85%",
     }
 
     main_picks = _load_main_picks()
@@ -374,9 +374,9 @@ def cmd_midday(dry_run: bool = False, force: bool = False) -> None:
         if s["watch_up"] or s["watch_dn"]:
             lines.append("\n下午关注：  ")
             for r in s["watch_up"][:3]:
-                lines.append(f"• {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
+                lines.append(f"📈 {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
             for r in s["watch_dn"][:2]:
-                lines.append(f"• {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
+                lines.append(f"📉 {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
     else:
         lines.append(f"**【筹码策略 {len(picks)}只】**  （行情暂不可用）  ")
 
@@ -414,8 +414,11 @@ def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
     if not s["results"]:
         print("[evening] 行情获取失败，发送无数据版本")
         title = f"收盘总结 {_fmt_date(date)}"
+        stock_list = "、".join(f"{p['code']}{p.get('name', '')}" for p in picks[:10])
+        suffix = "等" if len(picks) > 10 else ""
         body  = (f"📊 收盘总结 {_fmt_date(date)}\n"
-                 f"筹码选股 {len(picks)} 只（行情数据暂时不可用，请自行查看）\n"
+                 f"筹码选股 {len(picks)} 只（行情暂不可用）\n"
+                 f"{stock_list}{suffix}\n"
                  f"\n⚠️ 仅供参考，不构成投资建议\n#量化记录 #筹码分布 #数据实验 #记录帖")
         if not dry_run:
             _push(title, body)

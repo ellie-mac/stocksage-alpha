@@ -53,7 +53,7 @@ def check_price_quality(df: pd.DataFrame, code: str, *, print_ok: bool = False) 
 
         # 3. Adj-factor jump heuristic: consecutive close ratio >1.5 (split not followed by adj)
         if "close" in df.columns and n >= 2:
-            cls = pd.to_numeric(df["close"], errors="coerce").fillna(method="ffill")
+            cls = pd.to_numeric(df["close"], errors="coerce").ffill()
             ratio = (cls / cls.shift(1)).dropna()
             large_jump = ratio[(ratio > 1.5) | (ratio < 0.4)]
             if not large_jump.empty:

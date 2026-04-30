@@ -11,7 +11,7 @@ import signal
 import subprocess
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 ROOT    = Path(__file__).resolve().parent.parent
@@ -40,6 +40,7 @@ SC_LIST = """\
   sc3 终止回测 | sc4 因子IC回测
   sc5 预热财务缓存 | sc6 重建股票池
   sc7 扫盘推送 | sc8 monitor日志
+  sc9[T][修饰] 筹码单档 | sc10 筹码全档
 
 数据查询快捷
   p 今日推荐  hr 热榜结果  cr 筹码结果
@@ -627,13 +628,14 @@ def h_tasks() -> str:
         if not rows:
             return "❌ 无任务数据"
         rows.sort(key=lambda x: x[4])
-        today_mdd = date.today().strftime("%m/%d")
+        today_mdd    = date.today().strftime("%m/%d")
+        tomorrow_mdd = (date.today() + timedelta(days=1)).strftime("%m/%d")
         lines = []
         for status, name, desc, last_run, next_run in rows:
             if status == "OK":
                 tick = "✅"
-            elif next_run != "--" and not next_run.startswith(today_mdd):
-                tick = "❌"
+            elif next_run != "--" and next_run.startswith(tomorrow_mdd):
+                tick = "❌"  # daily task - should have run today but window passed
             else:
                 tick = "⬜"
             time_parts = []
@@ -700,7 +702,7 @@ def h_backtest_result() -> str:
                 lines.append(f"  {label}: {v}")
     periods = data.get("period_results", [])
     if periods:
-        lines.append(f"\n各期收益（共{len(periods)}期）")
+        lines.append(f"\n最近6期收益（共{len(periods)}期）")
         for p in periods[-6:]:
             port  = p.get("portfolio_ret", 0)
             bench = p.get("benchmark_ret")
@@ -903,7 +905,10 @@ def h_main_picks() -> str:
         return "主策略暂无选股结果。"
     ts    = data.get("timestamp") or data.get("date", "")
     date_ = ts[:10] if ts else "?"
-    lines = [f"主策略最新选股 ({date_})\n"]
+    today = datetime.now().strftime("%Y-%m-%d")
+    if date_ != today:
+        return f"今日暂无推荐信号 (上次: {date_})"
+    lines = [f"主策略今日推荐 ({date_})\n"]
     for i, s in enumerate(items[:5], 1):
         name  = s.get("name") or s.get("code", "?")
         code  = s.get("code", "")

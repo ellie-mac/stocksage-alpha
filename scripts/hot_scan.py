@@ -181,7 +181,7 @@ def _push_results(data: dict) -> None:
         lines = [f"🔥 热榜扫描 {d} top{top_pct}%{suffix}  共{len(picks)}只\n"]
         for p in picks[:15]:
             chg = f"+{p['change_pct']}%" if p["change_pct"] >= 0 else f"{p['change_pct']}%"
-            lines.append(f"  {p['code']} {p['name']}  ¥{p['close']}  {chg}  热度#{p['rank']}  动量{p['momentum']:.0f}")
+            lines.append(f"  {p['code']} {p['name']}  ¥{p['close']}  {chg}  热度#{p['rank']}  动量{p['momentum']:.0f}  综合{p['score']:.0f}")
         body = "\n".join(lines)
 
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))

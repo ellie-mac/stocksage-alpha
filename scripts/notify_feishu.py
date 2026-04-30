@@ -31,7 +31,7 @@ _TASK_DESC = {
 
 
 def _get_remaining_tasks() -> str:
-    """List tasks that haven't run today yet."""
+    """List tasks that haven't run today yet and are still scheduled to run today."""
     names_list = "','".join(_TASK_DESC.keys())
     ps = (
         f"$today = (Get-Date).Date;"
@@ -39,8 +39,10 @@ def _get_remaining_tasks() -> str:
         "Get-ScheduledTask | Where-Object { $names -contains $_.TaskName } | ForEach-Object {"
         "  $info = $_ | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue;"
         "  $lr = $info.LastRunTime;"
+        "  $nr = $info.NextRunTime;"
         "  $done = $lr -and $lr -ge $today -and $lr -le (Get-Date);"
-        "  if (-not $done) { Write-Output $_.TaskName }"
+        "  $runsToday = $nr -and $nr.Date -eq $today;"
+        "  if (-not $done -and $runsToday) { Write-Output $_.TaskName }"
         "}"
     )
     try:

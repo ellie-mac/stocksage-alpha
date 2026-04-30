@@ -1432,7 +1432,9 @@ def run_loop(
 
     alert_state:        dict = {}   # code -> last fast-alert datetime (急涨/做T, normal cooldown)
     urgent_alert_state: dict = {}   # code -> last fast-alert datetime (止损/急跌, short cooldown)
-    sell_alert_state:   dict = {}   # code -> last sell-alert datetime (cross-tier dedup)
+    _raw_sell = _state.get("sell_alert_state", {})
+    sell_alert_state: dict = {k: datetime.fromisoformat(v) for k, v in _raw_sell.items()
+                               if isinstance(v, str) and v}
     t_trade_state:      dict = {}   # code -> {sell_price, cover_price, date}
     _error_notified:    dict = {}   # error_key -> last WeChat push datetime (1h rate limit)
     _etf_buy_state:     dict = {}   # code -> last ETF buy-alert datetime  (20-min cooldown)
@@ -1661,7 +1663,8 @@ def run_loop(
                 print(f"  [ERROR] Night scan failed: {e}")
 
         # ── Daily heartbeat + cache purge (09:00, before market open) ──────────
-        if (now.hour == 9 and 0 <= now.minute < 5  # TEST: weekday check removed
+        if (now.weekday() < 5
+                and now.hour == 9 and 0 <= now.minute < 5
                 and _heartbeat_date != now.date()):
             _heartbeat_date = now.date()
             # Purge expired cache entries (keeps disk usage bounded)
@@ -2182,6 +2185,8 @@ def run_loop(
                                    if _signal_tracker_date else None,
             "auto_tune_date":      _auto_tune_date.isoformat()
                                    if _auto_tune_date else None,
+            "sell_alert_state":   {k: v.isoformat() for k, v in sell_alert_state.items()
+                                   if isinstance(v, datetime)},
         })
 
         # ── Sleep until next fast interval ────────────────────────────────────
@@ -2210,6 +2215,8 @@ def run_loop(
                                      if _signal_tracker_date else None,
             "auto_tune_date":        _auto_tune_date.isoformat()
                                      if _auto_tune_date else None,
+            "sell_alert_state":     {k: v.isoformat() for k, v in sell_alert_state.items()
+                                     if isinstance(v, datetime)},
         })
         print("\n[StockSage] 监控已停止（Ctrl+C）。状态已保存。")
 

@@ -213,6 +213,9 @@ def main() -> None:
     print(f"[daily_perf] 获取 {len(all_codes)} 只行情 ...")
     prices = _fetch_prices(all_codes)
     print(f"[daily_perf] 获取到 {len(prices)} 只")
+    if not prices:
+        print("[daily_perf] spot_em 返回空，跳过写入历史")
+        return
 
     # ── 统计 ──────────────────────────────────────────────────────────────────
     ms = _stats(main_picks, prices)
@@ -229,7 +232,7 @@ def main() -> None:
 
     # 主策略：全部5只各自换行
     if ms["results"]:
-        rows = [f"  {r['name']} {r['pct']:+.2f}%"
+        rows = [f"  {r['code']} {r['name']} {r['pct']:+.2f}%"
                 for r in sorted(ms["results"], key=lambda r: r["pct"], reverse=True)]
         sections.append(_fmt_section(
             f"{_emoji(ms['win_rate'])} **主策略 {ms['n']}只  胜率{_wr(ms)}  均{_ar(ms)}**",

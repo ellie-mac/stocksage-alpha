@@ -242,7 +242,9 @@ def wait_for_fresh_prices() -> bool:
     print(f"[wait_prices] 价格数据未到今日 ({expected})，清空旧 cache 并重跑 prefetch ...", flush=True)
 
     price_cache = Path(__file__).parent / "cache" / "price"
-    shutil.rmtree(price_cache, ignore_errors=True)
+    if price_cache.exists():
+        archive = price_cache.parent / f"price_bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        shutil.move(str(price_cache), str(archive))
 
     _sp.run(
         [sys.executable, "-X", "utf8", str(Path(__file__).resolve()), "--price", "--force"],
