@@ -636,9 +636,11 @@ def h_tasks() -> str:
                 tick = "❌"
             else:
                 tick = "⬜"
-            last_s = f"\n  ⬆️{last_run}" if last_run != "--" else ""
-            next_s = f"\n  ⬇️{next_run}" if next_run != "--" else ""
-            lines.append(f"{tick} {name} / {desc}{last_s}{next_s}")
+            time_parts = []
+            if last_run != "--": time_parts.append(f"⬆️{last_run}")
+            if next_run != "--": time_parts.append(f"⬇️{next_run}")
+            time_s = ("\n  " + "  ".join(time_parts)) if time_parts else ""
+            lines.append(f"{tick} {name} / {desc}{time_s}")
         return "\n".join(lines)
     except Exception as e:
         return f"❌ 查询失败: {e}"
