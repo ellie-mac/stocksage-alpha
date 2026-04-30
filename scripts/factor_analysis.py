@@ -219,6 +219,43 @@ def _prefetch_one(code: str, history_days: int, group: str = "A") -> None:
 
 
 # ---------------------------------------------------------------------------
+# PIT hot rank helper
+# ---------------------------------------------------------------------------
+
+def _hot_rank_pit(code: str, asof_date: str) -> Optional[dict]:
+    """
+    Return a social_dict from the most recent hot rank snapshot on/before asof_date.
+    Falls back to None (caller should then use live fetcher.get_social_heat).
+    Enables unbiased rolling IC for social_heat once daily snapshots accumulate.
+    """
+    if not asof_date:
+        return None
+    try:
+        import json
+        from pathlib import Path as _Path
+        log_dir = _Path(__file__).resolve().parent.parent / "data" / "hot_rank_log"
+        if not log_dir.exists():
+            return None
+        target = asof_date.replace("-", "")[:8]  # YYYYMMDD
+        snaps = sorted(p for p in log_dir.glob("????????_????.json") if p.name[:8] <= target)
+        if not snaps:
+            return None
+        with open(snaps[-1], encoding="utf-8") as f:
+            snapshot = json.load(f)
+        stocks = snapshot.get("stocks", [])
+        total  = len(stocks)
+        if total == 0:
+            return None
+        code6 = str(code).zfill(6)
+        rank  = next((r["rank"] for r in stocks if r["code"] == code6), None)
+        if rank is None:
+            return None
+        return {"rank": rank, "rank_pct": rank / total * 100, "total": total}
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Per-stock score computation
 # ---------------------------------------------------------------------------
 
@@ -434,7 +471,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
             nb_df          = fetcher.get_northbound_holdings(code)
             revision_df    = fetcher.get_earnings_revision(code)
             market_ret     = _sh.get("market_ret") if _sh.get("market_ret") is not None else fetcher.get_market_return_1m()
-            social_dict    = fetcher.get_social_heat(code)
+            social_dict    = _hot_rank_pit(code, asof_date_str) or fetcher.get_social_heat(code)
             market_regime_df = market_price_df  # already fetched above (shared)
 
             # Re-compute value + extract pe/pb percentiles in one call
@@ -1118,10 +1155,15 @@ def _run_rolling(
     print(f"Rolling IC: {n_periods} periods × {step}d step, {forward_days}d forward, group={group}\n")
 
     if "B" in group.upper():
+        from pathlib import Path as _P
+        _hr_dir = _P(__file__).resolve().parent.parent / "data" / "hot_rank_log"
+        _hr_snaps = len(list(_hr_dir.glob("????????_????.json"))) if _hr_dir.exists() else 0
         print("[warn] Rolling mode with group B: fundamental/flow factors (ROE, revenue growth,\n"
               "       fund flow, margins, etc.) always use TODAY's data for ALL periods.\n"
               "       IC estimates for these factors have look-ahead bias and are unreliable.\n"
-              "       Use --group A for unbiased rolling IC on price-based factors.\n", flush=True)
+              "       Use --group A for unbiased rolling IC on price-based factors.\n"
+              f"       social_heat: {'PIT snapshots available (' + str(_hr_snaps) + ' files) — IC unbiased' if _hr_snaps >= 5 else 'no PIT snapshots yet (' + str(_hr_snaps) + '/5 min) — IC will be biased; accumulating via hot_rank_logger'}\n",
+              flush=True)
 
     # ── Pre-fetch all stock data once (covers max price_offset) ─────────────
     # All rolling periods reuse the same cache entry (_PRICE_FETCH_DAYS covers them all)
