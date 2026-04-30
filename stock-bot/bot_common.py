@@ -891,6 +891,25 @@ def h_show_holdings() -> str:
     return "\n".join(lines)
 
 
+def h_main_picks() -> str:
+    picks_path = ROOT / "data" / "latest_picks.json"
+    if not picks_path.exists():
+        return "latest_picks.json 不存在，主策略尚未运行。"
+    data  = json.loads(picks_path.read_text(encoding="utf-8"))
+    items = data.get("results", [])
+    if not items:
+        return "主策略暂无选股结果。"
+    ts    = data.get("timestamp") or data.get("date", "")
+    date_ = ts[:10] if ts else "?"
+    lines = [f"主策略最新选股 ({date_})\n"]
+    for i, s in enumerate(items[:5], 1):
+        name  = s.get("name") or s.get("code", "?")
+        code  = s.get("code", "")
+        score = s.get("composite", s.get("score", 0))
+        lines.append(f"{i}. {code} {name}  得分 {score:.3f}")
+    return "\n".join(lines)
+
+
 def h_hot_scan_result() -> str:
     path = ROOT / "data" / "hot_scan_latest.json"
     if not path.exists():
@@ -1382,7 +1401,7 @@ def dispatch_command(t: str) -> str | None:
     if t == "hot":
         return HOT_LIST
     if t in ("p", "持仓", "portfolio"):
-        return h_show_holdings()
+        return h_main_picks()
     if t in ("hr", "热榜结果"):
         return h_hot_scan_result()
     if t in ("cr", "筹码结果"):
