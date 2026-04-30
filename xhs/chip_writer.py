@@ -163,14 +163,14 @@ def _fmt_gc_section(gc_data: dict, prices: dict[str, dict] | None = None) -> lis
         stat_s = (f"  胜率{ts['win_rate']:.0f}%  均{ts['avg_ret']:+.2f}%"
                   if ts["results"] else "")
         out.append(f"**{t} {label}（{len(picks)}只）{stat_s}**  ")
-        for p in picks[:10]:
+        for p in picks[:3]:
             pr = prices.get(p["code"])
             if pr:
                 pct_s = f" ¥{pr['price']:.2f} **{pr['change_pct']:+.2f}%**"
             else:
                 pct_s = ""
             out.append(f"{p['code']} {p['name']}{pct_s}  ")
-        if len(picks) > 10:
+        if len(picks) > 3:
             out.append(f"  ……共{len(picks)}只  ")
         out.append("")
     return out
@@ -308,7 +308,8 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
             lines.append(f"{p['code']} {p['name']} {p.get('industry', '')} {price_s}  ")
         lines.append("")
 
-    lines.append(f"**【筹码策略 {chip_total}只】**  ")
+    _fallback_s = "" if data.get("filter") == "CAH∩CAD∩CADM" else "  ⚡仅CAD"
+    lines.append(f"**【筹码策略 {chip_total}只{_fallback_s}】**  ")
     for tier_key, tier_label in _TIER_LABEL.items():
         picks = all_tiers.get(tier_key, [])
         if not picks:
@@ -375,8 +376,9 @@ def cmd_midday(dry_run: bool = False, force: bool = False) -> None:
         lines.append("")
 
     # ── 筹码策略 ───────────────────────────────────────────────────────────────
+    _fallback_s = "" if data.get("filter") == "CAH∩CAD∩CADM" else "  ⚡仅CAD"
     if s["results"]:
-        lines.append(f"**【筹码策略 {s['n_total']}只】  胜率 {s['win_rate']:.0f}%  均 {s['avg_ret']:+.2f}%**  ")
+        lines.append(f"**【筹码策略 {s['n_total']}只{_fallback_s}】  胜率 {s['win_rate']:.0f}%  均 {s['avg_ret']:+.2f}%**  ")
         lines.append("\n涨幅前五：  ")
         for i, r in enumerate(s["top5"], 1):
             lines.append(f"{i}. {r['code']} {r['name']} **{r['change_pct']:+.2f}%**  ")
@@ -387,7 +389,8 @@ def cmd_midday(dry_run: bool = False, force: bool = False) -> None:
             for r in s["watch_dn"][:2]:
                 lines.append(f"📉 {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
     else:
-        lines.append(f"**【筹码策略 {len(picks)}只】**  （行情暂不可用）  ")
+        _fallback_s = "" if data.get("filter") == "CAH∩CAD∩CADM" else "  ⚡仅CAD"
+        lines.append(f"**【筹码策略 {len(picks)}只{_fallback_s}】**  （行情暂不可用）  ")
 
     gc_data = _load_gc_picks()
     gc_codes = [p["code"] for t in ("G0","G1") for p in gc_data.get("tiers", {}).get(t, [])]
@@ -452,7 +455,8 @@ def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
         price_s = f" ¥{r['price']:.2f}" if r.get("price") else ""
         lines.append(f"{i}. {r['code']} {r['name']}{price_s} **{r['change_pct']:+.2f}%**  ")
 
-    lines.append(f"\n筹码选股 {s['n_total']} 只（覆盖 {len(s['results'])} 只）")
+    _fallback_s = "" if data.get("filter") == "CAH∩CAD∩CADM" else "  ⚡仅CAD"
+    lines.append(f"\n筹码选股 {s['n_total']} 只（覆盖 {len(s['results'])} 只）{_fallback_s}")
     lines.append(f"**最终胜率 {s['win_rate']:.0f}%**（{s['n_win']}/{s['n_total']}只盈利）")
     lines.append(f"**综合收益率 {s['avg_ret']:+.2f}%**\n")
 

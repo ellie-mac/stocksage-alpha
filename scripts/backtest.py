@@ -137,6 +137,11 @@ def _composite_score(stock_scores: dict,
     return float(weighted_sum / weight_total)
 
 
+def _interpolate_exposure(lam: float) -> float:
+    """λ-smooth exposure: λ=0 → BEAR (0.15), λ=1 → NORMAL cap (0.85)."""
+    return round(REGIME_EXPOSURE["BEAR"] + (REGIME_EXPOSURE["NORMAL"] - REGIME_EXPOSURE["BEAR"]) * max(0.0, min(1.0, lam)), 2)
+
+
 def _compute_regime_lambda(end_px: float, ma60: float, prior_ret: float) -> float:
     """Continuous bullishness λ ∈ [0, 1]: 0 = fully bearish, 1 = fully bullish.
 
@@ -200,10 +205,12 @@ def _detect_regime(regime_close: Optional[pd.Series],
         if use_lambda:
             lam = _compute_regime_lambda(end_px, ma60, -10.0)
             wts = _interpolate_weights(weights_table["BEAR"], weights_table["EXTREME_BULL"], lam)
+            exp = _interpolate_exposure(lam)
         else:
             lam = 0.0
             wts = weights_table["BEAR"]
-        return "BEAR", REGIME_EXPOSURE["BEAR"], wts, lam
+            exp = REGIME_EXPOSURE["BEAR"]
+        return "BEAR", exp, wts, lam
 
     # --- Layer 2: prior-20d return (tactical) ---
     start_px = float(regime_close.iloc[-(price_offset + lookback + 1)])
@@ -226,10 +233,12 @@ def _detect_regime(regime_close: Optional[pd.Series],
     if use_lambda:
         lam = _compute_regime_lambda(end_px, ma60, prior_ret)
         wts = _interpolate_weights(weights_table["BEAR"], weights_table["EXTREME_BULL"], lam)
+        exp = _interpolate_exposure(lam)
     else:
         lam = 0.5
         wts = weights_table[r]
-    return r, REGIME_EXPOSURE[r], wts, lam
+        exp = REGIME_EXPOSURE[r]
+    return r, exp, wts, lam
 
 
 def _precompute_regimes(
@@ -604,15 +613,15 @@ def _compute_stats(
 
 
 def _cumulative(rets: list[Optional[float]]) -> list[Optional[float]]:
-    """Compound a list of period returns into cumulative returns (0-based)."""
+    """Compound a list of period returns into cumulative returns (0-based).
+    None entries are treated as 0% so the series is always gap-free.
+    """
     result: list[Optional[float]] = []
     cum = 1.0
     for r in rets:
-        if r is None:
-            result.append(None)
-        else:
+        if r is not None:
             cum *= (1 + r / 100)
-            result.append(round((cum - 1) * 100, 3))
+        result.append(round((cum - 1) * 100, 3))
     return result
 
 

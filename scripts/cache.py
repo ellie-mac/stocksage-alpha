@@ -129,6 +129,11 @@ def get_df(key: str, ttl_seconds: int) -> Optional[pd.DataFrame]:
 
 def set_df(key: str, df: pd.DataFrame) -> None:
     set(key, df)
+    recovered = get_df(key, ttl_seconds=86400)
+    if recovered is None or recovered.shape[0] != df.shape[0]:
+        got = recovered.shape[0] if recovered is not None else "None"
+        print(f"[cache] warn: set_df round-trip mismatch for '{key}' "
+              f"(wrote {df.shape[0]} rows, read back {got})")
 
 
 # TTL constants (seconds)

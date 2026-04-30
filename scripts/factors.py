@@ -395,7 +395,7 @@ def score_value(
         close = price_df["close"]
         current = float(close.iloc[-1])
         past_3m = float(close.iloc[-63])
-        if past_3m > 0:
+        if past_3m > 0 and close.iloc[-63:].nunique() >= 5:
             ret_3m = (current - past_3m) / past_3m * 100
             deep_value = ((pe_pct is not None and pe_pct <= 20)
                           or (pb_pct is not None and pb_pct <= 20))
@@ -847,6 +847,8 @@ def score_momentum(
         def calc_return(n_days: int) -> Optional[float]:
             if len(close) < n_days:
                 return None
+            if close.iloc[-n_days:].nunique() < max(3, n_days // 20):
+                return None  # mostly flat prices — prolonged suspension
             past = float(close.iloc[-n_days])
             return ((current - past) / past) * 100 if past > 0 else None
 

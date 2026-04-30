@@ -1285,7 +1285,8 @@ def run(
         if not hold_parts: hold_parts.append("持仓日报")
         hold_title = f"[StockSage 持仓] {' | '.join(hold_parts)}"
 
-        hold_desp_parts = [f"*{run_time}*\n"]
+        _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
+        hold_desp_parts = [f"*{run_time}*\n市场 {_re_emoji} {regime_score:.0f}/10 {_regime_key}\n"]
         hold_desp_parts.append("## 卖出信号\n")
         hold_desp_parts.append(_fmt_sell_section_md(
             sell_alerts,
@@ -1323,7 +1324,8 @@ def run(
         if not buy_parts:  buy_parts.append("今日关注")
         buy_title = f"[StockSage] {' | '.join(buy_parts)}"
 
-        buy_desp_parts = [f"*{run_time}*\n"]
+        _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
+        buy_desp_parts = [f"*{run_time}*\n市场 {_re_emoji} {regime_score:.0f}/10 {_regime_key}\n"]
 
         # Main strategy section
         if scored_universe:

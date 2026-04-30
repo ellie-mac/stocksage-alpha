@@ -64,8 +64,8 @@ def _get_price_position(price_df) -> Optional[float]:
     """
     if price_df is None or len(price_df) < 20 or "close" not in price_df.columns:
         return None
-    window = price_df["close"].tail(252)
-    if len(window) < 252:   # not enough history for a true 52-week metric
+    window = price_df["close"].tail(260)
+    if len(window) < 260:   # not enough history for a true 52-week metric (+8 suspension buffer)
         return None
     high_52w = float(window.max())
     low_52w  = float(window.min())
@@ -1120,7 +1120,7 @@ def score_turnover_percentile(
     position_signal = None
     if len(price_df) >= 252 and "close" in price_df.columns:
         try:
-            window = price_df["close"].tail(252)
+            window = price_df["close"].tail(260)
             hi = float(window.max()); lo = float(window.min()); cur = float(window.iloc[-1])
             if hi > lo:
                 pos = (cur - lo) / (hi - lo)
@@ -1192,7 +1192,7 @@ def score_chip_distribution(
     # ── Step 1: 52w price position ───────────────────────────────────────
     position: Optional[float] = None
     if price_df is not None and len(price_df) >= 20 and "close" in price_df.columns:
-        window = price_df["close"].tail(252)
+        window = price_df["close"].tail(260)
         hi = float(window.max())
         lo = float(window.min())
         cur = float(window.iloc[-1])
@@ -3368,7 +3368,7 @@ def score_price_inertia(
     position_signal = None
     if len(price_df) >= 20 and "close" in price_df.columns:
         try:
-            window = price_df["close"].tail(252)
+            window = price_df["close"].tail(260)
             hi = float(window.max()); lo = float(window.min()); cur = float(window.iloc[-1])
             if hi > lo:
                 pos = (cur - lo) / (hi - lo)
