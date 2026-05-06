@@ -179,6 +179,46 @@ def _try_feishu(task: str, desc: str, status: str) -> None:
         print(f"[notify_feishu] 发送失败: {e}", flush=True)
 
 
+def push_feishu_card(title: str, lines: list[str]) -> None:
+    """Push an interactive card to the Feishu notify chat. Best-effort, never raises."""
+    app_id, secret, chat_id = _feishu_cfg()
+    if not (app_id and secret and chat_id):
+        return
+    try:
+        token = _feishu_token(app_id, secret)
+        card = {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": title},
+                "template": "blue",
+            },
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {"tag": "lark_md", "content": "\n".join(lines)},
+                }
+            ],
+        }
+        body = json.dumps({
+            "receive_id": chat_id,
+            "msg_type":   "interactive",
+            "content":    json.dumps(card, ensure_ascii=False),
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            data=body,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            resp = json.loads(r.read().decode("utf-8"))
+        if resp.get("code") != 0:
+            print(f"[notify_feishu] card推送失败: {resp}", flush=True)
+        else:
+            print("[notify_feishu] card推送成功", flush=True)
+    except Exception as e:
+        print(f"[notify_feishu] card推送失败: {e}", flush=True)
+
+
 def push_feishu_content(text: str) -> None:
     """Push plain-text content to the Feishu notify chat. Best-effort, never raises."""
     app_id, secret, chat_id = _feishu_cfg()

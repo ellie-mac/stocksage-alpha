@@ -772,7 +772,7 @@ def format_message(
     n = len(result)
     date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
     win_range = f"{min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{min_win:.0f}%"
-    title = f"筹码策略 {date_fmt} | 获利盘{win_range}  共{n}只"
+    title = f"T+1筹码 {date_fmt} 共{n}只"
 
     if n == 0:
         return title, f"**{date_fmt}** 无符合条件股票（获利盘 {win_range}）"
@@ -788,36 +788,21 @@ def format_message(
     if exclude_kcb:
         filter_parts.append("**排除科创板**")
 
-    lines = [
-        f"## 筹码策略 {date_fmt}",
-        "> " + "  |  ".join(filter_parts),
-        f"> 共 **{n}** 只",
-        "",
-        "| 代码 | 名称 | 行业 | 收盘 | 涨跌% | 获利盘% | 95%成本 | 均成本 |",
-        "|------|------|------|-----:|------:|--------:|--------:|-------:|",
-    ]
+    filter_desc = "  ".join(filter_parts)
+    lines = [f"筛选：{filter_desc}  共{n}只", ""]
 
     for _, row in result.iterrows():
-        code    = row.get("code", "")
-        name    = str(row.get("name", "") or "")[:8]
-        ind     = str(row.get("industry", "") or "")[:6]
-        close   = row.get("close",       float("nan"))
-        pct_chg = row.get("pct_chg",     float("nan"))
-        win     = row.get("winner_rate",  float("nan"))
-        c95     = row.get("cost_95pct",   float("nan"))
-        wavg    = row.get("weight_avg",   float("nan"))
+        code  = row.get("code", "")
+        name  = str(row.get("name", "") or "")[:6]
+        ind   = str(row.get("industry", "") or "")[:5]
+        close = row.get("close",      float("nan"))
+        wavg  = row.get("weight_avg", float("nan"))
 
-        close_s = f"{close:.2f}"       if pd.notna(close)  else "-"
-        pct_s   = f"{pct_chg:+.2f}%"  if pd.notna(pct_chg) else "-"
-        win_s   = f"{win:.1f}%"        if pd.notna(win)    else "-"
-        c95_s   = f"{c95:.2f}"         if pd.notna(c95)    else "-"
-        wavg_s  = f"{wavg:.2f}"        if pd.notna(wavg)   else "-"
+        close_s = f"{close:.2f}" if pd.notna(close) else "-"
+        wavg_s  = f"{wavg:.2f}"  if pd.notna(wavg)  else "-"
+        lines.append(f"{code} {name} {ind}  {close_s}  均{wavg_s}")
 
-        lines.append(
-            f"| {code} | {name} | {ind} | {close_s} | {pct_s} | {win_s} | {c95_s} | {wavg_s} |"
-        )
-
-    lines += ["", f"_数据: Tushare Pro · {datetime.now():%Y-%m-%d %H:%M}_"]
+    lines += ["", f"数据: Tushare Pro · {datetime.now():%Y-%m-%d %H:%M}"]
     return title, "\n".join(lines)
 
 
@@ -1146,6 +1131,12 @@ def main() -> None:
                                  max_today_pct=max_today_pct, max_6m_ratio=max_6m_ratio,
                                  max_price=max_price, exclude_kcb=exclude_kcb)
     send_wechat(title, body, sendkey, dry_run=args.dry_run)
+    if not args.dry_run:
+        try:
+            from notify_discord import push_feishu_card
+            push_feishu_card(title, body.splitlines())
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
