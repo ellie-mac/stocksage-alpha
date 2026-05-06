@@ -219,6 +219,54 @@ def _prefetch_one(code: str, history_days: int, group: str = "A") -> None:
 
 
 # ---------------------------------------------------------------------------
+# Industry valuation map helper
+# ---------------------------------------------------------------------------
+
+def _build_industry_val_map(spot_df: Optional[pd.DataFrame]) -> dict[str, dict]:
+    """
+    Build {industry: {"pe": [...], "pb": [...]}} from the full-market spot snapshot.
+    Passed as industry_stats to score_value so PE/PB are scored against sector peers.
+    Returns empty dict if the industry_map cache isn't populated yet.
+    """
+    try:
+        import cache as _cache
+        industry_map = _cache.get("industry_map", 7 * 86400)
+        if not industry_map or spot_df is None or spot_df.empty:
+            return {}
+
+        df = spot_df.copy()
+        code_col = "代码" if "代码" in df.columns else ("code" if "code" in df.columns else None)
+        if code_col is None:
+            return {}
+
+        df["_code"]     = df[code_col].astype(str).str.zfill(6).str[:6]
+        df["_industry"] = df["_code"].map(industry_map)
+
+        pe_raw = df["市盈率-动态"] if "市盈率-动态" in df.columns else (
+                 df["pe_ttm"]    if "pe_ttm"     in df.columns else None)
+        pb_raw = df["市净率"]     if "市净率"     in df.columns else (
+                 df["pb"]        if "pb"          in df.columns else None)
+
+        df["_pe"] = pd.to_numeric(pe_raw, errors="coerce") if pe_raw is not None else np.nan
+        df["_pb"] = pd.to_numeric(pb_raw, errors="coerce") if pb_raw is not None else np.nan
+
+        result: dict = {}
+        for ind, grp in df.dropna(subset=["_industry"]).groupby("_industry"):
+            entry: dict = {}
+            pe_v = grp["_pe"].dropna(); pe_v = pe_v[pe_v > 0]
+            pb_v = grp["_pb"].dropna(); pb_v = pb_v[pb_v > 0]
+            if len(pe_v) >= 5:
+                entry["pe"] = pe_v.tolist()
+            if len(pb_v) >= 5:
+                entry["pb"] = pb_v.tolist()
+            if entry:
+                result[str(ind)] = entry
+        return result
+    except Exception:
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # PIT hot rank helper
 # ---------------------------------------------------------------------------
 
@@ -325,10 +373,16 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
 
         scores: dict[str, float] = {"forward_ret": forward_ret}
 
+        # Industry stats for value factor — enables industry-relative PE/PB percentile
+        _industry_val_map  = _sh.get("industry_val_map", {})
+        _info_val          = fetcher.get_stock_info(code)  # cached; no extra cost
+        _industry_for_val  = (_info_val or {}).get("industry", "") if _info_val else ""
+        _industry_stats_val = _industry_val_map.get(_industry_for_val) if _industry_for_val else None
+
         # ── Core 7 ──────────────────────────────────────────────────────
         scores["value"]       = _safe(score_value,
                                        quote.get("pe_ttm", 0), quote.get("pb", 0),
-                                       val_history, None, price_df)
+                                       val_history, _industry_stats_val, price_df)
         scores["growth"]      = _safe(score_growth, financial_df)
         scores["momentum"]    = _safe(score_momentum, price_df, financial_df)
         scores["quality"]     = _safe(score_quality, financial_df, price_df)
@@ -339,7 +393,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         # Sell scores for core 7
         scores["sell_score_value"]       = _safe_sell(score_value,
                                                        quote.get("pe_ttm", 0), quote.get("pb", 0),
-                                                       val_history, None, price_df)
+                                                       val_history, _industry_stats_val, price_df)
         scores["sell_score_growth"]      = _safe_sell(score_growth, financial_df)
         scores["sell_score_momentum"]    = _safe_sell(score_momentum, price_df, financial_df)
         scores["sell_score_quality"]     = _safe_sell(score_quality, financial_df, price_df)
@@ -476,7 +530,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
 
             # Re-compute value + extract pe/pb percentiles in one call
             try:
-                _val_full = score_value(quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df, market_ret_1m=market_ret)
+                _val_full = score_value(quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, _industry_stats_val, price_df, revision_df, financial_df, market_ret_1m=market_ret)
                 scores["value"]           = float(_val_full.get("score",      np.nan)) if isinstance(_val_full, dict) else float(_val_full)
                 scores["sell_score_value"] = float(_val_full.get("sell_score", np.nan)) if isinstance(_val_full, dict) else np.nan
                 _pe_pct = _val_full.get("details", {}).get("pe_percentile") if isinstance(_val_full, dict) else None
@@ -569,9 +623,10 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
                 # Re-compute social_heat with industry context now available
                 scores["social_heat"]               = _safe(score_social_heat, social_dict, price_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
                 scores["sell_score_social_heat"]    = _safe_sell(score_social_heat, social_dict, price_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
-                # Re-compute value with industry context
-                scores["value"]                     = _safe(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret)
-                scores["sell_score_value"]          = _safe_sell(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, None, price_df, revision_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret)
+                # Re-compute value with confirmed industry context
+                _ind_stats = _industry_val_map.get(ind) if ind else _industry_stats_val
+                scores["value"]                     = _safe(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, _ind_stats, price_df, revision_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret)
+                scores["sell_score_value"]          = _safe_sell(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, _ind_stats, price_df, revision_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret)
                 # Re-compute div_yield with industry context
                 scores["div_yield"]                 = _safe(score_dividend_yield, quote.get("div_yield", 0), financial_df, _regime_float, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
                 scores["sell_score_div_yield"]      = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df, _regime_float, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
@@ -912,6 +967,7 @@ def run_analysis(
         "spot_df":    fetcher._get_spot_df(),
         "market_ret": fetcher.get_market_return_1m() if "B" in group.upper() else None,
     }
+    _shared["industry_val_map"] = _build_industry_val_map(_shared["spot_df"])
 
     # ── Phase 2: parallel scoring (data now in cache) ────────────────────────
     print(f"Scoring factors ({max_workers} workers)...\n")
@@ -1197,6 +1253,7 @@ def _run_rolling(
         "spot_df":    fetcher._get_spot_df(),
         "market_ret": fetcher.get_market_return_1m() if "B" in group.upper() else None,
     }
+    _shared["industry_val_map"] = _build_industry_val_map(_shared["spot_df"])
     print()
 
     # Collect IC per period
