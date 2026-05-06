@@ -367,15 +367,17 @@ def screen_stocks(
     industry_pe_pct = _build_industry_pe_lookup(df)
     industry_pb_pct = _build_industry_pb_lookup(df)
 
-    # Basic hygiene
-    df = df[(df["price"] > 1) & (df["pe_ttm"] > 0)].copy()
+    # Basic hygiene — pe_ttm may be absent when Sina fallback is used
+    price_mask = df["price"] > 1
+    pe_mask = (df["pe_ttm"] > 0) if "pe_ttm" in df.columns else True
+    df = df[price_mask & pe_mask].copy()
 
     # -----------------------------------------------------------------------
     # Stage 1a: real-time filters
     # -----------------------------------------------------------------------
-    if "market_cap_min" in conditions:
+    if "market_cap_min" in conditions and "market_cap" in df.columns:
         df = df[df["market_cap"] >= conditions["market_cap_min"] * 1e8]
-    if "market_cap_max" in conditions:
+    if "market_cap_max" in conditions and "market_cap" in df.columns:
         df = df[df["market_cap"] <= conditions["market_cap_max"] * 1e8]
 
     if "pe_percentile_max" in conditions:

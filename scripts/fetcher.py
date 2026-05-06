@@ -269,6 +269,14 @@ def _get_spot_df() -> pd.DataFrame:
         if df is None or df.empty:
             _spot_em_failed = True
             _spot_em_failed_at = _time.time()
+            # Fallback: Sina full-market batch (has price/change but no PE/PB/market_cap)
+            try:
+                df_sina = _call_with_timeout(ak.stock_zh_a_spot, 60)
+                if df_sina is not None and not df_sina.empty and "最新价" in df_sina.columns:
+                    cache.set("spot_all", df_sina.to_dict("records"))
+                    return df_sina
+            except Exception:
+                pass
             return pd.DataFrame()
         cache.set("spot_all", df.to_dict("records"))
         return df
