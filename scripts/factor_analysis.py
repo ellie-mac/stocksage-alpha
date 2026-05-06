@@ -365,6 +365,15 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
         if asof_date_str:
             financial_df = _financial_pit_filter(financial_df, asof_date_str)
         val_history     = fetcher.get_valuation_history(code)
+        # Fallback: EastMoney spot may be unreachable; use latest BaoStock val row for pe/pb
+        _pe_now = float(quote.get("pe_ttm") or 0)
+        _pb_now = float(quote.get("pb") or 0)
+        if (_pe_now == 0 or _pb_now == 0) and val_history is not None and not val_history.empty:
+            _last_val = val_history.iloc[-1]
+            if _pe_now == 0:
+                _pe_now = float(_last_val.get("pe_ttm", 0) or 0)
+            if _pb_now == 0:
+                _pb_now = float(_last_val.get("pb", 0) or 0)
         fund_flow_df    = fetcher.get_fund_flow(code, 10)
         margin_df       = fetcher.get_margin_data(code)
         _md = _sh.get("market_df")
@@ -381,7 +390,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
 
         # ── Core 7 ──────────────────────────────────────────────────────
         scores["value"]       = _safe(score_value,
-                                       quote.get("pe_ttm", 0), quote.get("pb", 0),
+                                       _pe_now, _pb_now,
                                        val_history, _industry_stats_val, price_df)
         scores["growth"]      = _safe(score_growth, financial_df)
         scores["momentum"]    = _safe(score_momentum, price_df, financial_df)
@@ -392,7 +401,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
 
         # Sell scores for core 7
         scores["sell_score_value"]       = _safe_sell(score_value,
-                                                       quote.get("pe_ttm", 0), quote.get("pb", 0),
+                                                       _pe_now, _pb_now,
                                                        val_history, _industry_stats_val, price_df)
         scores["sell_score_growth"]      = _safe_sell(score_growth, financial_df)
         scores["sell_score_momentum"]    = _safe_sell(score_momentum, price_df, financial_df)
@@ -530,7 +539,7 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
 
             # Re-compute value + extract pe/pb percentiles in one call
             try:
-                _val_full = score_value(quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, _industry_stats_val, price_df, revision_df, financial_df, market_ret_1m=market_ret)
+                _val_full = score_value(_pe_now, _pb_now, val_history, _industry_stats_val, price_df, revision_df, financial_df, market_ret_1m=market_ret)
                 scores["value"]           = float(_val_full.get("score",      np.nan)) if isinstance(_val_full, dict) else float(_val_full)
                 scores["sell_score_value"] = float(_val_full.get("sell_score", np.nan)) if isinstance(_val_full, dict) else np.nan
                 _pe_pct = _val_full.get("details", {}).get("pe_percentile") if isinstance(_val_full, dict) else None
@@ -625,8 +634,8 @@ def compute_stock_scores(code: str, forward_days: int, group: str, price_offset:
                 scores["sell_score_social_heat"]    = _safe_sell(score_social_heat, social_dict, price_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
                 # Re-compute value with confirmed industry context
                 _ind_stats = _industry_val_map.get(ind) if ind else _industry_stats_val
-                scores["value"]                     = _safe(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, _ind_stats, price_df, revision_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret)
-                scores["sell_score_value"]          = _safe_sell(score_value, quote.get("pe_ttm", 0), quote.get("pb", 0), val_history, _ind_stats, price_df, revision_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret)
+                scores["value"]                     = _safe(score_value, _pe_now, _pb_now, val_history, _ind_stats, price_df, revision_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret)
+                scores["sell_score_value"]          = _safe_sell(score_value, _pe_now, _pb_now, val_history, _ind_stats, price_df, revision_df, financial_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret)
                 # Re-compute div_yield with industry context
                 scores["div_yield"]                 = _safe(score_dividend_yield, quote.get("div_yield", 0), financial_df, _regime_float, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
                 scores["sell_score_div_yield"]      = _safe_sell(score_dividend_yield, quote.get("div_yield", 0), financial_df, _regime_float, price_df, industry_ret_1m=ind_ret, market_ret_1m=market_ret, revision_df=revision_df)
