@@ -38,46 +38,50 @@ LOG_LATEST  = LOG_DIR / "latest.json"
 
 
 _FETCH_TIMEOUT = 25   # seconds per attempt
-_MAX_RETRIES   = 2    # up to 2 retries after first failure
-_RETRY_DELAY   = 60   # seconds between retries
+_MAX_RETRIES   = 3    # up to 3 retries after first failure
+_RETRY_DELAY   = 10   # seconds between retries (快重试，空响应多是瞬断)
+
+_EM_URL = "https://emappdata.eastmoney.com/stockrank/getAllCurrentList"
+_EM_PAYLOAD = {
+    "appId": "appId01",
+    "globalId": "786e4c21-70dc-435a-93bb-38",
+    "marketType": "",
+    "pageNo": 1,
+    "pageSize": 100,
+}
+_EM_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Referer": "https://guba.eastmoney.com/rank/",
+    "Content-Type": "application/json",
+}
 
 
 def _fetch_raw() -> list[dict]:
-    """调用 akshare 抓取当前热榜，返回 [{code, name, rank}, ...]，按排名升序。
-    用 daemon thread 包裹，超时 _FETCH_TIMEOUT 秒后抛 TimeoutError。
+    """直接 HTTP 请求 EM 热榜，返回 [{code, name, rank}, ...]，按排名升序。
+    绕过 akshare 裸 POST（无 UA）导致的软限问题。
     """
-    import akshare as ak
-    result: list = [None]
-    exc:    list = [None]
+    import requests, json as _json, pandas as pd
 
-    def _call():
-        try:
-            result[0] = ak.stock_hot_rank_em()
-        except Exception as e:
-            exc[0] = e
+    r = requests.post(_EM_URL, json=_EM_PAYLOAD, headers=_EM_HEADERS, timeout=_FETCH_TIMEOUT)
+    r.raise_for_status()
+    if not r.content or not r.content.strip():
+        raise ValueError("EM 返回空响应")
+    data = r.json()
+    rows = data.get("data") or []
+    if not rows:
+        raise ValueError(f"EM 返回空 data，响应: {r.text[:200]}")
 
-    t = threading.Thread(target=_call, daemon=True)
-    t.start()
-    t.join(timeout=_FETCH_TIMEOUT)
-    if t.is_alive():
-        raise TimeoutError(f"热榜 API 超时（>{_FETCH_TIMEOUT}s）")
-    if exc[0]:
-        raise exc[0]
-
-    df = result[0]
-    if df is None or df.empty:
-        return []
-    df.columns = [c.strip() for c in df.columns]
-    code_col = next((c for c in df.columns if "代码" in c or c.lower() == "code"), None)
-    name_col = next((c for c in df.columns if "名称" in c or c.lower() == "name"), None)
-    rank_col = next((c for c in df.columns if "排名" in c or c.lower() == "rank"), None)
-    if not code_col or not rank_col:
-        raise ValueError(f"找不到必要列，实际列名: {df.columns.tolist()}")
+    # 字段映射：sc=代码(带SZ/SH前缀), rk=排名；原始 API 不含名称
+    import re as _re
     records = []
-    for _, row in df.iterrows():
-        code = str(row[code_col]).zfill(6)
-        name = str(row[name_col]) if name_col else ""
-        rank = int(row[rank_col])
+    for i, row in enumerate(rows):
+        raw_code = str(row.get("sc") or row.get("code") or "").strip()
+        if not raw_code:
+            continue
+        code = _re.sub(r"^(SZ|SH|sz|sh)", "", raw_code).zfill(6)
+        name = str(row.get("name") or row.get("股票简称") or "")
+        rank = int(row.get("rk") or row.get("rank") or row.get("排名") or (i + 1))
         records.append({"code": code, "name": name, "rank": rank})
     records.sort(key=lambda r: r["rank"])
     return records
