@@ -44,6 +44,15 @@ def generate(
     print("Fetching full market snapshot...")
     df = get_spot_em()
     if df is None or df.empty:
+        # EM spot data unavailable — fall back to yesterday's cached universe if fresh enough.
+        # The universe changes only marginally day-to-day, so ≤3d staleness is acceptable.
+        if OUT_PATH.exists():
+            import time
+            age_days = (time.time() - OUT_PATH.stat().st_mtime) / 86400
+            if age_days <= 3:
+                cached = json.loads(OUT_PATH.read_text(encoding="utf-8"))
+                print(f"[WARN] EM unavailable; reusing cached universe ({age_days:.1f}d old, {len(cached)} stocks)")
+                return cached
         print("[ERROR] Cannot fetch market data")
         sys.exit(1)
     print(f"Full market: {len(df)} stocks")
