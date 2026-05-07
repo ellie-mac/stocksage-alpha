@@ -189,34 +189,32 @@ def _push_results(data: dict) -> None:
 
     # 微信
     if not picks:
-        body = f"热榜扫描 top{top_pct}% 无符合条件的股票"
+        body = f"热榜扫描无符合条件的股票"
     else:
-        lines = [f"快照: {snap_t[:16] if snap_t else '未知'}  top{top_pct}%\n"]
-        for p in picks[:15]:
+        snap_line = f"快照: {snap_t[:16] if snap_t else '未知'}"
+        items = [snap_line]
+        for i, p in enumerate(picks[:15], 1):
             chg = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
-            lines.append(
-                f"  {p['code']} {p['name']}  ¥{p['close']}  {chg}"
-                f"  热度#{p['rank']}  动量{p['momentum']:.0f}  综{p['score']:.0f}"
+            items.append(
+                f"**{i}. {p['code']} {p['name']}**  ¥{p['close']}  {chg}\n"
+                f"热度 #{p['rank']}  综合 {p['score']:.0f}"
             )
-        body = "\n".join(lines)
+        body = "\n\n".join(items)
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
     print(f"[hot_scan] 微信推送完成", flush=True)
 
     # 飞书卡片
     try:
         from notify import push_feishu_card
-        card_lines = [f"快照时间: {snap_t[:16] if snap_t else '未知'}  top{top_pct}%·共{len(picks)}只", ""]
+        card_lines = [f"快照: {snap_t[:16] if snap_t else '未知'}  共{len(picks)}只", ""]
         if picks:
-            for p in picks[:15]:
+            for i, p in enumerate(picks[:15], 1):
                 chg_s = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
-                card_lines.append(
-                    f"{p['code']} {p['name']}  ¥{p['close']}  {chg_s}"
-                    f"  热度#{p['rank']}  动量{p['momentum']:.0f}  综{p['score']:.0f}"
-                )
+                card_lines.append(f"{i}. {p['code']} {p['name']}  ¥{p['close']}  {chg_s}  热度#{p['rank']}  综合{p['score']:.0f}")
         else:
             card_lines.append("无符合条件的股票")
         card_lines.append("")
-        card_lines.append("⚠️ 仅供参考，不构成投资建议")
+        card_lines.append("仅供参考，不构成投资建议")
         push_feishu_card(title, card_lines)
     except Exception as e:
         print(f"[hot_scan] 飞书推送失败: {e}", flush=True)
