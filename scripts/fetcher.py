@@ -602,7 +602,9 @@ def get_stock_info(code: str) -> Optional[dict]:
     if cached is not None:
         return cached
     try:
-        df = ak.stock_individual_info_em(symbol=code)
+        df = _call_with_timeout(ak.stock_individual_info_em, 20, symbol=code)
+        if df is None or df.empty:
+            return {}
         info = dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
         result = {
             "industry": str(info.get("行业", "Unknown")),
@@ -996,7 +998,7 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
 
     # ── Source 1: akshare East Money ─────────────────────────────────────
     try:
-        df = ak.stock_financial_analysis_indicator(symbol=code, start_year="2020")
+        df = _call_with_timeout(ak.stock_financial_analysis_indicator, 30, symbol=code, start_year="2020")
         if df is not None and not df.empty:
             df = df.reset_index(drop=True)
             cache.set_df(cache_key, df)
@@ -1006,7 +1008,7 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
 
     # ── Source 2: akshare THS abstract (fallback) ────────────────────────
     try:
-        df = ak.stock_financial_abstract_ths(symbol=code, indicator="按年度")
+        df = _call_with_timeout(ak.stock_financial_abstract_ths, 30, symbol=code, indicator="按年度")
         if df is not None and not df.empty:
             # Convert pct strings ("46.84%", False) → float or NaN
             def _pct(v):
@@ -1123,9 +1125,9 @@ def get_margin_data(code: str) -> Optional[pd.DataFrame]:
         return cached
     try:
         if code.startswith("6"):
-            df = ak.stock_margin_detail_sse(symbol=code)
+            df = _call_with_timeout(ak.stock_margin_detail_sse, 25, symbol=code)
         else:
-            df = ak.stock_margin_detail_szse(symbol=code)
+            df = _call_with_timeout(ak.stock_margin_detail_szse, 25, symbol=code)
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
@@ -1148,7 +1150,7 @@ def get_cyq(code: str) -> Optional[pd.DataFrame]:
     if cached is not None:
         return cached
     try:
-        df = ak.stock_cyq_em(symbol=code)
+        df = _call_with_timeout(ak.stock_cyq_em, 25, symbol=code)
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
