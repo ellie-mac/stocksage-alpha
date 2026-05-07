@@ -901,27 +901,38 @@ def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
     return header + "\n" + "\n".join(rows)
 
 
+def _tier_cap(tiers: dict[str, list], limit: int = 30) -> dict[str, list]:
+    """如果T1>=limit只显示T1；T1+T2>=limit只显示T1+T2；否则全显示。"""
+    t1 = tiers.get("T1", [])
+    t2 = tiers.get("T2", [])
+    if len(t1) >= limit:
+        return {"T1": t1}
+    if len(t1) + len(t2) >= limit:
+        return {"T1": t1, "T2": t2}
+    return tiers
+
+
 def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_date: str,
                      sendkey: str, dry_run: bool, src_note: str = "") -> None:
     """三段推送：cadm/cah/cad 三者 T1-T3 精华。"""
     date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
     top_tiers = [t for t in _TIER_ORDER if t[0] in ("T1", "T2", "T3")]
 
-    cadm_top = {t[0]: cadm_saves.get(t[0], []) for t in top_tiers}
+    cadm_top = _tier_cap({t[0]: cadm_saves.get(t[0], []) for t in top_tiers})
     cadm_top_total = sum(len(v) for v in cadm_top.values())
 
     cad_codes = {p["code"] for picks in cad_saves.values() for p in picks}
-    cah_only: dict[str, list[dict]] = {
+    cah_only: dict[str, list[dict]] = _tier_cap({
         t[0]: [p for p in cah_saves.get(t[0], []) if p["code"] not in cad_codes]
         for t in top_tiers
-    }
+    })
     cah_only_total = sum(len(v) for v in cah_only.values())
 
     cadm_codes = {p["code"] for picks in cadm_saves.values() for p in picks}
-    cad_only: dict[str, list[dict]] = {
+    cad_only: dict[str, list[dict]] = _tier_cap({
         t[0]: [p for p in cad_saves.get(t[0], []) if p["code"] not in cadm_codes]
         for t in top_tiers
-    }
+    })
     cad_only_total = sum(len(v) for v in cad_only.values())
 
     sections = []
