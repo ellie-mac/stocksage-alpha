@@ -329,11 +329,11 @@ def check_sell_signals(scored: dict, thresholds: dict,
 
 
 def check_buy_signal(scored: dict, thresholds: dict, held_codes: set) -> bool:
-    buy_trigger   = thresholds.get("buy_score_trigger", 65)
+    buy_trigger   = thresholds.get("buy_score_trigger", 70)
     sell_trigger  = thresholds.get("sell_score_trigger", 60)
-    # Explicit dead-band: score must be below this to open a new position.
-    # Default ensures at least a 5-point gap above buy_trigger (minimum 70).
-    buy_open_trigger = thresholds.get("buy_open_trigger", max(buy_trigger + 5, 70))
+    # Three-band hysteresis: buy ≥70 / watch 60-70 / sell ≥60.
+    # buy_open_trigger == buy_trigger (10-pt gap to sell IS the dead-band).
+    buy_open_trigger = thresholds.get("buy_open_trigger", buy_trigger)
     buy_sell_guard   = thresholds.get("buy_sell_guard",   max(0, sell_trigger - 10))
     bear_sell_cap = thresholds.get("_bear_sell_cap")   # set in bear regime only
     if scored["code"] in held_codes:
@@ -1136,7 +1136,7 @@ def run(
         # Regime gate: raise bar proportionally to market weakness.
         # Bear market is NOT suppressed — oversold bounces are valid bottom-fishing ops.
         # Instead, require higher conviction (score) + low sell signal (not a falling knife).
-        _orig_buy = thresholds.get("buy_score_trigger", 65)
+        _orig_buy = thresholds.get("buy_score_trigger", 70)
         if regime_score <= 2:
             # Bear (CSI300 < MA60): +25% threshold + sell_score must be < 25
             thresholds = {**thresholds,
@@ -1199,6 +1199,10 @@ def run(
         top_n = thresholds.get("buy_universe_top_n", 5)
         for s in scored_universe[:top_n * 3]:  # check top candidates
             if not check_buy_signal(s, thresholds, held_codes):
+                continue
+            # P0-L: 涨跌停过滤 — 无法买入
+            if (s.get("change_pct") or 0) >= 9.5:
+                print(f"  [涨停跳过] {s.get('name')} ({s['code']}) change={s.get('change_pct'):.1f}%")
                 continue
             buy_alerts.append(s)
             print(f"  BUY SIGNAL:  {s['name']} ({s['code']}) score={s['buy_score']}")
