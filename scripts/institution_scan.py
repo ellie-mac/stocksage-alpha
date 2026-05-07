@@ -76,9 +76,13 @@ def run_institution_scan(min_funds: int = 2, push: bool = False) -> dict:
 
     def _fetch(fund: dict):
         code = fund["code"]
-        df = _fetch_holdings(code, cur_year)
-        if df.empty:
-            df = _fetch_holdings(code, prev_year)
+        # 同时拉当年和上一年，合并后才能跨年做季度对比（如 Q1 2026 vs Q4 2025）
+        df_cur  = _fetch_holdings(code, cur_year)
+        df_prev = _fetch_holdings(code, prev_year)
+        frames = [df for df in [df_cur, df_prev] if not df.empty]
+        if not frames:
+            return code, pd.DataFrame()
+        df = pd.concat(frames, ignore_index=True).drop_duplicates(subset=["股票代码", "季度"])
         return code, df
 
     with ThreadPoolExecutor(max_workers=6) as ex:
