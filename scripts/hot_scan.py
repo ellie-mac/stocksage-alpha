@@ -66,7 +66,14 @@ def _load_snapshot() -> tuple[list[dict], str]:
     if not path.exists():
         return [], ""
     snap = json.loads(path.read_text(encoding="utf-8"))
-    return snap.get("stocks", []), snap.get("fetch_time", "")
+    stocks = snap.get("stocks", [])
+    # 兼容旧格式：代码可能带 SZ/SH 前缀
+    import re as _re
+    cleaned = []
+    for s in stocks:
+        c = _re.sub(r"^(SZ|SH|sz|sh)", "", str(s.get("code", ""))).zfill(6)
+        cleaned.append({**s, "code": c})
+    return cleaned, snap.get("fetch_time", "")
 
 
 def run_hot_scan(top_pct: float = 5.0, cah: bool = True, push: bool = False) -> dict:
@@ -218,7 +225,7 @@ def _push_results(data: dict) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--top-pct", type=float, default=5.0)
-    parser.add_argument("--cah",  action="store_true")
+    parser.add_argument("--no-cah", action="store_true", help="不排高位（默认排除距半年高点<10%的高位股）")
     parser.add_argument("--push", action="store_true")
     args = parser.parse_args()
-    run_hot_scan(top_pct=args.top_pct, cah=args.cah, push=args.push)
+    run_hot_scan(top_pct=args.top_pct, cah=not args.no_cah, push=args.push)
