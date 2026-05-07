@@ -110,9 +110,9 @@ def _load_main(today: str) -> list[dict]:
     return []
 
 
-def _find_prev(glob_pat: str, today: str) -> dict | None:
+def _find_prev(glob_pat: str, today: str, days: int = 3) -> dict | None:
     from datetime import datetime as _dt, timedelta
-    cutoff = (_dt.strptime(today, "%Y%m%d") - timedelta(days=3)).strftime("%Y%m%d")
+    cutoff = (_dt.strptime(today, "%Y%m%d") - timedelta(days=days)).strftime("%Y%m%d")
     candidates = sorted(
         (p for p in DATA_DIR.glob(glob_pat) if cutoff <= p.stem[-8:] < today),
         key=lambda p: p.stem[-8:], reverse=True,
@@ -151,7 +151,7 @@ def _load_chip(today: str) -> dict[str, list[dict]]:
 
 def _load_gc(today: str) -> dict[str, list[dict]]:
     """G0-G2：找前日带日期的扫描文件，按档返回"""
-    gc = _find_prev("golden_cross_????????.json", today)
+    gc = _find_prev("golden_cross_????????.json", today, days=7)
     if not gc:
         return {t: [] for t in GC_TIERS}
     tiers = gc.get("tiers", {})
