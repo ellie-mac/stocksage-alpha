@@ -897,15 +897,15 @@ def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
     for p in picks:
         close_s = f"{p['close']:.2f}" if not math.isnan(float(p['close'] or 0)) else "-"
         win_s   = f"{p['winner_rate']:.1f}%" if not math.isnan(float(p['winner_rate'] or 0)) else "-"
-        rows.append(f"{p['name']}({p['industry']}) {close_s} 获利{win_s}")
+        rows.append(f"{p['name']}({p['industry']}) {close_s} 获利{win_s}  ")
     return header + "\n" + "\n".join(rows)
 
 
 def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_date: str,
                      sendkey: str, dry_run: bool, src_note: str = "") -> None:
-    """三段推送：cadm T1-T4（三者共有精华）→ cah独有 T1-T4 → cad独有（全档）。cadm T5 不推。"""
+    """三段推送：cadm/cah/cad 三者 T1-T3 精华。"""
     date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
-    top_tiers = [t for t in _TIER_ORDER if t[0] in ("T1", "T2", "T3", "T4")]
+    top_tiers = [t for t in _TIER_ORDER if t[0] in ("T1", "T2", "T3")]
 
     cadm_top = {t[0]: cadm_saves.get(t[0], []) for t in top_tiers}
     cadm_top_total = sum(len(v) for v in cadm_top.values())
@@ -920,28 +920,28 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
     cadm_codes = {p["code"] for picks in cadm_saves.values() for p in picks}
     cad_only: dict[str, list[dict]] = {
         t[0]: [p for p in cad_saves.get(t[0], []) if p["code"] not in cadm_codes]
-        for t in _TIER_ORDER
+        for t in top_tiers
     }
     cad_only_total = sum(len(v) for v in cad_only.values())
 
     sections = []
     if cadm_top_total:
-        sections.append(f"\n## ✅ 三筛俱过 T1-T4（cadm）共{cadm_top_total}只")
+        sections.append(f"\n## ✅ 三筛俱过 T1-T3（cadm）共{cadm_top_total}只")
         for t in top_tiers:
             s = _cad_build_section(t[0], cadm_top.get(t[0], []), "cadm")
             if s:
                 sections.append(s)
 
     if cah_only_total:
-        sections.append(f"\n## 🔍 cah独有 T1-T4（排高位通过，未过BOLL/价格/科创）共{cah_only_total}只")
+        sections.append(f"\n## 🔍 cah独有 T1-T3（排高位通过，未过BOLL/价格/科创）共{cah_only_total}只")
         for t in top_tiers:
             s = _cad_build_section(t[0], cah_only.get(t[0], []), "cah")
             if s:
                 sections.append(s)
 
     if cad_only_total:
-        sections.append(f"\n## 💡 cad独有（BOLL等通过，MACD未收敛）共{cad_only_total}只")
-        for t in _TIER_ORDER:
+        sections.append(f"\n## 💡 cad独有 T1-T3（BOLL等通过，MACD未收敛）共{cad_only_total}只")
+        for t in top_tiers:
             s = _cad_build_section(t[0], cad_only.get(t[0], []), "cad")
             if s:
                 sections.append(s)
@@ -952,27 +952,30 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
     send_wechat(title, body, sendkey, dry_run=dry_run)
     if not dry_run:
         try:
-            from notify_discord import push_feishu_content
-            # Feishu doesn't render Markdown tables; build a plain-text version
-            feishu_lines = [title]
+            from notify_discord import push_feishu_card
+            _WIN = {"T1": "≥95%", "T2": "90-95%", "T3": "85-90%"}
+            card_lines: list[str] = []
             for saves_dict, label in [
-                (cadm_top,  "✅三筛"),
-                (cah_only,  "🔍cah独有"),
-                (cad_only,  "💡cad独有"),
+                (cadm_top, "✅三筛俱过"),
+                (cah_only, "🔍cah独有"),
+                (cad_only, "💡cad独有"),
             ]:
-                total = sum(len(v) for v in saves_dict.values())
+                total = sum(len(saves_dict.get(t[0], [])) for t in top_tiers)
                 if not total:
                     continue
-                feishu_lines.append(f"\n{label} 共{total}只")
-                for tier in _TIER_ORDER:
-                    picks = saves_dict.get(tier[0], [])
+                card_lines.append(f"{label} 共{total}只")
+                for t in top_tiers:
+                    picks = saves_dict.get(t[0], [])
                     if not picks:
                         continue
-                    feishu_lines.append(f"  [{tier[0]}] " + "  ".join(
-                        f"{p['name']} {p['close']:.2f} {p['winner_rate']:.1f}%"
-                        for p in picks
-                    ))
-            push_feishu_content("\n".join(feishu_lines))
+                    card_lines.append(f"{t[0]}({_WIN.get(t[0], '')}) {len(picks)}只")
+                    for p in picks:
+                        close_s = f"{float(p['close']):.2f}" if not math.isnan(float(p.get('close') or 0)) else "-"
+                        win_s   = f"{float(p['winner_rate']):.1f}%" if not math.isnan(float(p.get('winner_rate') or 0)) else "-"
+                        card_lines.append(f"{p.get('code','')} {str(p.get('name',''))[:6]} {str(p.get('industry',''))[:5]}  {close_s}  获利{win_s}")
+                card_lines.append("")
+            card_lines.append(f"数据: Tushare Pro · {datetime.now():%Y-%m-%d %H:%M}")
+            push_feishu_card(title, card_lines)
         except Exception:
             pass
 
@@ -1019,7 +1022,7 @@ def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool =
             date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
             body  = "\n".join(
                 _cad_build_section(t, saves.get(t, []), mods_str)
-                for t, _, _ in _TIER_ORDER
+                for t, _, _ in _TIER_ORDER[:3]
             ) + "\n\n> ⚠️ 仅供参考，不构成投资建议" + (f"\n_{_src_note}_" if _src_note else "")
             title = f"筹码驱动 {date_fmt} ({mods_str}) 共{total}只"
             send_wechat(title, body, sendkey, dry_run=dry_run)

@@ -48,15 +48,15 @@ SC_LIST = """\
 
 CHIP_LIST = """\
 筹码命令
-  cad  数据驱动全档（T4→T1→T2→T3→T5，bekh）⭐
+  cad  数据驱动 T1-T3（bekh）⭐
   cadm 同上 + MACD绿柱（bekhm）⭐
-  ca  全档T1-T5 | cah 全档排高位 | cabekh 全档+全修饰
+  ca  全档T1-T3 | cah 全档排高位 | cabekh 全档+全修饰
 
-  c1 T1≥95%  c2 T2 90-95%  c3 T3 85-90%  c4 T4 75-85%  c5 T5 65-75%
+  c1 T1≥95%  c2 T2 90-95%  c3 T3 85-90%
 
 修饰符（可叠加）
   b BOLL  e ≤50元  k 排科创  h 排高位  m MACD绿柱  z MACD近零
-  示例：c1bmz  c2mz  c4kh  cad  cadm"""
+  示例：c1bmz  c2mz  c3kh  cad  cadm"""
 
 HOT_LIST = """\
 热榜策略（东方财富实时热榜）
@@ -293,8 +293,6 @@ _CHIP_TIERS = {
     "1": (95, None),
     "2": (90, 95),
     "3": (85, 90),
-    "4": (75, 85),
-    "5": (65, 75),
 }
 
 _TASK_DESC = {
@@ -806,7 +804,7 @@ def h_chip(arg: str) -> str:
         subprocess.Popen(cmd_args, cwd=str(ROOT),
                          stdout=open(log_path, "a", encoding="utf-8"),
                          stderr=subprocess.STDOUT)
-        return "筹码全档扫描（T1-T5）已启动，约2-3分钟后推微信 📱"
+        return "筹码全档扫描（T1-T3）已启动，约2-3分钟后推微信 📱"
     parts = arg.split(None, 1)
     head  = parts[0]
     tail  = parts[1].lower().replace(" ", "") if len(parts) > 1 else ""
@@ -816,7 +814,7 @@ def h_chip(arg: str) -> str:
     else:
         return f"用法错误：c {arg}\n\n{CHIP_LIST}"
     if tier_str not in _CHIP_TIERS:
-        return f"档位 {tier_str} 不存在，有效范围 1-5\n\n{CHIP_LIST}"
+        return f"档位 {tier_str} 不存在，有效范围 1-3\n\n{CHIP_LIST}"
     return _launch_chip(tier_str, mods)
 
 
@@ -830,7 +828,7 @@ def h_chip_data_driven(mods: str = "bekhm") -> str:
         stdout=open(log_path, "a", encoding="utf-8"),
         stderr=subprocess.STDOUT,
     )
-    return f"筹码数据驱动扫描（T4→T1→T2→T3→T5 {mods}）已启动 ✅\n约3-5分钟后推一条微信 📱"
+    return f"筹码数据驱动扫描（T1-T3 {mods}）已启动 ✅\n约3-5分钟后推飞书卡片+微信 📱"
 
 
 def h_hot_scan(top_pct: float = 5.0, cah: bool = False) -> str:
@@ -957,9 +955,12 @@ def h_chip_scan_result(mode: str = "cad") -> str:
         for p in picks[:20]:
             lines.append(f"  {p.get('code','?')} {p.get('name','?')}  ¥{p.get('close',0):.2f}  赢家率{p.get('winner_rate',0):.1f}%")
         return "\n".join(lines)
-    total = sum(len(v) for v in tiers.values())
+    top3 = ("T1", "T2", "T3")
+    total = sum(len(v) for k, v in tiers.items() if k in top3)
     lines = [f"筹码扫描 {date_s} {mode.upper()}  共{total}只\n"]
     for tier, items in tiers.items():
+        if tier not in top3:
+            continue
         lines.append(f"{tier}  {len(items)}只")
         for p in items[:5]:
             lines.append(f"  {p.get('code','?')} {p.get('name','?')}  ¥{p.get('close',0):.2f}  赢家率{p.get('winner_rate',0):.1f}%")
@@ -1142,7 +1143,7 @@ def h_shortcut(num: str) -> str:
             stdout=open(log_path, "a", encoding="utf-8"),
             stderr=subprocess.STDOUT,
         )
-        return "筹码全档扫描（T1-T5）已启动，约1-2分钟后推微信 📱"
+        return "筹码全档扫描（T1-T3）已启动，约1-2分钟后推微信 📱"
     elif num.startswith("9"):
         inline_mods = num[1:].lower()
         if sub_arg and sub_arg[0].isdigit():

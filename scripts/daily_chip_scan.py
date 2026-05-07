@@ -23,8 +23,6 @@ TIERS = [
     {"label": "T1 ≥95%",    "min_win": 95,  "max_win": None},
     {"label": "T2 90-95%",  "min_win": 90,  "max_win": 95},
     {"label": "T3 85-90%",  "min_win": 85,  "max_win": 90},
-    {"label": "T4 75-85%",  "min_win": 75,  "max_win": 85},
-    {"label": "T5 65-75%",  "min_win": 65,  "max_win": 75},
 ]
 
 
@@ -191,6 +189,25 @@ def main() -> None:
 
     if not args.dry_run and not args.no_push:
         _push(title, body)
+        try:
+            sys.path.insert(0, str(ROOT / "scripts"))
+            from notify_discord import push_feishu_card
+            card_lines: list[str] = [f"筛选：{filter_label}  共{len(all_picks)}只", ""]
+            for tier in TIERS:
+                tier_key = tier["label"].split()[0]
+                picks = tier_data.get(tier_key, [])
+                if not picks:
+                    continue
+                card_lines.append(f"{tier['label']} {len(picks)}只")
+                for p in picks:
+                    close_s = f"{p['close']:.2f}" if p.get("close") else "-"
+                    win_s   = f"{p['winner_rate']:.1f}%" if p.get("winner_rate") else "-"
+                    card_lines.append(f"{p['code']} {str(p.get('name',''))[:6]} {str(p.get('industry',''))[:5]}  {close_s}  获利{win_s}")
+                card_lines.append("")
+            card_lines.append(f"数据: Tushare Pro · {__import__('datetime').datetime.now():%Y-%m-%d %H:%M}")
+            push_feishu_card(title, card_lines)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
