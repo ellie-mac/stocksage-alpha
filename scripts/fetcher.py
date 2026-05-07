@@ -1481,12 +1481,12 @@ def get_market_regime_data() -> Optional[pd.DataFrame]:
     cached = cache.get_df(cache_key, cache.TTL_PRICE_HISTORY * 2)
     if cached is not None:
         return cached
-    for fetch in [
-        lambda: ak.stock_zh_index_daily_em(symbol="sh000300"),
-        lambda: ak.stock_zh_index_daily(symbol="sh000300"),  # 163/Netease fallback
+    for _fn, _kw in [
+        (ak.stock_zh_index_daily_em, {"symbol": "sh000300"}),
+        (ak.stock_zh_index_daily,    {"symbol": "sh000300"}),
     ]:
         try:
-            df = fetch()
+            df = _call_with_timeout(_fn, 30, **_kw)
             if df is None or df.empty:
                 continue
             df.columns = [c.strip() for c in df.columns]
@@ -1586,9 +1586,10 @@ def _get_concept_1m_ret(concept_name: str) -> Optional[float]:
     try:
         end   = datetime.now().strftime("%Y%m%d")
         start = (datetime.now() - timedelta(days=35)).strftime("%Y%m%d")
-        df = ak.stock_board_concept_hist_em(
+        df = _call_with_timeout(
+            ak.stock_board_concept_hist_em, 30,
             symbol=concept_name, period="daily",
-            start_date=start, end_date=end, adjust=""
+            start_date=start, end_date=end, adjust="",
         )
         if df is None or df.empty:
             return None
@@ -1627,7 +1628,7 @@ def _build_concept_reverse_map() -> dict:
             return cached
         try:
             from concurrent.futures import ThreadPoolExecutor
-            concept_df = ak.stock_board_concept_name_em()
+            concept_df = _call_with_timeout(ak.stock_board_concept_name_em, 30)
             if concept_df is None or concept_df.empty:
                 return {}
             concept_df.columns = [c.strip() for c in concept_df.columns]
@@ -1641,7 +1642,7 @@ def _build_concept_reverse_map() -> dict:
 
             def _fetch_cons(cname: str):
                 try:
-                    df = ak.stock_board_concept_cons_em(symbol=cname)
+                    df = _call_with_timeout(ak.stock_board_concept_cons_em, 20, symbol=cname)
                     if df is None or df.empty:
                         return cname, []
                     df.columns = [c.strip() for c in df.columns]
@@ -1711,7 +1712,7 @@ def get_market_valuation() -> Optional[pd.DataFrame]:
 
     # ── Source 1: 乐咕乐股 上证A股 broad-market PE ─────────────────────────
     try:
-        df = ak.stock_market_pe_lg(symbol="上证A股")
+        df = _call_with_timeout(ak.stock_market_pe_lg, 30, symbol="上证A股")
         if df is not None and not df.empty:
             df.columns = [c.strip() for c in df.columns]
             df = df.rename(columns={"日期": "date", "总市值": "market_cap", "市盈率": "market_pe"})
@@ -1724,7 +1725,7 @@ def get_market_valuation() -> Optional[pd.DataFrame]:
 
     # ── Source 2: 乐咕乐股 沪深300 index PE (different endpoint/server) ────
     try:
-        df = ak.stock_index_pe_lg(symbol="沪深300")
+        df = _call_with_timeout(ak.stock_index_pe_lg, 30, symbol="沪深300")
         if df is not None and not df.empty:
             df.columns = [c.strip() for c in df.columns]
             pe_col = next(
@@ -1744,7 +1745,7 @@ def get_market_valuation() -> Optional[pd.DataFrame]:
 
     # ── Source 3: CSI 官网 (中证指数, 沪深300, last ~20 trading days) ──────
     try:
-        df = ak.stock_zh_index_value_csindex(symbol="000300")
+        df = _call_with_timeout(ak.stock_zh_index_value_csindex, 30, symbol="000300")
         if df is not None and not df.empty:
             df.columns = [c.strip() for c in df.columns]
             df = df.rename(columns={"日期": "date", "市盈率2": "market_pe", "股息率2": "market_dv"})
@@ -1770,7 +1771,7 @@ def get_sw_industry_pe() -> Optional[pd.DataFrame]:
     if cached is not None:
         return cached
     try:
-        df = ak.sw_index_first_info()
+        df = _call_with_timeout(ak.sw_index_first_info, 30)
         if df is not None and not df.empty:
             df.columns = [c.strip() for c in df.columns]
             cache.set_df(cache_key, df)
@@ -1793,7 +1794,7 @@ def get_sw_industry_map() -> dict:
     if cached is not None:
         return cached
     try:
-        sw1 = ak.sw_index_first_info()
+        sw1 = _call_with_timeout(ak.sw_index_first_info, 30)
         if sw1 is None or sw1.empty:
             return {}
         sw1.columns = [c.strip() for c in sw1.columns]
@@ -1806,7 +1807,7 @@ def get_sw_industry_map() -> dict:
             if not numeric:
                 continue
             try:
-                members = ak.index_component_sw(symbol=numeric)
+                members = _call_with_timeout(ak.index_component_sw, 20, symbol=numeric)
                 if members is None or members.empty:
                     continue
                 members.columns = [c.strip() for c in members.columns]
@@ -1839,7 +1840,7 @@ def get_index_constituents(index_code: str) -> list:
     if cached is not None:
         return cached
     try:
-        df = ak.index_stock_cons_csindex(symbol=index_code)
+        df = _call_with_timeout(ak.index_stock_cons_csindex, 30, symbol=index_code)
         if df is None or df.empty:
             return []
         df.columns = [c.strip() for c in df.columns]
@@ -1930,7 +1931,7 @@ def get_trade_calendar() -> list:
 
     # ── Source 2: AKShare Sina ────────────────────────────────────────────
     try:
-        df = ak.tool_trade_date_hist_sina()
+        df = _call_with_timeout(ak.tool_trade_date_hist_sina, 30)
         if df is not None and not df.empty:
             df.columns = [c.strip() for c in df.columns]
             col = df.columns[0]
