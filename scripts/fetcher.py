@@ -1325,9 +1325,10 @@ def get_industry_momentum(industry_name: str) -> Optional[float]:
     try:
         end   = datetime.now().strftime("%Y%m%d")
         start = (datetime.now() - timedelta(days=35)).strftime("%Y%m%d")
-        df = ak.stock_board_industry_hist_em(
+        df = _call_with_timeout(
+            ak.stock_board_industry_hist_em, 30,
             symbol=industry_name, period="daily",
-            start_date=start, end_date=end, adjust=""
+            start_date=start, end_date=end, adjust="",
         )
         if df is None or df.empty:
             return None
@@ -1353,7 +1354,7 @@ def get_market_return_1m() -> Optional[float]:
         return float(cached)
     try:
         # Use 000300 (CSI 300) as market proxy; fetch full history and take last 25 trading days
-        df = ak.stock_zh_index_daily_em(symbol="sh000300")
+        df = _call_with_timeout(ak.stock_zh_index_daily_em, 30, symbol="sh000300")
         if df is None or df.empty:
             return None
         df.columns = [c.strip() for c in df.columns]
@@ -1539,8 +1540,10 @@ def get_index_universe(index_code: str = "000300.SH", trade_date: str = "") -> l
             nm_y, nm_m = (y + 1, 1) if m == 12 else (y, m + 1)
             month_end = (datetime(nm_y, nm_m, 1) - timedelta(days=1)).strftime("%Y%m%d")
             month_start = f"{ym}01"
-            df = pro.index_weight(index_code=index_code,
-                                  start_date=month_start, end_date=month_end)
+            df = _call_with_timeout(
+                pro.index_weight, 30,
+                index_code=index_code, start_date=month_start, end_date=month_end,
+            )
             if df is None or df.empty:
                 return []
             # Store as list of (trade_date, con_code) pairs for later filtering
