@@ -52,34 +52,37 @@ def _momentum_score(df: pd.DataFrame) -> float:
     return max(0.0, min(score, 100.0))
 
 
-def run_hot_scan(top_pct: float = 5.0, cah: bool = False, push: bool = False) -> dict:
+def _load_snapshot() -> tuple[list[dict], str]:
+    """从 hot_rank_log 加载当日最新快照，返回 (stocks, fetch_time)。
+    优先用今日最新时间戳的文件，fallback 到 latest.json。
+    """
+    log_dir = ROOT / "data" / "hot_rank_log"
+    today   = datetime.now().strftime("%Y%m%d")
+
+    # 找今日快照中最新的一个
+    today_files = sorted(log_dir.glob(f"{today}_????.json"), reverse=True)
+    path = today_files[0] if today_files else log_dir / "latest.json"
+
+    if not path.exists():
+        return [], ""
+    snap = json.loads(path.read_text(encoding="utf-8"))
+    return snap.get("stocks", []), snap.get("fetch_time", "")
+
+
+def run_hot_scan(top_pct: float = 5.0, cah: bool = True, push: bool = False) -> dict:
     import fetcher as _fetcher
 
-    hot_df = _fetcher._get_hot_rank_df()
-    if hot_df is None or hot_df.empty:
-        print("[hot_scan] 热榜数据获取失败", flush=True)
+    stocks, fetch_time = _load_snapshot()
+    if not stocks:
+        print("[hot_scan] 热榜快照不可用，请先运行 hot_rank_logger.py", flush=True)
         return {}
 
-    code_col = next((c for c in hot_df.columns if "代码" in c or c.lower() == "code"), None)
-    rank_col  = next((c for c in hot_df.columns if "排名" in c or c.lower() == "rank"), None)
-    name_col  = next((c for c in hot_df.columns if "名称" in c or c.lower() == "name"), None)
-
-    if not code_col:
-        print("[hot_scan] 找不到代码列，columns:", hot_df.columns.tolist(), flush=True)
-        return {}
-
-    total = len(hot_df)
-    if rank_col:
-        hot_df = hot_df.copy()
-        hot_df[rank_col] = pd.to_numeric(hot_df[rank_col], errors="coerce")
-        hot_df = hot_df.sort_values(rank_col).reset_index(drop=True)
-
-    cutoff = max(1, int(total * top_pct / 100))
-    top_df = hot_df.head(cutoff)
-
-    codes    = top_df[code_col].astype(str).str.zfill(6).tolist()
-    name_map = {str(r[code_col]).zfill(6): str(r[name_col]) for _, r in top_df.iterrows()} if name_col else {}
-    rank_map = {str(r[code_col]).zfill(6): int(r[rank_col]) for _, r in top_df.iterrows()} if rank_col else {}
+    total   = len(stocks)
+    cutoff  = max(1, int(total * top_pct / 100))
+    top     = sorted(stocks, key=lambda r: r.get("rank", 9999))[:cutoff]
+    codes    = [r["code"] for r in top]
+    name_map = {r["code"]: r.get("name", "") for r in top}
+    rank_map = {r["code"]: r.get("rank", total) for r in top}
 
     print(f"[hot_scan] 热榜共 {total} 只，top {top_pct}% = {len(codes)} 只  cah={cah}", flush=True)
 
@@ -150,7 +153,8 @@ def run_hot_scan(top_pct: float = 5.0, cah: bool = False, push: bool = False) ->
             _elog.log_events(_rows)
     except Exception:
         pass
-    output   = {"date": date_str, "top_pct": top_pct, "cah": cah, "picks": results[:30]}
+    output   = {"date": date_str, "top_pct": top_pct, "cah": cah,
+                "snapshot_time": fetch_time, "picks": results[:30]}
 
     OUT_LATEST.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     (ROOT / "data" / f"hot_scan_{date_str}.json").write_text(
@@ -168,24 +172,47 @@ def _push_results(data: dict) -> None:
     from common import send_wechat, configure_pushplus
     configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
 
-    picks   = data.get("picks", [])
-    date_s  = data.get("date", "?")
-    top_pct = data.get("top_pct", 5)
-    suffix  = "（排高位）" if data.get("cah") else ""
-    title   = f"热榜策略 {date_s}"
+    picks    = data.get("picks", [])
+    date_s   = data.get("date", "?")
+    top_pct  = data.get("top_pct", 5)
+    snap_t   = data.get("snapshot_time", "")
+    suffix   = "·排高位" if data.get("cah") else ""
+    d        = f"{date_s[4:6]}/{date_s[6:]}" if len(date_s) == 8 else date_s
+    title    = f"🔥 热榜策略 {d}{suffix}  {len(picks)}只"
 
+    # 微信
     if not picks:
-        body = f"[热榜扫描 {date_s}] top{top_pct}%{suffix}\n无符合条件的股票"
+        body = f"热榜扫描 top{top_pct}% 无符合条件的股票"
     else:
-        d = f"{date_s[4:6]}/{date_s[6:]}"
-        lines = [f"🔥 热榜扫描 {d} top{top_pct}%{suffix}  共{len(picks)}只\n"]
+        lines = [f"快照: {snap_t[:16] if snap_t else '未知'}  top{top_pct}%\n"]
         for p in picks[:15]:
-            chg = f"+{p['change_pct']}%" if p["change_pct"] >= 0 else f"{p['change_pct']}%"
-            lines.append(f"  {p['code']} {p['name']}  ¥{p['close']}  {chg}  热度#{p['rank']}  动量{p['momentum']:.0f}  综合{p['score']:.0f}")
+            chg = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
+            lines.append(
+                f"  {p['code']} {p['name']}  ¥{p['close']}  {chg}"
+                f"  热度#{p['rank']}  动量{p['momentum']:.0f}  综{p['score']:.0f}"
+            )
         body = "\n".join(lines)
-
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
-    print(f"[OK] 微信推送: {body[:60]}", flush=True)
+    print(f"[hot_scan] 微信推送完成", flush=True)
+
+    # 飞书卡片
+    try:
+        from notify import push_feishu_card
+        card_lines = [f"快照时间: {snap_t[:16] if snap_t else '未知'}  top{top_pct}%·共{len(picks)}只", ""]
+        if picks:
+            for p in picks[:15]:
+                chg_s = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
+                card_lines.append(
+                    f"{p['code']} {p['name']}  ¥{p['close']}  {chg_s}"
+                    f"  热度#{p['rank']}  动量{p['momentum']:.0f}  综{p['score']:.0f}"
+                )
+        else:
+            card_lines.append("无符合条件的股票")
+        card_lines.append("")
+        card_lines.append("⚠️ 仅供参考，不构成投资建议")
+        push_feishu_card(title, card_lines)
+    except Exception as e:
+        print(f"[hot_scan] 飞书推送失败: {e}", flush=True)
 
 
 if __name__ == "__main__":
