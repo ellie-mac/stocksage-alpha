@@ -383,6 +383,7 @@ def main() -> None:
     )
 
     n_ok = n_skip = n_fail = 0
+    summary_lines: list[str] = []   # 收集本次实际检查项，用于每日汇总推送
 
     for item in CHECKS:
         item_id   = item["id"]
@@ -400,6 +401,7 @@ def main() -> None:
             verified[item_id] = _now()
             print(f"  ✓ {item_desc}  {msg}", flush=True)
             n_ok += 1
+            summary_lines.append(f"✅ {item_desc}  {msg}  ")
             continue
 
         # Check failed — try auto-fix first
@@ -414,11 +416,13 @@ def main() -> None:
                     print(f"  ✓ {item_desc}  修复成功: {msg2}", flush=True)
                     n_ok += 1
                     fixed_ok = True
+                    summary_lines.append(f"🔧 {item_desc}  自动修复: {msg2}  ")
                 else:
                     print(f"  ✗ {item_desc}  修复后仍失败: {msg2}", flush=True)
 
         if not fixed_ok:
             n_fail += 1
+            summary_lines.append(f"❌ {item_desc}  {msg}  ")
             # Notify at most once per item per day
             if not notified.get(item_id) and not args.dry_run:
                 _notify(
@@ -435,6 +439,17 @@ def main() -> None:
         f"\n[integrity] 完成  ✓{n_ok} 通过  ⊙{n_skip} 跳过  ✗{n_fail} 失败  {_now()}",
         flush=True,
     )
+
+    # 每日首次完整巡检后推一条汇总（有实际检查项、且今天还没推过）
+    if summary_lines and not state.get("daily_summary_sent") and not args.dry_run:
+        emoji = "✅" if n_fail == 0 else "⚠️"
+        body = "\n".join(summary_lines)
+        _notify(
+            f"{emoji} 系统巡检 {_today_str()}  {n_ok}通过 {n_fail}失败",
+            body,
+        )
+        state["daily_summary_sent"] = _now()
+        print(f"[integrity] 每日汇总已推送", flush=True)
 
     _save_state(state)
 
