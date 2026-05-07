@@ -33,7 +33,10 @@ _LEGEND = (
     "中强 MA5>MA20（中期向上）\n\n"
     "长强 MA20>MA60（长期向上）\n\n"
     "净涨 5日涨幅>噪音阈值，噪音=0.5×ATR21/收盘，排除震荡假突破\n\n"
-    "深调 收盘比20日最高价低>15%（深度回调惩罚）"
+    "深调 收盘比20日最高价低>15%（深度回调惩罚）\n\n"
+    "量增 近5日均量>近20日均量1.2倍（放量确认，+10分）\n\n"
+    "缩量 近5日均量<近20日均量0.7倍（无量拉升，-10分）\n\n"
+    "连热 前日快照中排名前50%（持续关注，+15分）"
 )
 
 
@@ -94,6 +97,28 @@ def _load_snapshot() -> tuple[list[dict], str]:
     return cleaned, snap.get("fetch_time", "")
 
 
+def _load_prev_rank_map() -> dict[str, int]:
+    """加载最近一次非今日快照，返回 {code: rank}，用于热度持续性判断。"""
+    import re as _re
+    log_dir = ROOT / "data" / "hot_rank_log"
+    today   = datetime.now().strftime("%Y%m%d")
+    for p in sorted(log_dir.glob("????????_????.json"), reverse=True):
+        if p.name.startswith(today):
+            continue
+        try:
+            snap = json.loads(p.read_text(encoding="utf-8"))
+            result: dict[str, int] = {}
+            for s in snap.get("stocks", []):
+                c = _re.sub(r"^(SZ|SH|sz|sh)", "", str(s.get("code", ""))).zfill(6)
+                result[c] = int(s.get("rank", 9999))
+            if result:
+                print(f"[hot_scan] 前日快照: {p.name}  {len(result)}只", flush=True)
+                return result
+        except Exception:
+            continue
+    return {}
+
+
 def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -> dict:
     import fetcher as _fetcher
 
@@ -108,6 +133,8 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
     codes    = [r["code"] for r in top]
     name_map = {r["code"]: r.get("name", "") for r in top}
     rank_map = {r["code"]: r.get("rank", total) for r in top}
+
+    prev_rank_map = _load_prev_rank_map()
 
     print(f"[hot_scan] 热榜共 {total} 只，top {top_pct}% = {len(codes)} 只  cah={cah}", flush=True)
 
@@ -140,7 +167,29 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
                 return None
             rank = rank_map.get(code, total)
             heat_score = max(0.0, 100.0 - rank / total * 100.0)
-            score = heat_score * 0.4 + momentum * 0.6
+            bonus = 0.0
+
+            # 量价配合：近5日均量 vs 近20日均量
+            if "volume" in df.columns and len(df) >= 20:
+                vol = df["volume"].values
+                vol5  = float(np.mean(vol[-5:]))
+                vol20 = float(np.mean(vol[-20:]))
+                if vol20 > 0:
+                    vol_ratio = vol5 / vol20
+                    if vol_ratio > 1.2:
+                        bonus += 10
+                        breakdown.append(f"量增({vol_ratio:.1f}x)")
+                    elif vol_ratio < 0.7:
+                        bonus -= 10
+                        breakdown.append(f"缩量({vol_ratio:.1f}x)")
+
+            # 热度持续性：前日快照中排名前50%
+            prev_rank = prev_rank_map.get(code)
+            if prev_rank is not None and prev_rank <= total // 2:
+                bonus += 15
+                breakdown.append("连热")
+
+            score = heat_score * 0.4 + momentum * 0.6 + bonus
             change_pct = round((close - float(df["close"].iloc[-2])) / float(df["close"].iloc[-2]) * 100, 2) if len(df) >= 2 else 0.0
             return {
                 "code": code, "name": name, "close": round(close, 2),
