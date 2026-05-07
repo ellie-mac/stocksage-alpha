@@ -22,6 +22,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -35,10 +37,34 @@ LOG_DIR     = _ROOT / "data" / "hot_rank_log"
 LOG_LATEST  = LOG_DIR / "latest.json"
 
 
+_FETCH_TIMEOUT = 25   # seconds per attempt
+_MAX_RETRIES   = 2    # up to 2 retries after first failure
+_RETRY_DELAY   = 60   # seconds between retries
+
+
 def _fetch_raw() -> list[dict]:
-    """调用 akshare 抓取当前热榜，返回 [{code, name, rank}, ...]，按排名升序。"""
+    """调用 akshare 抓取当前热榜，返回 [{code, name, rank}, ...]，按排名升序。
+    用 daemon thread 包裹，超时 _FETCH_TIMEOUT 秒后抛 TimeoutError。
+    """
     import akshare as ak
-    df = ak.stock_hot_rank_em()
+    result: list = [None]
+    exc:    list = [None]
+
+    def _call():
+        try:
+            result[0] = ak.stock_hot_rank_em()
+        except Exception as e:
+            exc[0] = e
+
+    t = threading.Thread(target=_call, daemon=True)
+    t.start()
+    t.join(timeout=_FETCH_TIMEOUT)
+    if t.is_alive():
+        raise TimeoutError(f"热榜 API 超时（>{_FETCH_TIMEOUT}s）")
+    if exc[0]:
+        raise exc[0]
+
+    df = result[0]
     if df is None or df.empty:
         return []
     df.columns = [c.strip() for c in df.columns]
@@ -60,18 +86,33 @@ def _fetch_raw() -> list[dict]:
 def capture(dry_run: bool = False) -> dict:
     """
     抓取热榜 → 构建 snapshot → 写盘（除非 dry_run）。
-    返回 snapshot dict，供调用方直接使用。
+    失败后最多重试 _MAX_RETRIES 次（间隔 _RETRY_DELAY 秒）。
+    返回 snapshot dict，供调用方直接使用；全部失败返回 {}。
     """
+    records: list[dict] = []
     fetch_time = datetime.now()
-    fetch_time_str = fetch_time.strftime("%Y-%m-%dT%H:%M:%S")
-    date_str  = fetch_time.strftime("%Y%m%d")
-    hhmm_str  = fetch_time.strftime("%H%M")
+    fetch_time_str = date_str = hhmm_str = ""
 
-    print(f"[hot_rank_logger] 抓取中... ({fetch_time_str})", flush=True)
-    try:
-        records = _fetch_raw()
-    except Exception as e:
-        print(f"[hot_rank_logger] 抓取失败: {e}", flush=True)
+    for attempt in range(_MAX_RETRIES + 1):
+        fetch_time     = datetime.now()
+        fetch_time_str = fetch_time.strftime("%Y-%m-%dT%H:%M:%S")
+        date_str       = fetch_time.strftime("%Y%m%d")
+        hhmm_str       = fetch_time.strftime("%H%M")
+
+        print(f"[hot_rank_logger] 抓取中... ({fetch_time_str})", flush=True)
+        try:
+            records = _fetch_raw()
+            break  # success
+        except Exception as e:
+            print(f"[hot_rank_logger] 抓取失败: {e}", flush=True)
+            if attempt < _MAX_RETRIES:
+                print(f"[hot_rank_logger] {_RETRY_DELAY}s 后重试 ({attempt + 1}/{_MAX_RETRIES})...", flush=True)
+                time.sleep(_RETRY_DELAY)
+    else:
+        return {}  # all attempts exhausted
+
+    if not records:
+        print("[hot_rank_logger] 抓取结果为空", flush=True)
         return {}
 
     snapshot = {
