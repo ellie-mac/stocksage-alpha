@@ -126,18 +126,25 @@ def _find_prev(glob_pat: str, today: str) -> dict | None:
 
 
 def _load_chip(today: str) -> dict[str, list[dict]]:
-    """三者共有 T1-T4（严格交集），缺任一来源则返回空"""
+    """取可用筹码源的交集（cah/cad/cadm），有几个用几个；全无则返回空。"""
     empty = {t: [] for t in CHIP_TIERS}
-    cah  = _find_prev("chip_cah_????????.json",  today)
-    cad  = _find_prev("chip_cad_????????.json",  today)
-    cadm = _find_prev("chip_cadm_????????.json", today)
-    if not (cah and cad and cadm):
+    raw = {
+        "cad":  _find_prev("chip_cad_????????.json",  today),
+        "cadm": _find_prev("chip_cadm_????????.json", today),
+        "cah":  _find_prev("chip_cah_????????.json",  today),
+    }
+    available = {k: v for k, v in raw.items() if v is not None}
+    if not available:
         return empty
-    cadm_codes = {p["code"] for t in CHIP_TIERS for p in cadm.get("tiers", {}).get(t, [])}
-    cah_codes  = {p["code"] for t in CHIP_TIERS for p in cah.get("tiers",  {}).get(t, [])}
+    base_key = next(k for k in ("cad", "cadm", "cah") if k in available)
+    base = available[base_key]
+    filter_sets = [
+        {p["code"] for t in CHIP_TIERS for p in src.get("tiers", {}).get(t, [])}
+        for k, src in available.items() if k != base_key
+    ]
     return {
-        t: [p for p in cad.get("tiers", {}).get(t, [])
-            if p["code"] in cadm_codes and p["code"] in cah_codes]
+        t: [p for p in base.get("tiers", {}).get(t, [])
+            if all(p["code"] in fs for fs in filter_sets)]
         for t in CHIP_TIERS
     }
 
