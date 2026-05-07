@@ -16,12 +16,32 @@ Recommended schedule (Windows Task Scheduler or cron):
 
 import sys
 import os
+import threading
 import time
 import argparse
 from datetime import datetime
 
 import pandas as pd
 import akshare as ak
+
+
+def _call_with_timeout(fn, timeout: float, *args, **kwargs):
+    """Run fn(*args, **kwargs) in a daemon thread; raise TimeoutError if it doesn't finish in time."""
+    result: list = [None]
+    exc:    list = [None]
+    def _run():
+        try:
+            result[0] = fn(*args, **kwargs)
+        except Exception as e:
+            exc[0] = e
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+    if t.is_alive():
+        raise TimeoutError(f"{getattr(fn, '__name__', str(fn))} timed out after {timeout}s")
+    if exc[0]:
+        raise exc[0]
+    return result[0]
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -75,6 +95,9 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
     print("Fetching full market quote list...")
     from common import get_spot_em
     spot = get_spot_em()
+    if spot is None or spot.empty or "代码" not in spot.columns:
+        print("[error] Cannot fetch market list — EM spot data unavailable")
+        sys.exit(1)
     all_codes: list[str] = spot["代码"].astype(str).str.zfill(6).tolist()
 
     if max_stocks:
@@ -90,7 +113,7 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
 
     for i, code in enumerate(pending):
         try:
-            df = ak.stock_financial_analysis_indicator(symbol=code, start_year="2022")
+            df = _call_with_timeout(ak.stock_financial_analysis_indicator, 30, symbol=code, start_year="2022")
             if df is None or df.empty:
                 continue
 
