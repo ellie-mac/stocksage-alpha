@@ -892,7 +892,7 @@ def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
     if n == 0:
         return ""
     win_ranges = {"T1": "≥95%", "T2": "90-95%", "T3": "85-90%", "T4": "75-85%", "T5": "65-75%"}
-    header = f"\n**{tier_name}（{win_ranges.get(tier_name, '')}）{n}只**"
+    header = f"\n**{tier_name}（{win_ranges.get(tier_name, '')}）{n}只**  "
     rows = []
     for p in picks:
         close_s = f"{p['close']:.2f}" if not math.isnan(float(p['close'] or 0)) else "-"
