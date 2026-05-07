@@ -2,9 +2,9 @@
 Factor configuration — IC-based weights, excluded factor registry,
 and regime-adaptive weight sets.
 
-Based on rolling 6-period IC analysis (20d forward, Group A, 705 stocks CSI300+CSI500, 2026-04-15).
-6 periods: mixed market including sharp Apr-2026 correction and partial rebound.
-Data sources: BaoStock PE/PB + Tushare daily(qfq).
+Based on rolling 6-period IC analysis (20d forward, Group A, 705 stocks CSI300+CSI500).
+Last calibrated: 2026-05-07 (ic_value_fix2.json) — 6 periods covering Apr-2026 correction + recovery.
+Data sources: BaoStock PE/PB (fixed fallback) + Tushare daily(qfq).
 Re-run: python factor_analysis.py --rolling 6 --step 20 --group A --universe main_universe.json
 
 To re-activate an excluded factor: move it from EXCLUDED_FACTORS back to FACTOR_WEIGHTS.
@@ -27,32 +27,36 @@ Regime logic (CSI 300 prior-20d return signal):
 #   pending 24p backtest validation.
 # ---------------------------------------------------------------------------
 FACTOR_WEIGHTS: dict[str, float] = {
-    # ── Tier 1: ICIR ≥ 1.0 ────────────────────────────────────────────────
-    "overhead_resistance":   1.5,   # IC=+0.0836, ICIR=2.056 (was N/A in 150-stock run; CSI300/500 have data)
-    "return_skewness":       1.5,   # IC=+0.0673, ICIR=1.021
+    # ── Tier 1: ICIR ≥ 0.9 ────────────────────────────────────────────────
+    "overhead_resistance":   1.5,   # IC=+0.0836, ICIR=2.056 (2026-04-15; stable anchor)
+    "return_skewness":       1.5,   # IC=+0.0971, ICIR=0.769 (2026-05-07); hit=83% across both runs
+    "ma60_deviation":        1.5,   # IC=+0.1152, ICIR=0.918 (2026-05-07); hit=83% — new activation from main universe IC
+    "divergence":            0.7,   # IC=+0.0703, ICIR=0.841 (2026-05-07); hit=67% — new activation
 
-    # ── Tier 2: ICIR 0.5–1.0 ─────────────────────────────────────────────
-    "div_yield":             0.7,   # IC=+0.0281, ICIR=0.959 (was 2.0; ICIR normalised with larger sample)
-    "position_52w":          0.7,   # IC=+0.1154, ICIR=0.934 (new: nearness to 52w high is positive)
-    "growth":                1.0,   # IC=+0.0545, ICIR=0.900 (new activation)
-    "upday_ratio":           0.2,   # IC=+0.0564, ICIR=+0.717 (new: 12p-AB run; up-day frequency = trend quality)
-    "roe_trend":             0.2,   # IC=+0.0642, ICIR=+0.551 (new: 12p-AB run; ROE improvement = quality momentum)
-    "main_inflow":           0.2,   # IC=+0.0546, ICIR=0.568
-    "volume":                0.0,   # IC=+0.0195, ICIR=0.562 (unstable vs 12p-AB; monitor via backtest)
-    "medium_term_momentum":  0.2,   # IC=+0.0567, ICIR=0.541 (FLIPPED: was -0.5; large-cap momentum works)
-    "market_beta":           0.2,   # IC=+0.0451, ICIR=0.483
-    "momentum":              0.8,   # IC=+0.0772, ICIR=0.435
-    "hammer_bottom":         0.8,   # IC=+0.0693, ICIR=0.612
+    # ── Tier 2: ICIR 0.5–0.9 ─────────────────────────────────────────────
+    "div_yield":             0.7,   # IC=+0.0281, ICIR=0.959 (2026-04-15)
+    "position_52w":          0.7,   # IC=+0.1154, ICIR=0.934 (2026-04-15)
+    "growth":                1.0,   # IC=+0.0545, ICIR=0.900 (2026-04-15)
+    "upday_ratio":           0.2,   # IC=+0.0564, ICIR=+0.717 (12p-AB run); up-day frequency = trend quality
+    "roe_trend":             0.2,   # IC=+0.0353, ICIR=+0.294 (2026-05-07); hit=83% (consistent hit rate)
+    "main_inflow":           0.2,   # IC=+0.0546, ICIR=0.568 (2026-04-15)
+    "volume":                0.0,   # IC=+0.0605, ICIR=0.348 (2026-05-07); monitor; unstable vs prior run
+    "hammer_bottom":         0.8,   # IC=+0.0693, ICIR=0.612 (2026-04-15)
+
+    # ── Regime-dependent / reduced (unstable direction across runs) ───────
+    "momentum":              0.2,   # IC=-0.0545, ICIR=-0.278 (2026-05-07, correction period); reduced 0.8→0.2; BULL regime amplifies
+    "medium_term_momentum":  0.0,   # IC=-0.0481, ICIR=-0.214 (2026-05-07); zeroed — direction flipped in correction; BULL regime handles
+    "market_beta":           0.0,   # IC=-0.0453, ICIR=-0.323 (2026-05-07); zeroed — direction flipped in correction; BULL regime handles
 
     # ── Inverted ──────────────────────────────────────────────────────────
-    "limit_hits":            -1.2,  # IC=-0.0831, ICIR=-0.925 (consistent across all runs)
-    "chip_distribution":     -1.0,  # IC=-0.0232, ICIR=-0.750 (FLIPPED: was +1.0; large-cap reversal)
-    "volume_expansion":      -0.5,  # IC=-0.0738, ICIR=-0.590
-    "price_inertia":         -0.8,  # IC=-0.0483, ICIR=-0.459 (new negative)
-    "limit_open_rate":       -0.8,  # IC=-0.0261, ICIR=-0.426
-    "cash_flow_quality":     -0.5,  # IC=-0.0201, ICIR=-0.422 (FLIPPED: was +0.5)
-    "intraday_vs_overnight": -0.8,  # IC=-0.0571, ICIR=-0.371 (reduced from -1.5; weaker with 705 stocks)
-    "gap_frequency":         -0.5,  # IC=-0.0810, ICIR=-0.348 (FLIPPED: was +1.0 in small sample)
+    "limit_hits":            -1.2,  # IC=-0.0676, ICIR=-0.360 (2026-05-07); consistent negative across runs
+    "chip_distribution":     -1.0,  # IC=-0.0232, ICIR=-0.750 (2026-04-15)
+    "volume_expansion":      -0.5,  # IC=-0.0738, ICIR=-0.590 (2026-04-15); held despite sign flip in 2026-05-07 (single-run instability)
+    "price_inertia":         -0.8,  # IC=-0.0483, ICIR=-0.459 (2026-04-15)
+    "limit_open_rate":       -0.8,  # IC=-0.0261, ICIR=-0.426 (2026-04-15)
+    "cash_flow_quality":     -0.5,  # IC=-0.0201, ICIR=-0.422 (2026-04-15); held despite sign flip in 2026-05-07
+    "intraday_vs_overnight": -0.8,  # IC=-0.0571, ICIR=-0.371 (2026-04-15)
+    "gap_frequency":         -0.5,  # IC=-0.0810, ICIR=-0.348 (2026-04-15)
 }
 
 # Alias so code can refer to it by regime name
@@ -128,11 +132,13 @@ FACTOR_WEIGHTS_EXTREME_BULL: dict[str, float] = {
 FACTOR_WEIGHTS_CAUTION: dict[str, float] = {
     # ── Defensive anchors (upweighted) ────────────────────────────────────
     "overhead_resistance":   2.5,   # ICIR=2.056; technical resistance = strong screen in corrections
-    "return_skewness":       2.0,   # ICIR=1.021; positive skew = fewer blow-ups
+    "return_skewness":       2.0,   # ICIR=0.769; positive skew = fewer blow-ups; hit=83%
+    "ma60_deviation":        2.0,   # ICIR=0.918 measured during Apr-2026 correction; strong defensive screen
     "div_yield":             2.0,   # ICIR=0.959; yield = capital preservation
     "position_52w":          1.5,   # ICIR=0.934; relative strength = resilient stocks
     "growth":                1.0,   # ICIR=0.900; quality growth survives corrections
-    "roe_trend":             1.0,   # ICIR=0.551; ROE improvement = quality resilience in corrections
+    "roe_trend":             1.0,   # ICIR=0.294 (2026-05-07); hit=83%; ROE improvement = quality resilience
+    "divergence":            1.0,   # ICIR=0.841; stocks diverging positively from market = relative strength
     "main_inflow":           0.5,   # ICIR=0.568; capital staying in = resilience
     "upday_ratio":           0.5,   # ICIR=0.717; consistent up-days = relative strength
     # ── Inverted (amplified in caution) ───────────────────────────────────
@@ -154,11 +160,13 @@ FACTOR_WEIGHTS_CAUTION: dict[str, float] = {
 FACTOR_WEIGHTS_CRISIS: dict[str, float] = {
     # ── Survival anchors only ─────────────────────────────────────────────
     "overhead_resistance":   3.0,   # ICIR=2.056; strongest screen — avoid overhead supply
-    "return_skewness":       2.5,   # ICIR=1.021; positive skew = fewer catastrophic drops
+    "return_skewness":       2.5,   # ICIR=0.769; positive skew = fewer catastrophic drops
+    "ma60_deviation":        1.5,   # ICIR=0.918 (correction period); stocks near MA60 = less broken
     "div_yield":             2.0,   # ICIR=0.959; yield = capital preservation anchor
     "position_52w":          2.0,   # ICIR=0.934; relative strength = survivors in crash
     "growth":                1.5,   # ICIR=0.900; quality growth holds up in crisis
-    "roe_trend":             1.0,   # ICIR=0.551; ROE momentum = earnings quality in crash
+    "roe_trend":             1.0,   # ICIR=0.294 (2026-05-07); ROE momentum = earnings quality in crash
+    "divergence":            0.5,   # ICIR=0.841; mild weight — relative strength vs market
     # ── Strong inverted signals survive even in crash ─────────────────────
     "limit_hits":            -2.0,  # ICIR=-0.925; stocks with limit history collapse hardest
     "chip_distribution":     -2.0,  # ICIR=-0.750; heavy distribution = continued collapse
@@ -406,7 +414,7 @@ EXCLUDED_FACTORS: dict[str, str] = {
     "ma_alignment":         "noise: IC=+0.001, ICIR=0.008",
 
     # ── Data unavailable ──────────────────────────────────────────────────
-    "value":               "no data: EM quote blocked, PE/PB=0 -> NaN score",
+    "value":               "unreliable: BaoStock PE/PB now available; IC=-0.096 ICIR=-0.471 hit=50% (2026-05-07) — signal too weak/unstable to activate",
     "volume_ratio":        "no data: requires real-time quote",
     "short_interest":      "no data: margin data often missing",
     "accruals":            "no data: insufficient signal",
