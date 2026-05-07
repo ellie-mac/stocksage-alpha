@@ -231,8 +231,7 @@ def get_spot_em(retries: int = 3):
                 df_sina["代码"] = (df_sina["代码"].astype(str)
                                    .str.replace(r"^(sh|sz)", "", regex=True)
                                    .str.zfill(6))
-            if "总市值" not in df_sina.columns:
-                df_sina["总市值"] = float("nan")
+            # 不伪造总市值列 — NaN会让市值过滤把所有股票全排掉
             _cache.set("spot_em", df_sina)
             print(f"[spot_em] 新浪 fallback 成功: {len(df_sina)} 只股票")
             return df_sina

@@ -93,6 +93,17 @@ def generate(
     print(f"After filters (cap>={min_cap_yi}亿, price>={min_price}, {'no BJ' if exclude_bj else 'incl BJ'}): {len(df)} stocks")
 
     codes = df["_code"].tolist()
+
+    if not codes and OUT_PATH.exists():
+        import time
+        age_days = (time.time() - OUT_PATH.stat().st_mtime) / 86400
+        if age_days <= 3:
+            cached = json.loads(OUT_PATH.read_text(encoding="utf-8"))
+            print(f"[WARN] 0 stocks after filters; reusing cached universe ({age_days:.1f}d old, {len(cached)} stocks)")
+            return cached
+        print("[ERROR] 0 stocks after filters and no usable cache")
+        sys.exit(1)
+
     return codes
 
 
