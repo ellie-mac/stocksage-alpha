@@ -215,7 +215,7 @@ def _push_results(data: dict) -> None:
             chg = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
             tags = "  ".join(p.get("breakdown", []))
             items.append(
-                f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}\n{tags}"
+                f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}\n\n{tags}"
             )
         body = "\n\n".join(items)
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
