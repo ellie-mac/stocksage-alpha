@@ -1412,7 +1412,7 @@ def run(
             print(f"[ERROR] 选股推送失败: {e}")
         if not dry_run:
             try:
-                from notify_discord import push_feishu_content
+                from notify import push_feishu_content
                 push_feishu_content(f"{buy_title}\n{buy_desp}")
             except Exception:
                 pass

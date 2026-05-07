@@ -28,7 +28,7 @@ SCAN_PATH       = ROOT / "data" / "chip_scan_latest.json"
 CAH_PATH        = ROOT / "data" / "chip_cah_latest.json"
 CAD_PATH        = ROOT / "data" / "chip_cad_latest.json"
 CADM_PATH       = ROOT / "data" / "chip_cadm_latest.json"
-MAIN_PICKS_PATH = ROOT / "data" / "preview_picks.json"
+MAIN_PICKS_PATH = ROOT / "data" / "latest_picks.json"
 GC_PATH         = ROOT / "data" / "golden_cross_latest.json"
 
 # 超出计划时间多少分钟后跳过（防止补跑）
@@ -119,9 +119,16 @@ def _load_main_picks() -> list[dict]:
     if not MAIN_PICKS_PATH.exists():
         return []
     data = json.loads(MAIN_PICKS_PATH.read_text(encoding="utf-8"))
-    if data.get("date") != datetime.now().strftime("%Y-%m-%d"):
+    # latest_picks.json: {timestamp, results:[{code, name, score, change_pct, ...}]}
+    ts = data.get("timestamp", "")
+    if ts[:10] != datetime.now().strftime("%Y-%m-%d"):
         return []
-    return data.get("picks", [])
+    return [
+        {"code": r["code"], "name": r["name"],
+         "score": r.get("buy_score", r.get("score", 0)),
+         "change_pct": r.get("change_pct", 0)}
+        for r in data.get("results", [])
+    ]
 
 
 def _load_gc_picks() -> dict:
@@ -304,8 +311,8 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
     if main_picks:
         lines.append(f"**【主策略精选 {len(main_picks)}只】**  ")
         for p in main_picks:
-            price_s = f"¥{float(p['price']):.2f}" if p.get("price") else ""
-            lines.append(f"{p['code']} {p['name']} {p.get('industry', '')} {price_s}  ")
+            score_s = f"评分{p['score']:.1f}" if p.get("score") else ""
+            lines.append(f"{p['code']} {p['name']} {score_s}  ")
         lines.append("")
 
     _fallback_s = "" if data.get("filter") == "CAH∩CAD∩CADM" else "  ⚡仅CAD"

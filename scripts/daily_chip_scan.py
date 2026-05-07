@@ -191,7 +191,7 @@ def main() -> None:
         _push(title, body)
         try:
             sys.path.insert(0, str(ROOT / "scripts"))
-            from notify_discord import push_feishu_card
+            from notify import push_feishu_card
             card_lines: list[str] = [f"筛选：{filter_label}  共{len(all_picks)}只", ""]
             for tier in TIERS:
                 tier_key = tier["label"].split()[0]

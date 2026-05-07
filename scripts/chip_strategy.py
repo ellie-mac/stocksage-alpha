@@ -952,7 +952,7 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
     send_wechat(title, body, sendkey, dry_run=dry_run)
     if not dry_run:
         try:
-            from notify_discord import push_feishu_card
+            from notify import push_feishu_card
             _WIN = {"T1": "≥95%", "T2": "90-95%", "T3": "85-90%"}
             card_lines: list[str] = []
             for saves_dict, label in [
@@ -1136,7 +1136,7 @@ def main() -> None:
     send_wechat(title, body, sendkey, dry_run=args.dry_run)
     if not args.dry_run:
         try:
-            from notify_discord import push_feishu_card
+            from notify import push_feishu_card
             push_feishu_card(title, body.splitlines())
         except Exception:
             pass
