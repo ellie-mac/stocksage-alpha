@@ -224,7 +224,7 @@ def _push_results(data: dict) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--top-pct", type=float, default=5.0)
+    parser.add_argument("--top-pct", type=float, default=100.0)
     parser.add_argument("--no-cah", action="store_true", help="不排高位（默认排除距半年高点<10%的高位股）")
     parser.add_argument("--push", action="store_true")
     args = parser.parse_args()
