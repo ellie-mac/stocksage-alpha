@@ -137,7 +137,10 @@ def _get_baostock():
     global _bs_module
     if _bs_module is not None:
         return _bs_module
-    with _bs_lock:
+    # Use a timeout so a stalled daemon thread holding _bs_lock doesn't deadlock us.
+    if not _bs_lock.acquire(timeout=5.0):
+        return None
+    try:
         if _bs_module is not None:
             return _bs_module
         try:
@@ -165,19 +168,27 @@ def _get_baostock():
             return bs
         except Exception:
             return None
+    finally:
+        _bs_lock.release()
 
 
 def _reset_baostock() -> None:
     """Force a fresh BaoStock login on the next _get_baostock() call.
     Called when a query times out, indicating a stale connection."""
     global _bs_module
-    with _bs_lock:
-        try:
-            if _bs_module is not None:
+    # Non-blocking: a stalled daemon thread may be holding _bs_lock.
+    # Always null out _bs_module so the next caller re-logins; logout is best-effort.
+    acquired = _bs_lock.acquire(timeout=2.0)
+    try:
+        if _bs_module is not None:
+            try:
                 _bs_module.logout()
-        except Exception:
-            pass
+            except Exception:
+                pass
         _bs_module = None
+    finally:
+        if acquired:
+            _bs_lock.release()
 
 
 def _call_with_timeout(fn, timeout: float = 20.0, *args, **kwargs):
