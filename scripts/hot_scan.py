@@ -28,28 +28,37 @@ sys.path.insert(0, str(SCRIPTS))
 OUT_LATEST = ROOT / "data" / "hot_scan_latest.json"
 
 
-def _momentum_score(df: pd.DataFrame) -> float:
-    """0-100: price vs MA5/MA20/MA60 + risk-adjusted 5-day return - drawdown penalty."""
+def _momentum_score(df: pd.DataFrame) -> tuple[float, list[str]]:
+    """Returns (score 0-100, breakdown lines). breakdown only lists conditions that fired."""
     c = df["close"].values
     ma5  = float(np.mean(c[-5:]))
     ma20 = float(np.mean(c[-20:]))
     ma60 = float(np.mean(c[-min(60, len(c)):])) if len(c) >= 10 else ma20
     score = 0.0
-    if c[-1] > ma5:  score += 30
-    if ma5  > ma20:  score += 30
-    if ma20 > ma60:  score += 20
+    breakdown: list[str] = []
+    if c[-1] > ma5:
+        score += 30
+        breakdown.append("+30  收盘价 > MA5（短期趋势向上）")
+    if ma5 > ma20:
+        score += 30
+        breakdown.append("+30  MA5 > MA20（中期趋势向上）")
+    if ma20 > ma60:
+        score += 20
+        breakdown.append("+20  MA20 > MA60（长期趋势向上）")
     if len(c) >= 6:
         atr = float(np.mean(np.abs(np.diff(c[-21:])))) if len(c) >= 21 else 0.0
         ret5 = (c[-1] - c[-6]) / c[-6]
-        # Risk-adjusted: reward ret5 only if it exceeds noise (0.5×ATR/price)
         noise = 0.5 * atr / c[-1] if c[-1] > 0 and atr > 0 else 0.0
-        if ret5 > noise: score += 20
-    # Drawdown penalty: if price is >15% below its 20-day high, subtract 20 pts
+        if ret5 > noise:
+            score += 20
+            breakdown.append(f"+20  5日涨幅({ret5*100:.1f}%) > 噪音阈值({noise*100:.1f}%)（有效上涨）")
     if len(c) >= 20:
         high_20d = float(np.max(c[-20:]))
         if high_20d > 0 and (c[-1] / high_20d - 1) < -0.15:
             score -= 20
-    return max(0.0, min(score, 100.0))
+            dd = (c[-1] / high_20d - 1) * 100
+            breakdown.append(f"-20  距20日高点 {dd:.1f}%（深度回调惩罚）")
+    return max(0.0, min(score, 100.0)), breakdown
 
 
 def _load_snapshot() -> tuple[list[dict], str]:
@@ -117,7 +126,7 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
                 high_6m = float(df["high"].tail(120).max())
                 if close > high_6m * 0.9:
                     return None
-            momentum = _momentum_score(df)
+            momentum, breakdown = _momentum_score(df)
             if momentum < 30:
                 return None
             rank = rank_map.get(code, total)
@@ -129,6 +138,7 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
                 "change_pct": change_pct, "rank": rank,
                 "rank_pct": round(rank / total * 100, 1),
                 "momentum": round(momentum, 1), "score": round(score, 1),
+                "breakdown": breakdown,
             }
         except Exception:
             return None
@@ -191,13 +201,12 @@ def _push_results(data: dict) -> None:
     if not picks:
         body = f"热榜扫描无符合条件的股票"
     else:
-        snap_line = f"快照: {snap_t[:16] if snap_t else '未知'}"
-        items = [snap_line]
-        for i, p in enumerate(picks[:15], 1):
+        items = [f"快照: {snap_t[:16] if snap_t else '未知'}"]
+        for p in picks[:15]:
             chg = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
+            bd = "\n".join(p.get("breakdown", []))
             items.append(
-                f"**{i}. {p['code']} {p['name']}**  ¥{p['close']}  {chg}\n"
-                f"热度 #{p['rank']}  综合 {p['score']:.0f}"
+                f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}\n{bd}"
             )
         body = "\n\n".join(items)
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
@@ -208,12 +217,14 @@ def _push_results(data: dict) -> None:
         from notify import push_feishu_card
         card_lines = [f"快照: {snap_t[:16] if snap_t else '未知'}  共{len(picks)}只", ""]
         if picks:
-            for i, p in enumerate(picks[:15], 1):
+            for p in picks[:15]:
                 chg_s = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
-                card_lines.append(f"{i}. {p['code']} {p['name']}  ¥{p['close']}  {chg_s}  热度#{p['rank']}  综合{p['score']:.0f}")
+                card_lines.append(f"{p['code']} {p['name']}  ¥{p['close']}  {chg_s}  热度#{p['rank']}")
+                for line in p.get("breakdown", []):
+                    card_lines.append(f"  {line}")
+                card_lines.append("")
         else:
             card_lines.append("无符合条件的股票")
-        card_lines.append("")
         card_lines.append("仅供参考，不构成投资建议")
         push_feishu_card(title, card_lines)
     except Exception as e:
