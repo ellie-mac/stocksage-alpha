@@ -1333,9 +1333,13 @@ def _run_rolling(
                 ex.submit(compute_stock_scores, code, forward_days, group, price_offset, _shared_period): code
                 for code in period_codes
             }
-            for future in as_completed(futures):
+            # Iterate futures directly so a stalled executor thread cannot
+            # block as_completed() indefinitely.  Each future gets a hard
+            # 5-minute cap; on TimeoutError the worker is still running but
+            # the next future is attempted once the worker eventually frees up.
+            for future in list(futures.keys()):
                 try:
-                    r = future.result(timeout=60)
+                    r = future.result(timeout=300)
                     if r is not None:
                         results.append(r)
                     else:
