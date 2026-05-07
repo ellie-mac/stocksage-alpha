@@ -179,6 +179,22 @@ def _try_feishu(task: str, desc: str, status: str) -> None:
         print(f"[notify_feishu] 发送失败: {e}", flush=True)
 
 
+def _split_plain_divs(lines: list[str], max_chars: int = 1800) -> list[dict]:
+    """把 lines 按字符数切段，每段生成一个 plain_text div（正确渲染 \\n 换行）。"""
+    divs, buf = [], []
+    buf_len = 0
+    for ln in (l.rstrip() for l in lines):
+        addition = len(ln) + 1  # +1 for \n
+        if buf and buf_len + addition > max_chars:
+            divs.append({"tag": "div", "text": {"tag": "plain_text", "content": "\n".join(buf)}})
+            buf, buf_len = [], 0
+        buf.append(ln)
+        buf_len += addition
+    if buf:
+        divs.append({"tag": "div", "text": {"tag": "plain_text", "content": "\n".join(buf)}})
+    return divs or [{"tag": "div", "text": {"tag": "plain_text", "content": ""}}]
+
+
 def push_feishu_card(title: str, lines: list[str]) -> None:
     """Push an interactive card to the Feishu notify chat. Best-effort, never raises."""
     app_id, secret, chat_id = _feishu_cfg()
@@ -192,12 +208,7 @@ def push_feishu_card(title: str, lines: list[str]) -> None:
                 "title": {"tag": "plain_text", "content": title},
                 "template": "blue",
             },
-            "elements": [
-                {
-                    "tag": "div",
-                    "text": {"tag": "lark_md", "content": "\n".join(lines)},
-                }
-            ],
+            "elements": _split_plain_divs(lines),
         }
         body = json.dumps({
             "receive_id": chat_id,

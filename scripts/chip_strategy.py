@@ -800,7 +800,7 @@ def format_message(
 
         close_s = f"{close:.2f}" if pd.notna(close) else "-"
         wavg_s  = f"{wavg:.2f}"  if pd.notna(wavg)  else "-"
-        lines.append(f"{code} {name} {ind}  {close_s}  均{wavg_s}")
+        lines.append(f"{code} {name} {ind}  {close_s}  均{wavg_s}  ")
 
     lines += ["", f"数据: Tushare Pro · {datetime.now():%Y-%m-%d %H:%M}"]
     return title, "\n".join(lines)
