@@ -80,7 +80,11 @@ def prefetch_price(force: bool = False) -> None:
     with ThreadPoolExecutor(max_workers=5) as ex:
         futures = {ex.submit(_warm_one, c): c for c in codes}
         for fut in as_completed(futures):
-            result = fut.result()
+            try:
+                result = fut.result()
+            except Exception as e:
+                result = "fail"
+                print(f"[prefetch/price] future error: {type(e).__name__}: {e}", flush=True)
             done += 1
             if result == "skip":
                 skipped += 1

@@ -221,6 +221,23 @@ def get_spot_em(retries: int = 3):
             print(f"[spot_em] 获取失败（第{attempt}次）: {e}")
             if attempt < retries:
                 time.sleep(3)
+    # EM 全部失败，fallback 到新浪（Singapore VM 可访问）
+    print("[spot_em] EM 全部失败，尝试新浪 fallback...")
+    try:
+        df_sina = ak.stock_zh_a_spot()
+        if df_sina is not None and not df_sina.empty:
+            df_sina = df_sina.copy()
+            if "代码" in df_sina.columns:
+                df_sina["代码"] = (df_sina["代码"].astype(str)
+                                   .str.replace(r"^(sh|sz)", "", regex=True)
+                                   .str.zfill(6))
+            if "总市值" not in df_sina.columns:
+                df_sina["总市值"] = float("nan")
+            _cache.set("spot_em", df_sina)
+            print(f"[spot_em] 新浪 fallback 成功: {len(df_sina)} 只股票")
+            return df_sina
+    except Exception as e:
+        print(f"[spot_em] 新浪 fallback 失败: {e}")
     return pd.DataFrame()
 
 
