@@ -28,37 +28,46 @@ sys.path.insert(0, str(SCRIPTS))
 OUT_LATEST = ROOT / "data" / "hot_scan_latest.json"
 
 
+_LEGEND = (
+    "短强 收盘>MA5（短期向上）\n"
+    "中强 MA5>MA20（中期向上）\n"
+    "长强 MA20>MA60（长期向上）\n"
+    "净涨 5日涨幅>噪音阈值，噪音=0.5×ATR21/收盘，排除震荡假突破\n"
+    "深调 收盘比20日最高价低>15%（深度回调惩罚）"
+)
+
+
 def _momentum_score(df: pd.DataFrame) -> tuple[float, list[str]]:
-    """Returns (score 0-100, breakdown lines). breakdown only lists conditions that fired."""
+    """Returns (score 0-100, tags). Tags are short labels for conditions that fired."""
     c = df["close"].values
     ma5  = float(np.mean(c[-5:]))
     ma20 = float(np.mean(c[-20:]))
     ma60 = float(np.mean(c[-min(60, len(c)):])) if len(c) >= 10 else ma20
     score = 0.0
-    breakdown: list[str] = []
+    tags: list[str] = []
     if c[-1] > ma5:
         score += 30
-        breakdown.append("+30  收盘价 > MA5（短期趋势向上）")
+        tags.append("短强")
     if ma5 > ma20:
         score += 30
-        breakdown.append("+30  MA5 > MA20（中期趋势向上）")
+        tags.append("中强")
     if ma20 > ma60:
         score += 20
-        breakdown.append("+20  MA20 > MA60（长期趋势向上）")
+        tags.append("长强")
     if len(c) >= 6:
         atr = float(np.mean(np.abs(np.diff(c[-21:])))) if len(c) >= 21 else 0.0
         ret5 = (c[-1] - c[-6]) / c[-6]
         noise = 0.5 * atr / c[-1] if c[-1] > 0 and atr > 0 else 0.0
         if ret5 > noise:
             score += 20
-            breakdown.append(f"+20  5日涨幅({ret5*100:.1f}%) > 噪音阈值({noise*100:.1f}%)（有效上涨）")
+            tags.append(f"净涨(+{ret5*100:.1f}%)")
     if len(c) >= 20:
         high_20d = float(np.max(c[-20:]))
         if high_20d > 0 and (c[-1] / high_20d - 1) < -0.15:
             score -= 20
             dd = (c[-1] / high_20d - 1) * 100
-            breakdown.append(f"-20  距20日高点 {dd:.1f}%（深度回调惩罚）")
-    return max(0.0, min(score, 100.0)), breakdown
+            tags.append(f"深调({dd:.1f}%)")
+    return max(0.0, min(score, 100.0)), tags
 
 
 def _load_snapshot() -> tuple[list[dict], str]:
@@ -201,12 +210,12 @@ def _push_results(data: dict) -> None:
     if not picks:
         body = f"热榜扫描无符合条件的股票"
     else:
-        items = [f"快照: {snap_t[:16] if snap_t else '未知'}"]
+        items = [f"快照: {snap_t[:16] if snap_t else '未知'}\n\n{_LEGEND}"]
         for p in picks[:15]:
             chg = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
-            bd = "\n".join(p.get("breakdown", []))
+            tags = "  ".join(p.get("breakdown", []))
             items.append(
-                f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}\n{bd}"
+                f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}\n{tags}"
             )
         body = "\n\n".join(items)
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
@@ -216,12 +225,14 @@ def _push_results(data: dict) -> None:
     try:
         from notify import push_feishu_card
         card_lines = [f"快照: {snap_t[:16] if snap_t else '未知'}  共{len(picks)}只", ""]
+        card_lines += _LEGEND.splitlines()
+        card_lines.append("")
         if picks:
             for p in picks[:15]:
                 chg_s = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
+                tags = "  ".join(p.get("breakdown", []))
                 card_lines.append(f"{p['code']} {p['name']}  ¥{p['close']}  {chg_s}  热度#{p['rank']}")
-                for line in p.get("breakdown", []):
-                    card_lines.append(f"  {line}")
+                card_lines.append(f"  {tags}")
                 card_lines.append("")
         else:
             card_lines.append("无符合条件的股票")
