@@ -76,7 +76,7 @@ def _load_snapshot() -> tuple[list[dict], str]:
     return cleaned, snap.get("fetch_time", "")
 
 
-def run_hot_scan(top_pct: float = 5.0, cah: bool = True, push: bool = False) -> dict:
+def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -> dict:
     import fetcher as _fetcher
 
     stocks, fetch_time = _load_snapshot()
@@ -97,7 +97,7 @@ def run_hot_scan(top_pct: float = 5.0, cah: bool = True, push: bool = False) -> 
 
     def _process(code: str):
         try:
-            df = _fetcher.get_price_history(code, days=90)
+            df = _fetcher.get_price_history(code, days=200)
             if df is None or df.empty or len(df) < 20:
                 return None
             close = float(df["close"].iloc[-1])
