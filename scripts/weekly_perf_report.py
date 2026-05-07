@@ -35,9 +35,10 @@ def _load(path: Path) -> list[dict]:
 
 
 def _week_dates(today: datetime) -> tuple[str, str]:
-    """返回本周周一和今天的 YYYYMMDD 字符串。"""
-    mon = today - timedelta(days=today.weekday())
-    return mon.strftime("%Y%m%d"), today.strftime("%Y%m%d")
+    """周六零点运行时，返回上周一和上周五的 YYYYMMDD 字符串。"""
+    fri = today - timedelta(days=today.weekday() - 4)   # 上周五
+    mon = fri - timedelta(days=4)                        # 上周一
+    return mon.strftime("%Y%m%d"), fri.strftime("%Y%m%d")
 
 
 def _filter_week(records: list[dict], mon: str, today: str) -> list[dict]:
@@ -78,8 +79,8 @@ def main() -> None:
     args = parser.parse_args()
 
     now = datetime.now()
-    if not args.force and now.weekday() != 4:  # 4 = 周五
-        print(f"[weekly_perf] 今天是{['一','二','三','四','五','六','日'][now.weekday()]}，只在周五运行，跳过")
+    if not args.force and now.weekday() != 5:  # 5 = 周六
+        print(f"[weekly_perf] 今天是{['一','二','三','四','五','六','日'][now.weekday()]}，只在周六运行，跳过")
         return
 
     mon_str, today_str = _week_dates(now)
