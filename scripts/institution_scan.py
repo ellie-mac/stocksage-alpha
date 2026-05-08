@@ -39,6 +39,23 @@ def _fetch_holdings(fund_code: str, year: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _fetch_disclosure_date(fund_code: str, quarter_label: str) -> str:
+    """从公告列表查该季度报告的实际披露日期，格式 YYYY-MM-DD，失败返回空串。"""
+    import akshare as ak, re
+    m = re.match(r"(\d{4})年(\d)季度", quarter_label)
+    if not m:
+        return ""
+    year, q = m.group(1), m.group(2)
+    try:
+        df = ak.fund_announcement_report_em(symbol=fund_code)
+        hits = df[df["公告标题"].str.contains(f"{year}年第{q}季度报告", na=False)]
+        if not hits.empty:
+            return str(hits.iloc[0]["公告日期"])
+    except Exception:
+        pass
+    return ""
+
+
 def _get_two_latest_quarters(df: pd.DataFrame) -> tuple[str, str]:
     """从持仓 DataFrame 里取最近两个季度标签，返回 (latest, prev)。"""
     quarters = df["季度"].unique().tolist()
@@ -76,21 +93,27 @@ def run_institution_scan(min_funds: int = 2, push: bool = False) -> dict:
 
     def _fetch(fund: dict):
         code = fund["code"]
-        # 同时拉当年和上一年，合并后才能跨年做季度对比（如 Q1 2026 vs Q4 2025）
         df_cur  = _fetch_holdings(code, cur_year)
         df_prev = _fetch_holdings(code, prev_year)
         frames = [df for df in [df_cur, df_prev] if not df.empty]
         if not frames:
-            return code, pd.DataFrame()
+            return code, pd.DataFrame(), {}
         df = pd.concat(frames, ignore_index=True).drop_duplicates(subset=["股票代码", "季度"])
-        return code, df
+        # 拉各季度的实际披露日期
+        disc_dates: dict[str, str] = {}
+        for q in df["季度"].unique():
+            disc_dates[q] = _fetch_disclosure_date(code, q)
+        return code, df, disc_dates
+
+    disc_date_map: dict[str, dict[str, str]] = {}  # fund_code -> {quarter -> date}
 
     with ThreadPoolExecutor(max_workers=6) as ex:
         futs = {ex.submit(_fetch, f): f for f in funds}
         for fut in tqdm(as_completed(futs), total=len(futs), desc="拉持仓"):
-            code, df = fut.result()
+            code, df, disc_dates = fut.result()
             if not df.empty:
                 holdings[code] = df
+                disc_date_map[code] = disc_dates
 
     print(f"[institution_scan] 成功拉取 {len(holdings)}/{len(funds)} 只基金持仓", flush=True)
 
@@ -113,11 +136,12 @@ def run_institution_scan(min_funds: int = 2, push: bool = False) -> dict:
             if stock_code not in new_by_stock:
                 new_by_stock[stock_code] = []
             new_by_stock[stock_code].append({
-                "fund_code": code,
-                "fund_name": fund_name_map.get(code, code),
-                "latest_q":  latest_q,
-                "prev_q":    prev_q,
-                "ratio":     ratio,
+                "fund_code":       code,
+                "fund_name":       fund_name_map.get(code, code),
+                "latest_q":        latest_q,
+                "prev_q":          prev_q,
+                "ratio":           ratio,
+                "disclosure_date": disc_date_map.get(code, {}).get(latest_q, ""),
             })
 
     # 过滤：>=min_funds 家同时新增
@@ -194,7 +218,7 @@ def _push_results(data: dict) -> None:
         items = [f"季度: {_fmt_q(quarter)}  扫描基金: {fund_count}只  阈值: >={min_funds}家新增"]
         for r in hits:
             fund_lines = "\n\n".join(
-                f"· {b['fund_name'][:10]}  占净值{b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新增（原{_fmt_q(b['prev_q'])}未持有）"
+                f"· {b['fund_name'][:10]}  占净值{b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新增（披露{b['disclosure_date'] or '未知'}）"
                 for b in r["buyers"]
             )
             items.append(
@@ -212,7 +236,8 @@ def _push_results(data: dict) -> None:
             for r in hits:
                 card_lines.append(f"{r['stock_code']} {r['stock_name']}  {r['fund_count']}家新增")
                 for b in r["buyers"]:
-                    card_lines.append(f"  · {b['fund_name'][:10]}  占净值{b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新增")
+                    disc = f"  披露{b['disclosure_date']}" if b.get("disclosure_date") else ""
+                    card_lines.append(f"  · {b['fund_name'][:10]}  占净值{b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新增{disc}")
                 card_lines.append("")
         else:
             card_lines.append("无股票被多家基金同时新增")
