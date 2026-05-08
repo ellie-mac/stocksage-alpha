@@ -1786,10 +1786,10 @@ def run_loop(
                 + etf_section
                 + "\n\n> 仅供参考，不构成投资建议"
             )
-            try:
-                send_wechat("今日收盘 📊", closing_desp, sendkey, dry_run=dry_run)
-            except Exception as e:
-                print(f"  [WARN] Closing summary push failed: {e}")
+            # try:  # 收盘持仓快报已禁用
+            #     send_wechat("今日收盘 📊", closing_desp, sendkey, dry_run=dry_run)
+            # except Exception as e:
+            #     print(f"  [WARN] Closing summary push failed: {e}")
             # XHS evening post: today's watchlist performance summary
             if "evening" not in _xhs_triggered_today:
                 _xhs_triggered_today.add("evening")
@@ -1916,14 +1916,14 @@ def run_loop(
                     _elog.log_events(_frows)
             except Exception:
                 pass
-        if fast_alerts and _market_open:
-            title = f"⚡ {len(fast_alerts)} 实时预警"
-            desp  = build_fast_wechat_desp(fast_alerts, run_time,
-                                           stop_loss_pct=thresholds.get("stop_loss_pct", -8.0))
-            try:
-                send_wechat(title, desp, sendkey, dry_run=dry_run)
-            except Exception as e:
-                print(f"  [ERROR] 微信推送失败: {e}")
+        # if fast_alerts and _market_open:  # 持仓实时预警已禁用
+        #     title = f"⚡ {len(fast_alerts)} 实时预警"
+        #     desp  = build_fast_wechat_desp(fast_alerts, run_time,
+        #                                    stop_loss_pct=thresholds.get("stop_loss_pct", -8.0))
+        #     try:
+        #         send_wechat(title, desp, sendkey, dry_run=dry_run)
+        #     except Exception as e:
+        #         print(f"  [ERROR] 微信推送失败: {e}")
 
         # ── ETF watchlist scan (every fast-check cycle, T+0 20-min cooldown) ──
         _regime_this_iter = None
