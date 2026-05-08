@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-WmiObject *)",
+      "PowerShell(schtasks *)",
+      "PowerShell(Get-CimInstance *)",
+      "PowerShell(python -c \"import win32serviceutil; print\\('pywin32 OK'\\)\" 2>&1)",
+      "PowerShell(pip install *)",
+      "PowerShell(python \"C:\\\\Python313\\\\Scripts\\\\pywin32_postinstall.py\" -install 2>&1)",
+      "PowerShell(taskkill *)",
+      "PowerShell(python scripts/setup_scheduler.py 2>&1)"
+    ]
+  }
+}

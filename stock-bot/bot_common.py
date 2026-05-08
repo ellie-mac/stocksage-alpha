@@ -459,7 +459,7 @@ def _describe_cmdline(cmd: str) -> str:
         ("build_universe.py",  "",                     "重建股票池"),
         ("chip_strategy.py",   "",                     "筹码策略扫描"),
         ("daily_chip_scan.py", "",                     "筹码全档扫描"),
-        ("chip_cad.py",        "",                     "筹码 CAD 扫描"),
+        ("chip_strategy.py",   "--cad",                "筹码 CAD 扫描"),
         ("run_cad_pipeline.py","",                     "筹码流水线"),
         ("prefetch.py",        "--price",              "价格缓存预热"),
         ("prefetch.py",        "--market",             "市场数据预热"),
@@ -490,7 +490,7 @@ def h_status() -> str:
         "monitor.py", "feishu_bot.py", "lark_bot.py", "discord_bot.py",
         "factor_analysis.py", "backtest.py", "etf_backtest.py",
         "batch_financials.py", "build_universe.py", "chip_strategy.py",
-        "daily_chip_scan.py", "chip_cad.py", "run_cad_pipeline.py",
+        "daily_chip_scan.py", "run_cad_pipeline.py",
         "prefetch.py", "research.py", "integrity_check.py", "hot_scan.py", "pos_check.py",
     }
     ss_procs, other_procs = [], []

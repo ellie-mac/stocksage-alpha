@@ -5,7 +5,7 @@ scripts/run_cad_pipeline.py — 自愈筹码流水线
 流程：
   1. 检查今日 AK 筹码缓存是否完整（>= MIN_ROWS 条）
   2. 不完整 → 运行 chip_Night（daily_chip_scan.py --ak --no-push）
-  3. 运行 chip_CadScan（chip_cad.py --cad --mods bekh bekhm --always-t12）
+  3. 运行 chip_CadScan（chip_strategy.py --cad --mods bekh bekhm --always-t12）
   4. 任一步失败 → 发详细微信通知（步骤/退出码/日志尾部/修复命令）
 
 chip_Night（18:00）作为独立预热任务保留，大多数情况 20:30 直接命中缓存。
@@ -25,7 +25,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 PYTHON     = sys.executable
 DAILY_SCAN = SCRIPTS / "daily_chip_scan.py"
-CHIP_CAD   = SCRIPTS / "chip_cad.py"
+CHIP_STRATEGY = SCRIPTS / "chip_strategy.py"
 
 MIN_ROWS = 4000   # AK 缓存低于此行数视为不完整（完整约 5000+）
 
@@ -145,7 +145,7 @@ def main() -> None:
 
     # ── Step 3: chip_CadScan ───────────────────────────────────────────────
     cad_log = LOGS / "chip_cad.log"
-    cad_cmd = [PYTHON, "-X", "utf8", str(CHIP_CAD), "--cad", "--mods", "bekh", "bekhm", "--always-t12"]
+    cad_cmd = [PYTHON, "-X", "utf8", str(CHIP_STRATEGY), "--cad", "--mods", "bekh", "bekhm", "--always-t12"]
     print(f"[pipeline] chip_CadScan 开始 ...", flush=True)
     rc = _run(cad_cmd, cad_log)
 
@@ -157,7 +157,7 @@ def main() -> None:
             log_path= cad_log,
             fix_cmd = (
                 f"cd {ROOT}\n"
-                f"python -X utf8 scripts/chip_cad.py --mods bekh bekhm"
+                f"python -X utf8 scripts/chip_strategy.py --cad --mods bekh bekhm"
             ),
         )
         sys.exit(1)
