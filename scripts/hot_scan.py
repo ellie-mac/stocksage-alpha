@@ -133,6 +133,16 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
     codes    = [r["code"] for r in top]
     name_map = {r["code"]: r.get("name", "") for r in top}
     rank_map = {r["code"]: r.get("rank", total) for r in top}
+    # 快照名字缺失时用 stock_names.json 兜底
+    if any(not v for v in name_map.values()):
+        try:
+            from chip_strategy import load_names
+            raw = load_names()
+            fallback = {ts.split(".")[0]: info.get("name", "") if isinstance(info, dict) else str(info)
+                        for ts, info in raw.items()}
+            name_map = {c: (name_map[c] or fallback.get(c, c)) for c in name_map}
+        except Exception:
+            pass
 
     prev_rank_map = _load_prev_rank_map()
 

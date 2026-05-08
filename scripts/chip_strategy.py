@@ -183,7 +183,16 @@ def load_names(force: bool = False) -> dict[str, dict]:
                                encoding="utf-8")
         print(f"[names] 已写入 {_NAMES_FILE}")
     else:
-        print("[names] 无法获取名称数据，将显示空名称")
+        print("[names] 刷新失败，降级使用旧缓存")
+        try:
+            if _NAMES_FILE.exists():
+                cached = json.loads(_NAMES_FILE.read_text(encoding="utf-8"))
+                if cached:
+                    print(f"[names] 旧缓存 {len(cached)} 条")
+                    return cached
+        except Exception:
+            pass
+        print("[names] 无可用缓存，名称将显示为空")
 
     return names
 
