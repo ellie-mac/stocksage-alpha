@@ -691,12 +691,25 @@ def spearman_ic(factor_scores: pd.Series, forward_returns: pd.Series) -> tuple[f
 
 def _winsorize_and_fill(df: pd.DataFrame, factor_cols: list[str]) -> pd.DataFrame:
     """
-    Winsorize each factor at 1%/99%, then fill NaN with industry median
-    (grouped by '_industry' column if present, else cross-sectional median).
-    Returns a modified copy.
+    Winsorize each factor at 1%/99%, fill NaN with industry median, then add
+    deterministic micro-jitter to any factor whose mode covers >30% of stocks.
+    Jitter is based on the numeric stock code so it is stable across runs and
+    smaller than 1e-4 × IQR — does not distort signal, only breaks rank ties
+    caused by mass imputation to the same median value.
     """
     df = df.copy()
     has_industry = "_industry" in df.columns and df["_industry"].notna().any()
+
+    # Deterministic per-stock offset in [0, 1) derived from the 6-digit code.
+    # Using last-4 digits mod 10000 gives good spread without hash randomness.
+    if "code" in df.columns:
+        code_jitter = df["code"].apply(
+            lambda c: (int(str(c)[-4:]) if str(c)[-4:].isdigit() else 0) / 10_000.0
+        )
+        code_jitter.index = df.index
+    else:
+        code_jitter = pd.Series(0.5, index=df.index)
+
     for col in factor_cols:
         s = pd.to_numeric(df[col], errors="coerce")
         lo, hi = s.quantile(0.01), s.quantile(0.99)
@@ -708,6 +721,10 @@ def _winsorize_and_fill(df: pd.DataFrame, factor_cols: list[str]) -> pd.DataFram
                 s = s.fillna(ind_med).fillna(global_med)
             else:
                 s = s.fillna(s.median())
+        # Jitter for heavily-tied factors: mode covers >30% of stocks
+        if len(s) > 0 and s.value_counts().iloc[0] / len(s) > 0.30:
+            iqr = max(s.quantile(0.75) - s.quantile(0.25), 1e-8)
+            s = s + code_jitter * iqr * 1e-4
         df[col] = s
     return df
 
