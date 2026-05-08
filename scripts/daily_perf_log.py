@@ -42,12 +42,40 @@ def _fetch_prices(codes: list[str]) -> dict[str, float]:
     sys.path.insert(0, str(ROOT / "scripts"))
     from common import get_spot_em
     df = get_spot_em()
-    if df.empty:
-        return {}
-    df["_code"] = df["代码"].astype(str).str.zfill(6)
-    df = df[df["_code"].isin(codes)].copy()
-    df["_pct"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
-    return dict(zip(df["_code"], df.dropna(subset=["_pct"])["_pct"]))
+    if not df.empty:
+        df["_code"] = df["代码"].astype(str).str.zfill(6)
+        df = df[df["_code"].isin(codes)].copy()
+        df["_pct"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
+        result = dict(zip(df["_code"], df.dropna(subset=["_pct"])["_pct"]))
+        if result:
+            return result
+
+    # fallback：逐只取最近两日收盘价计算涨跌幅（mootdx，无地域限制）
+    print("[daily_perf] spot_em 不可用，改用 fetcher 批量拉收盘价", flush=True)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import fetcher as _fetcher
+    result: dict[str, float] = {}
+
+    def _one(code: str):
+        try:
+            df = _fetcher.get_price_history(code, days=5)
+            if df is None or len(df) < 2:
+                return code, None
+            c0 = float(df["close"].iloc[-2])
+            c1 = float(df["close"].iloc[-1])
+            if c0 <= 0:
+                return code, None
+            return code, round((c1 - c0) / c0 * 100, 2)
+        except Exception:
+            return code, None
+
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        futs = {ex.submit(_one, c): c for c in codes}
+        for fut in as_completed(futs):
+            code, pct = fut.result()
+            if pct is not None:
+                result[code] = pct
+    return result
 
 
 # ── 统计工具 ──────────────────────────────────────────────────────────────────
@@ -96,7 +124,7 @@ def _load_main(today: str) -> list[dict]:
         raw = json.loads(MAIN_PICKS_PATH.read_text(encoding="utf-8"))
         ts  = raw.get("timestamp", "")
         ts_date = ts[:10].replace("-", "")
-        if cutoff <= ts_date < today:
+        if cutoff <= ts_date <= today:
             picks = raw.get("results", [])
             return [{"code": str(p.get("code", "")).split(".")[0],
                      "name": p.get("name", "")}
@@ -105,7 +133,7 @@ def _load_main(today: str) -> list[dict]:
         entries = json.loads(SIG_PATH.read_text(encoding="utf-8"))
         for entry in reversed(entries):
             entry_date = entry.get("date", "")
-            if cutoff <= entry_date < today:
+            if cutoff <= entry_date <= today:
                 buys = entry.get("buy_signals", [])
                 if buys:
                     return [{"code": str(p.get("code", "")).split(".")[0],
@@ -117,7 +145,7 @@ def _find_prev(glob_pat: str, today: str, days: int = 3) -> dict | None:
     from datetime import datetime as _dt, timedelta
     cutoff = (_dt.strptime(today, "%Y%m%d") - timedelta(days=days)).strftime("%Y%m%d")
     candidates = sorted(
-        (p for p in DATA_DIR.glob(glob_pat) if cutoff <= p.stem[-8:] < today),
+        (p for p in DATA_DIR.glob(glob_pat) if cutoff <= p.stem[-8:] <= today),
         key=lambda p: p.stem[-8:], reverse=True,
     )
     if not candidates:
