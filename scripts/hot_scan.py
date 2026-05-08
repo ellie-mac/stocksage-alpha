@@ -272,9 +272,9 @@ def _push_results(data: dict) -> None:
         items = [f"快照: {snap_t[:16] if snap_t else '未知'}\n\n{_LEGEND}"]
         for p in picks[:15]:
             chg = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
-            tags = "  ".join(p.get("breakdown", []))
+            tags = "·".join(p.get("breakdown", []))
             items.append(
-                f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}\n\n{tags}"
+                f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}\n\n`{tags}`"
             )
         body = "\n\n".join(items)
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
@@ -289,9 +289,9 @@ def _push_results(data: dict) -> None:
         if picks:
             for p in picks[:15]:
                 chg_s = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
-                tags = "  ".join(p.get("breakdown", []))
+                tags = "·".join(p.get("breakdown", []))
                 card_lines.append(f"{p['code']} {p['name']}  ¥{p['close']}  {chg_s}  热度#{p['rank']}")
-                card_lines.append(f"  {tags}")
+                card_lines.append(f"  `{tags}`")
                 card_lines.append("")
         else:
             card_lines.append("无符合条件的股票")
