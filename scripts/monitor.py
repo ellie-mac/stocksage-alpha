@@ -1340,7 +1340,7 @@ def run(
         if add_buys:       buy_parts.append(f"💡 {len(add_buys)} 加仓（{_names(add_buys)}）")
         if smallcap_alerts: buy_parts.append(f"📊 {len(smallcap_alerts)} 小盘（{_names(smallcap_alerts)}）")
         if etf_alerts:     buy_parts.append(f"🏦 {len(etf_alerts)} ETF（{_names(etf_alerts)}）")
-        if not buy_parts:  buy_parts.append("今日关注")
+        if not buy_parts:  buy_parts.append("明日关注" if now.hour >= 15 else "今日关注")
         buy_title = f"主策略 {' | '.join(buy_parts)}"
 
         _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
