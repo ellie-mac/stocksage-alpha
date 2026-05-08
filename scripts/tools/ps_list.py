@@ -5,19 +5,18 @@
 用法：
     python -X utf8 scripts/tools/ps_list.py
 """
-import subprocess
-import sys
+import csv, io, re, subprocess, sys
 
 PS = (
     "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" "
     "| Select-Object ProcessId,"
-    "@{N='Mem(MB)';E={[math]::Round($_.WorkingSetSize/1MB)}},"
-    "@{N='CPU(s)';E={[math]::Round($_.UserModeTime/1e7)}},"
+    "@{N='MemMB';E={[math]::Round($_.WorkingSetSize/1MB)}},"
+    "@{N='CPUs';E={[math]::Round($_.UserModeTime/1e7)}},"
     "@{N='Script';E={if ($_.CommandLine) {"
     "  ($_.CommandLine -split ' ') | Where-Object { $_ -like '*.py' } | Select-Object -First 1"
     "} else {''}}} "
-    "| Sort-Object 'Mem(MB)' -Descending "
-    "| ConvertTo-Json -AsArray"
+    "| Sort-Object MemMB -Descending "
+    "| ConvertTo-Csv -NoTypeInformation"
 )
 
 result = subprocess.run(
@@ -25,24 +24,37 @@ result = subprocess.run(
     capture_output=True, text=True, encoding="utf-8", errors="replace"
 )
 
-import json, re
-
-# Strip PSReadLine noise
-raw = re.sub(r"Set-PSReadLineOption.*?FullyQualifiedErrorId[^\n]*\n", "", result.stdout, flags=re.DOTALL)
-raw = raw.strip()
+# Strip PSReadLine warning block (everything up to the blank line before real output)
+raw = result.stdout
+# Remove lines that are part of the PSReadLine error
+clean_lines = [l for l in raw.splitlines()
+               if not any(k in l for k in ("Set-PSReadLineOption", "PSReadLine",
+                                            "profile.ps1", "CategoryInfo",
+                                            "FullyQualifiedErrorId", "ArgumentException",
+                                            "ParameterBindingException", "char:", "+ ~"))]
+clean = "\n".join(clean_lines).strip()
 
 try:
-    procs = json.loads(raw) if raw else []
-except Exception:
-    print(result.stdout)
-    sys.exit(0)
+    reader = csv.DictReader(io.StringIO(clean))
+    procs = list(reader)
+except Exception as e:
+    print(f"解析失败: {e}\n原始输出:\n{clean[:500]}")
+    sys.exit(1)
 
-OURS = {"stocksage-alpha", "lark_agent"}
+OURS_PATHS = {"stocksage-alpha", "lark_agent"}
+OURS_SCRIPTS = {
+    "main_scan.py", "main_night.py", "institution_scan.py",
+    "monitor.py", "prefetch.py", "factor_analysis.py",
+    "backtest.py", "chip_strategy.py", "screener.py",
+    "fetcher.py", "setup_scheduler.py",
+    "lark_agent.py",
+}
 
 ours, others = [], []
 for p in procs:
-    script = p.get("Script") or ""
-    if any(k in script for k in OURS):
+    script = p.get("Script", "").strip('"')
+    name = script.replace("\\", "/").split("/")[-1]
+    if any(k in script for k in OURS_PATHS) or name in OURS_SCRIPTS:
         ours.append(p)
     else:
         others.append(p)
@@ -51,14 +63,16 @@ def _fmt(rows: list) -> None:
     if not rows:
         print("  (无)")
         return
-    print(f"  {'PID':>6}  {'Mem(MB)':>7}  {'CPU(s)':>6}  Script")
-    print(f"  {'─'*6}  {'─'*7}  {'─'*6}  {'─'*40}")
+    print(f"  {'PID':>6}  {'内存MB':>6}  {'CPU秒':>5}  脚本")
+    print(f"  {'─'*6}  {'─'*6}  {'─'*5}  {'─'*45}")
     for p in rows:
-        script = (p.get("Script") or "").replace("\\", "/")
-        # 只保留 stocksage-alpha/ 之后的部分
+        script = p.get("Script", "").strip('"').replace("\\", "/")
         if "stocksage-alpha/" in script:
             script = script.split("stocksage-alpha/")[-1]
-        print(f"  {p['ProcessId']:>6}  {p['Mem(MB)']:>7}  {p['CPU(s)']:>6}  {script}")
+        pid  = p.get("ProcessId", "").strip('"')
+        mem  = p.get("MemMB", "").strip('"')
+        cpu  = p.get("CPUs", "").strip('"')
+        print(f"  {pid:>6}  {mem:>6}  {cpu:>5}  {script}")
 
 print("=== 我们的进程 ===")
 _fmt(ours)
