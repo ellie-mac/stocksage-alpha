@@ -1,5 +1,16 @@
 # Memory
 
+## [2026-05-08] 运维工具
+
+**查看当前 Python 进程**：
+```
+python -X utf8 scripts/tools/ps_list.py
+```
+分两节输出：「我们的进程」（stocksage-alpha 相关脚本）和「其他 Python 进程」。  
+**不要**自己用 PowerShell/tasklist 拼进程列表，直接运行上面这条命令。
+
+---
+
 ## [2026-04-28] 系统架构总览
 
 **仓库路径**：C:/Users/jiapeichen/repos/stocksage-alpha
