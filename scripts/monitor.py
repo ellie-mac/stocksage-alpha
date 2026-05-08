@@ -1298,33 +1298,30 @@ def run(
         suffix = "…" if len(stocks) > max_n else ""
         return "、".join(ns) + suffix
 
-    # ── Push 1: 持仓信号（卖出 + 当前持仓表）─────────────────────────────────
-    # Only send when there are actual sell alerts
-    if sell_alerts:
-        hold_parts = []
-        if strong_sells: hold_parts.append(f"🔴 {len(strong_sells)} 强卖（{_names(strong_sells)}）")
-        if stall_sells:  hold_parts.append(f"⚠️ {len(stall_sells)} 减仓（{_names(stall_sells)}）")
-        if not hold_parts: hold_parts.append("日报")
-        hold_title = f"持仓 {' | '.join(hold_parts)}"
-
-        _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
-        hold_desp_parts = [f"*{run_time}*\n市场 {_re_emoji} {regime_score:.0f}/10 {_regime_key}\n"]
-        hold_desp_parts.append("## 卖出信号\n")
-        hold_desp_parts.append(_fmt_sell_section_md(
-            sell_alerts,
-            stop_loss_pct=thresholds.get("stop_loss_pct", -8.0),
-            sell_trigger=_sell_trigger, stall_score=_stall_score))
-        if scored_holdings:
-            hold_desp_parts.append("## 当前持仓\n")
-            hold_desp_parts.append(_fmt_holdings_table_md(
-                scored_holdings, sell_trigger=_sell_trigger, buy_trigger=65))
-        hold_desp_parts.append("\n\n> 仅供参考，不构成投资建议")
-        hold_desp = "\n".join(hold_desp_parts)
-
-        try:
-            send_wechat(hold_title, hold_desp, sendkey, dry_run=dry_run)
-        except Exception as e:
-            print(f"[ERROR] 持仓推送失败: {e}")
+    # ── Push 1: 持仓信号（已禁用）─────────────────────────────────────────────
+    # if sell_alerts:
+    #     hold_parts = []
+    #     if strong_sells: hold_parts.append(f"🔴 {len(strong_sells)} 强卖（{_names(strong_sells)}）")
+    #     if stall_sells:  hold_parts.append(f"⚠️ {len(stall_sells)} 减仓（{_names(stall_sells)}）")
+    #     if not hold_parts: hold_parts.append("日报")
+    #     hold_title = f"持仓 {' | '.join(hold_parts)}"
+    #     _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
+    #     hold_desp_parts = [f"*{run_time}*\n市场 {_re_emoji} {regime_score:.0f}/10 {_regime_key}\n"]
+    #     hold_desp_parts.append("## 卖出信号\n")
+    #     hold_desp_parts.append(_fmt_sell_section_md(
+    #         sell_alerts,
+    #         stop_loss_pct=thresholds.get("stop_loss_pct", -8.0),
+    #         sell_trigger=_sell_trigger, stall_score=_stall_score))
+    #     if scored_holdings:
+    #         hold_desp_parts.append("## 当前持仓\n")
+    #         hold_desp_parts.append(_fmt_holdings_table_md(
+    #             scored_holdings, sell_trigger=_sell_trigger, buy_trigger=65))
+    #     hold_desp_parts.append("\n\n> 仅供参考，不构成投资建议")
+    #     hold_desp = "\n".join(hold_desp_parts)
+    #     try:
+    #         send_wechat(hold_title, hold_desp, sendkey, dry_run=dry_run)
+    #     except Exception as e:
+    #         print(f"[ERROR] 持仓推送失败: {e}")
 
     # ── Push 2: 选股信号（主策略 + 小市值 + ETF）────────────────────────────
     # Determine ETF alerts (those crossing buy threshold)
