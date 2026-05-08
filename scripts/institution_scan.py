@@ -188,6 +188,23 @@ def run_institution_scan(min_funds: int = 2, push: bool = False,
     latest_quarters = sorted({v[0] for v in quarter_info.values() if v[0]}, reverse=True)
     scan_quarter = latest_quarters[0] if latest_quarters else "未知"
 
+    # 对比上次结果，标记新增/家数增加
+    prev_map: dict[str, int] = {}
+    if OUT_LATEST.exists():
+        try:
+            prev = json.loads(OUT_LATEST.read_text(encoding="utf-8"))
+            if prev.get("scan_quarter") == scan_quarter:
+                prev_map = {h["stock_code"]: h["fund_count"] for h in prev.get("hits", [])}
+        except Exception:
+            pass
+    for r in results:
+        prev_cnt = prev_map.get(r["stock_code"])
+        if prev_cnt is None:
+            r["is_new"] = True
+        elif r["fund_count"] > prev_cnt:
+            r["fund_count_prev"] = prev_cnt
+            r["is_increased"] = True
+
     output = {
         "scan_time":    datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "scan_quarter": scan_quarter,
@@ -246,8 +263,11 @@ def _push_results(data: dict) -> None:
                 f"`{b['fund_name'][:10]}  占{b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新{_fmt_disc(b.get('disclosure_date', ''))}`"
                 for b in r["buyers"]
             )
+            badge = "🆕 " if r.get("is_new") else ("📈 " if r.get("is_increased") else "")
+            cnt_s = (f"{r['fund_count']}家新增↑(原{r['fund_count_prev']}家)"
+                     if r.get("is_increased") else f"{r['fund_count']}家新增")
             items.append(
-                f"**{r['stock_code']} {r['stock_name']}**  {r['fund_count']}家新增<br>{fund_parts}"
+                f"{badge}**{r['stock_code']} {r['stock_name']}**  {cnt_s}<br>{fund_parts}"
             )
         body = "\n\n".join(items)
 

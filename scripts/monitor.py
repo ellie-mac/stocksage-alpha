@@ -422,24 +422,18 @@ def _append_signals_log(buy_alerts: list[dict], sell_alerts: list[dict],
         except OSError: pass
 
     # Write latest_picks.json so xhs/writer.py can read results without re-running screener
-    if buy_alerts:
+    if buy_alerts or smallcap_candidates:
+        def _pick(b):
+            return {"code": b["code"], "name": b.get("name", b["code"]),
+                    "score": b.get("buy_score", 0), "change_pct": b.get("change_pct"),
+                    "buy_score": b.get("buy_score"), "sell_score": b.get("sell_score"),
+                    "bullish": b.get("bullish", []), "bearish": b.get("bearish", [])}
         latest = {
             "timestamp": datetime.now().isoformat(),
             "source":    source,
-            "results": [
-                {
-                    "code":       b["code"],
-                    "name":       b.get("name", b["code"]),
-                    "score":      b.get("buy_score", 0),
-                    "change_pct": b.get("change_pct"),
-                    "buy_score":  b.get("buy_score"),
-                    "sell_score": b.get("sell_score"),
-                    "bullish":    b.get("bullish", []),
-                    "bearish":    b.get("bearish", []),
-                }
-                for b in buy_alerts
-            ],
-            "regime": source,
+            "results":   [_pick(b) for b in buy_alerts],
+            "smallcap":  [_pick(b) for b in smallcap_candidates],
+            "regime":    source,
         }
         _ltmp = LATEST_PICKS_PATH + ".tmp"
         try:

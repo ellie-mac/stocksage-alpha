@@ -121,10 +121,11 @@ def _load_main(today: str) -> list[dict]:
         ts  = raw.get("timestamp", "")
         ts_date = ts[:10].replace("-", "")
         if cutoff <= ts_date <= today:
-            picks = raw.get("results", [])
-            return [{"code": str(p.get("code", "")).split(".")[0],
-                     "name": p.get("name", "")}
-                    for p in picks if p.get("code")]
+            def _p(p): return {"code": str(p.get("code", "")).split(".")[0], "name": p.get("name", "")}
+            m0 = [_p(p) for p in raw.get("results",  []) if p.get("code")]
+            sc = [_p(p) for p in raw.get("smallcap", []) if p.get("code")]
+            if m0 or sc:
+                return m0 + sc   # m0 前5，sc 后5
     if SIG_PATH.exists():
         entries = json.loads(SIG_PATH.read_text(encoding="utf-8"))
         for entry in reversed(entries):
@@ -349,22 +350,27 @@ def main() -> None:
 
     # ── 各自保存历史 ──────────────────────────────────────────────────────────
     ts = now.isoformat(timespec="seconds")
+    def _tier_rec(s): return {"n": s["n"], "win_rate": s["win_rate"], "avg_ret": s["avg_ret"],
+                               "picks": [{"code": r["code"], "name": r["name"], "pct": r["pct"]} for r in s["results"]]}
     _append(MAIN_PERF_PATH,
-            {"date": today, "logged": ts, "n": ms["n"],
-             "win_rate": ms["win_rate"], "avg_ret": ms["avg_ret"], "top5": ms["top5"]},
+            {"date": today, "logged": ts,
+             "M0": _tier_rec(main_tier_stats["M0"]),
+             "M1": _tier_rec(main_tier_stats["M1"])},
             today, args.force)
     _append(CHIP_PERF_PATH,
             {"date": today, "logged": ts,
-             "total_n": cs["n"], "total_win_rate": cs["win_rate"], "total_avg_ret": cs["avg_ret"]},
+             "total": _tier_rec(cs),
+             **{t: _tier_rec(chip_tier_stats[t]) for t in CHIP_TIERS}},
             today, args.force)
     _append(GC_PERF_PATH,
             {"date": today, "logged": ts,
-             "total_n": gs["n"], "total_win_rate": gs["win_rate"], "total_avg_ret": gs["avg_ret"]},
+             "total": _tier_rec(gs),
+             **{t: _tier_rec(gc_tier_stats[t]) for t in GC_TIERS}},
             today, args.force)
     _append(HOT_PERF_PATH,
             {"date": today, "logged": ts,
-             "n": sh1["n"], "win_rate": sh1["win_rate"], "avg_ret": sh1["avg_ret"],
-             "h0_n": sh0["n"], "h0_win_rate": sh0["win_rate"]},
+             "H0": _tier_rec(hot_tier_stats["H0"]),
+             "H1": _tier_rec(hot_tier_stats["H1"])},
             today, args.force)
     print("[daily_perf] 历史记录已写入")
 
