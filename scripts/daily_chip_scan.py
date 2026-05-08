@@ -20,9 +20,9 @@ from chip_strategy import fetch_chip_data, fetch_chip_data_ak, fetch_6m_high, sc
 from common import push_wechat
 
 TIERS = [
-    {"label": "T1 ≥95%",    "min_win": 95,  "max_win": None},
-    {"label": "T2 90-95%",  "min_win": 90,  "max_win": 95},
-    {"label": "T3 85-90%",  "min_win": 85,  "max_win": 90},
+    {"label": "C0 ≥95%",    "min_win": 95,  "max_win": None},
+    {"label": "C1 90-95%",  "min_win": 90,  "max_win": 95},
+    {"label": "C2 85-90%",  "min_win": 85,  "max_win": 90},
 ]
 
 

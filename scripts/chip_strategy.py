@@ -823,11 +823,11 @@ def format_message(
 # ---------------------------------------------------------------------------
 
 _TIER_ORDER = [
-    ("T1", 95.0, None),
-    ("T2", 90.0, 95.0),
-    ("T3", 85.0, 90.0),
-    ("T4", 75.0, 85.0),
-    ("T5", 65.0, 75.0),
+    ("C0", 95.0, None),
+    ("C1", 90.0, 95.0),
+    ("C2", 85.0, 90.0),
+    ("C3", 75.0, 85.0),
+    ("C4", 65.0, 75.0),
 ]
 
 
@@ -917,7 +917,7 @@ def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
     n = len(picks)
     if n == 0:
         return ""
-    win_ranges = {"T1": "≥95%", "T2": "90-95%", "T3": "85-90%", "T4": "75-85%", "T5": "65-75%"}
+    win_ranges = {"C0": "≥95%", "C1": "90-95%", "C2": "85-90%", "C3": "75-85%", "C4": "65-75%"}
     header = f"\n**{tier_name}（{win_ranges.get(tier_name, '')}）{n}只**  "
     rows = []
     for p in picks:
@@ -934,29 +934,29 @@ def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
 
 
 def _tier_cap(tiers: dict[str, list], limit: int = 30, always_t12: bool = False) -> dict[str, list]:
-    """如果T1>=limit只显示T1；T1+T2>=limit只显示T1+T2；否则全显示。
-    always_t12=True: T1+T2永远显示，T3只在T1+T2<limit时才加（量化早报调度模式）。"""
-    t1 = tiers.get("T1", [])
-    t2 = tiers.get("T2", [])
+    """如果C0>=limit只显示C0；C0+C1>=limit只显示C0+C1；否则全显示。
+    always_t12=True: C0+C1永远显示，C2只在C0+C1<limit时才加（量化早报调度模式）。"""
+    c0 = tiers.get("C0", [])
+    c1 = tiers.get("C1", [])
     if always_t12:
-        t3 = tiers.get("T3", [])
-        base = {"T1": t1, "T2": t2}
-        if len(t1) + len(t2) < limit:
-            base["T3"] = t3
+        c2 = tiers.get("C2", [])
+        base = {"C0": c0, "C1": c1}
+        if len(c0) + len(c1) < limit:
+            base["C2"] = c2
         return base
-    if len(t1) >= limit:
-        return {"T1": t1}
-    if len(t1) + len(t2) >= limit:
-        return {"T1": t1, "T2": t2}
+    if len(c0) >= limit:
+        return {"C0": c0}
+    if len(c0) + len(c1) >= limit:
+        return {"C0": c0, "C1": c1}
     return tiers
 
 
 def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_date: str,
                      dry_run: bool, src_note: str = "",
                      always_t12: bool = False) -> None:
-    """三段推送：cadm/cah/cad 三者 T1-T3 精华。"""
+    """三段推送：cadm/cah/cad 三者 C0-C2 精华。"""
     date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
-    top_tiers = [t for t in _TIER_ORDER if t[0] in ("T1", "T2", "T3")]
+    top_tiers = [t for t in _TIER_ORDER if t[0] in ("C0", "C1", "C2")]
 
     cadm_top = _tier_cap({t[0]: cadm_saves.get(t[0], []) for t in top_tiers}, always_t12=always_t12)
     cadm_top_total = sum(len(v) for v in cadm_top.values())
@@ -977,14 +977,14 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
 
     sections = []
     if cadm_top_total:
-        sections.append(f"\n## ✅ 三筛俱过 T1-T3（cadm）共{cadm_top_total}只")
+        sections.append(f"\n## ✅ 三筛俱过 C0-C2（cadm）共{cadm_top_total}只")
         for t in top_tiers:
             s = _cad_build_section(t[0], cadm_top.get(t[0], []), "cadm")
             if s:
                 sections.append(s)
 
     if cah_only_total:
-        sections.append(f"\n## 🔍 cah独有 T1-T3（排高位通过，未过BOLL/价格/科创）共{cah_only_total}只")
+        sections.append(f"\n## 🔍 cah独有 C0-C2（排高位通过，未过BOLL/价格/科创）共{cah_only_total}只")
         for t in top_tiers:
             s = _cad_build_section(t[0], cah_only.get(t[0], []), "cah")
             if s:

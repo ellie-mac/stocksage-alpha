@@ -5,7 +5,7 @@
 
 包含四个策略：
   主策略    — latest_picks.json（前日 18:30 扫盘）
-  筹码策略  — CAH∩CAD∩CADM 三者共有 T1-T4（前日 20:30 扫描）
+  筹码策略  — CAH∩CAD∩CADM 三者共有 C0-C3（前日 20:30 扫描）
   金叉共振  — golden_cross_YYYYMMDD.json G0-G2（前日 19:30 扫描）
   热榜策略  — hot_scan_YYYYMMDD.json picks（前日 19:00 扫描）
 
@@ -26,13 +26,14 @@ MAIN_PICKS_PATH = DATA_DIR / "latest_picks.json"
 SIG_PATH        = DATA_DIR / "signals_log.json"
 
 MAIN_PERF_PATH  = DATA_DIR / "main_daily_perf.json"
+SC_PERF_PATH    = DATA_DIR / "sc_daily_perf.json"
 CHIP_PERF_PATH  = DATA_DIR / "chip_daily_perf.json"
 GC_PERF_PATH    = DATA_DIR / "gc_daily_perf.json"
 HOT_PERF_PATH   = DATA_DIR / "hot_daily_perf.json"
 
-CHIP_TIERS = ["T1", "T2", "T3", "T4"]
-GC_TIERS   = ["G0", "G1", "G2"]
-HOT_TIERS  = ["H0", "H1"]
+CHIP_TIERS = ["C0", "C1", "C2", "C3"]
+GC_TIERS      = ["G0", "G1", "G2"]
+HOT_TIERS     = ["H0", "H1"]
 
 
 # ── 行情 ──────────────────────────────────────────────────────────────────────
@@ -113,7 +114,8 @@ def _ar(s: dict) -> str:
 
 # ── 各策略数据加载 ─────────────────────────────────────────────────────────────
 
-def _load_main(today: str) -> list[dict]:
+def _load_main(today: str) -> tuple[list[dict], list[dict]]:
+    """返回 (main_picks, sc_picks)，分别是主策略和小票策略的选股列表。"""
     from datetime import datetime, timedelta
     cutoff = (datetime.strptime(today, "%Y%m%d") - timedelta(days=3)).strftime("%Y%m%d")
     if MAIN_PICKS_PATH.exists():
@@ -125,7 +127,7 @@ def _load_main(today: str) -> list[dict]:
             m0 = [_p(p) for p in raw.get("results",  []) if p.get("code")]
             sc = [_p(p) for p in raw.get("smallcap", []) if p.get("code")]
             if m0 or sc:
-                return m0 + sc   # m0 前5，sc 后5
+                return m0, sc
     if SIG_PATH.exists():
         entries = json.loads(SIG_PATH.read_text(encoding="utf-8"))
         for entry in reversed(entries):
@@ -134,8 +136,8 @@ def _load_main(today: str) -> list[dict]:
                 buys = entry.get("buy_signals", [])
                 if buys:
                     return [{"code": str(p.get("code", "")).split(".")[0],
-                             "name": p.get("name", "")} for p in buys]
-    return []
+                             "name": p.get("name", "")} for p in buys], []
+    return [], []
 
 
 def _find_prev(glob_pat: str, today: str, days: int = 3) -> dict | None:
@@ -167,13 +169,13 @@ def _load_chip(today: str) -> dict[str, list[dict]]:
     base_key = next(k for k in ("cad", "cadm", "cah") if k in available)
     base = available[base_key]
     filter_sets = [
-        {p["code"] for t in CHIP_TIERS for p in src.get("tiers", {}).get(t, [])}
+        {p["code"] for ct in CHIP_TIERS for p in src.get("tiers", {}).get(ct, [])}
         for k, src in available.items() if k != base_key
     ]
     return {
-        t: [p for p in base.get("tiers", {}).get(t, [])
-            if all(p["code"] in fs for fs in filter_sets)]
-        for t in CHIP_TIERS
+        ct: [p for p in base.get("tiers", {}).get(ct, [])
+             if all(p["code"] in fs for fs in filter_sets)]
+        for ct in CHIP_TIERS
     }
 
 
@@ -239,27 +241,23 @@ def main() -> None:
     date_fmt = f"{today[4:6]}/{today[6:]}"
 
     # ── 加载各策略选股 ────────────────────────────────────────────────────────
-    main_all      = _load_main(today)
+    main_picks, sc_picks = _load_main(today)
     chip_by_tier  = _load_chip(today)
     gc_by_tier    = _load_gc(today)
     hot_by_tier   = _load_hot(today)
-
-    main_m0 = main_all[:5]
-    main_m1 = main_all[:10]   # M1统计用全10只
-    main_m1_extra = main_all[5:10]  # M1展示时只显示6-10
 
     chip_flat = [p for picks in chip_by_tier.values() for p in picks]
     gc_flat   = [p for picks in gc_by_tier.values()   for p in picks]
     hot_flat  = hot_by_tier["H1"]
 
-    print(f"[daily_perf] 主策略 {len(main_m1)}只(M0:{len(main_m0)}/M1:{len(main_m1)}) / 筹码 {len(chip_flat)}只 / 金叉 {len(gc_flat)}只 / 热榜H0:{len(hot_by_tier['H0'])}只/H1:{len(hot_flat)}只")
+    print(f"[daily_perf] 主策略 {len(main_picks)}只 / 小票 {len(sc_picks)}只 / 筹码 {len(chip_flat)}只 / 金叉 {len(gc_flat)}只 / 热榜H0:{len(hot_by_tier['H0'])}只/H1:{len(hot_flat)}只")
 
-    if not main_m1 and not chip_flat and not gc_flat and not hot_flat:
-        print("[daily_perf] 四个策略均无数据，退出")
+    if not main_picks and not sc_picks and not chip_flat and not gc_flat and not hot_flat:
+        print("[daily_perf] 所有策略均无数据，退出")
         return
 
     # ── 一次性拉取所有行情 ────────────────────────────────────────────────────
-    all_codes = list({p["code"] for p in main_m1 + chip_flat + gc_flat + hot_flat})
+    all_codes = list({p["code"] for p in main_picks + sc_picks + chip_flat + gc_flat + hot_flat})
     print(f"[daily_perf] 获取 {len(all_codes)} 只行情 ...")
     prices = _fetch_prices(all_codes)
     print(f"[daily_perf] 获取到 {len(prices)} 只")
@@ -268,8 +266,8 @@ def main() -> None:
         return
 
     # ── 统计 ──────────────────────────────────────────────────────────────────
-    main_tier_stats = {"M0": _stats(main_m0, prices), "M1": _stats(main_m1, prices)}
-    ms = main_tier_stats["M1"]
+    ms  = _stats(main_picks, prices)
+    scs = _stats(sc_picks,   prices)
     chip_tier_stats = {t: _stats(chip_by_tier[t], prices) for t in CHIP_TIERS}
     gc_tier_stats   = {t: _stats(gc_by_tier[t],   prices) for t in GC_TIERS}
     hot_tier_stats  = {t: _stats(hot_by_tier[t],  prices) for t in HOT_TIERS}
@@ -277,26 +275,25 @@ def main() -> None:
     gs = _stats(gc_flat,   prices)
     hs = hot_tier_stats["H1"]
 
-    for label, s in [("主策略M1", ms), ("筹码", cs), ("金叉", gs), ("热榜H1", hs)]:
-        print(f"  [{label}] {s['n']}只  胜率{_wr(s)}  均涨{_ar(s)}")
+    for label, s in [("主策略", ms), ("小票", scs), ("筹码", cs), ("金叉", gs), ("热榜H1", hs)]:
+        if s["n"] > 0:
+            print(f"  [{label}] {s['n']}只  胜率{_wr(s)}  均涨{_ar(s)}")
 
     # ── 构建推送 ──────────────────────────────────────────────────────────────
     sections: list[str] = []
 
-    # 主策略：M0前5 + M1后5（不重复）
-    sm0 = main_tier_stats["M0"]
-    sm1 = main_tier_stats["M1"]
-    if sm0["results"] or sm1["results"]:
-        rows = [f"{_emoji(sm1['win_rate'])} **主策略 {sm1['n']}只  胜率{_wr(sm1)}  均{_ar(sm1)}**"]
-        if sm0["n"] > 0:
-            rows.append(f"**M0** {sm0['n']}只  胜率{_wr(sm0)}  均{_ar(sm0)}")
-            for r in sorted(sm0["results"], key=lambda r: r["pct"], reverse=True):
-                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
-        m1_extra = [r for r in sm1["results"] if r["code"] not in {x["code"] for x in sm0["results"]}]
-        if m1_extra:
-            rows.append(f"**M1** {sm1['n']}只  胜率{_wr(sm1)}  均{_ar(sm1)}")
-            for r in sorted(m1_extra, key=lambda r: r["pct"], reverse=True):
-                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
+    # 主策略
+    if ms["results"]:
+        rows = [f"{_emoji(ms['win_rate'])} **主策略 {ms['n']}只  胜率{_wr(ms)}  均{_ar(ms)}**"]
+        for r in sorted(ms["results"], key=lambda r: r["pct"], reverse=True):
+            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
+        sections.append("  \n".join(rows))
+
+    # 小票策略
+    if scs["results"]:
+        rows = [f"{_emoji(scs['win_rate'])} **小票策略 {scs['n']}只  胜率{_wr(scs)}  均{_ar(scs)}**"]
+        for r in sorted(scs["results"], key=lambda r: r["pct"], reverse=True):
+            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
         sections.append("  \n".join(rows))
 
     # 筹码策略：各档胜率 + 前五
@@ -353,9 +350,10 @@ def main() -> None:
     def _tier_rec(s): return {"n": s["n"], "win_rate": s["win_rate"], "avg_ret": s["avg_ret"],
                                "picks": [{"code": r["code"], "name": r["name"], "pct": r["pct"]} for r in s["results"]]}
     _append(MAIN_PERF_PATH,
-            {"date": today, "logged": ts,
-             "M0": _tier_rec(main_tier_stats["M0"]),
-             "M1": _tier_rec(main_tier_stats["M1"])},
+            {"date": today, "logged": ts, **_tier_rec(ms)},
+            today, args.force)
+    _append(SC_PERF_PATH,
+            {"date": today, "logged": ts, **_tier_rec(scs)},
             today, args.force)
     _append(CHIP_PERF_PATH,
             {"date": today, "logged": ts,
