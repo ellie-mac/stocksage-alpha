@@ -273,9 +273,7 @@ def _push_results(data: dict) -> None:
         for p in picks[:15]:
             chg = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
             tags = "·".join(p.get("breakdown", []))
-            items.append(
-                f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}\n\n`{tags}`"
-            )
+            items.append(f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}  `{tags}`")
         body = "\n\n".join(items)
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
     print(f"[hot_scan] 微信推送完成", flush=True)
