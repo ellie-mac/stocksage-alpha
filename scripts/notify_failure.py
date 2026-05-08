@@ -43,7 +43,7 @@ def main() -> None:
     configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
     webhook_url = cfg.get("discord", {}).get("webhook_url", "")
 
-    title = f"⚠️ StockSage 任务失败: {task}"
+    title = f"⚠️ 任务失败: {task}"
     body  = f"任务 **{task}** 执行失败，请检查日志并考虑手动重跑。"
     if detail:
         body += f"\n\n{detail}"
