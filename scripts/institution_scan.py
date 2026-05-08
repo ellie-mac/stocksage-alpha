@@ -182,13 +182,19 @@ def _push_results(data: dict) -> None:
     fund_count = data.get("fund_count", 0)
     title      = f"机构策略 {quarter[:10]}  {len(hits)}只被{min_funds}+家新增"
 
+    # 季度标签简化：2026年1季度股票投资明细 → 2026Q1
+    def _fmt_q(q: str) -> str:
+        import re
+        m = re.match(r"(\d{4})年(\d)季度", q)
+        return f"{m.group(1)}Q{m.group(2)}" if m else q[:10]
+
     if not hits:
-        body = f"扫描 {fund_count} 只基金，{quarter}，无股票被 >={min_funds} 家同时新增"
+        body = f"扫描 {fund_count} 只基金，{_fmt_q(quarter)}，无股票被 >={min_funds} 家同时新增"
     else:
-        items = [f"季度: {quarter}\n\n扫描基金: {fund_count}只  阈值: >={min_funds}家新增"]
+        items = [f"季度: {_fmt_q(quarter)}  扫描基金: {fund_count}只  阈值: >={min_funds}家新增"]
         for r in hits:
-            fund_lines = "\n".join(
-                f"  · {b['fund_name'][:10]}  占净值{b['ratio']:.2f}%"
+            fund_lines = "\n\n".join(
+                f"· {b['fund_name'][:10]}  占净值{b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新增（原{_fmt_q(b['prev_q'])}未持有）"
                 for b in r["buyers"]
             )
             items.append(
@@ -201,12 +207,12 @@ def _push_results(data: dict) -> None:
 
     try:
         from notify import push_feishu_card
-        card_lines = [f"季度: {quarter}  扫描{fund_count}只基金  阈值>={min_funds}家新增", ""]
+        card_lines = [f"季度: {_fmt_q(quarter)}  扫描{fund_count}只基金  阈值>={min_funds}家新增", ""]
         if hits:
             for r in hits:
                 card_lines.append(f"{r['stock_code']} {r['stock_name']}  {r['fund_count']}家新增")
                 for b in r["buyers"]:
-                    card_lines.append(f"  · {b['fund_name'][:10]}  占净值{b['ratio']:.2f}%")
+                    card_lines.append(f"  · {b['fund_name'][:10]}  占净值{b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新增")
                 card_lines.append("")
         else:
             card_lines.append("无股票被多家基金同时新增")
