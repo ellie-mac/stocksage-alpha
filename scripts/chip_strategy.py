@@ -872,13 +872,21 @@ def _cad_run_one(df_all, mods: str, trade_date: str, pro) -> tuple[dict, int]:
 
         picks_list: list[dict] = []
         for _, row in result.iterrows():
-            code  = row.get("code", "")
-            name  = str(row.get("name", "") or "").strip()[:8] or str(code)
-            ind   = str(row.get("industry", "") or "")[:6]
-            close = row.get("close", float("nan"))
-            win   = row.get("winner_rate", float("nan"))
-            picks_list.append({"code": str(code), "name": name,
-                               "industry": ind, "close": close, "winner_rate": win})
+            code   = row.get("code", "")
+            name   = str(row.get("name", "") or "").strip()[:8] or str(code)
+            ind    = str(row.get("industry", "") or "")[:6]
+            close  = row.get("close", float("nan"))
+            win    = row.get("winner_rate", float("nan"))
+            c50    = row.get("cost_50pct", float("nan"))
+            c95    = row.get("cost_95pct", float("nan"))
+            try:
+                spread_pct = (float(c95) - float(c50)) / float(close) * 100 if float(close) > 0 else float("nan")
+            except (TypeError, ValueError):
+                spread_pct = float("nan")
+            picks_list.append({"code": str(code), "name": name, "industry": ind,
+                               "close": close, "winner_rate": win, "spread_pct": spread_pct})
+        # Sort within tier: tighter spread first (NaN to end)
+        picks_list.sort(key=lambda p: p["spread_pct"] if not math.isnan(float(p["spread_pct"] or float("nan"))) else 1e9)
         saves[tier_name] = picks_list
 
     if "m" in mods:
@@ -907,7 +915,13 @@ def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
     for p in picks:
         close_s = f"{p['close']:.2f}" if not math.isnan(float(p['close'] or 0)) else "-"
         win_s   = f"{p['winner_rate']:.1f}%" if not math.isnan(float(p['winner_rate'] or 0)) else "-"
-        rows.append(f"**{p['code']} {p['name']}** ({p['industry']}) {close_s} 获利{win_s}  ")
+        sp = p.get("spread_pct")
+        try:
+            sp_f = float(sp)
+            shape_tag = " 锥" if sp_f < 15 else (" 散" if sp_f > 30 else "")
+        except (TypeError, ValueError):
+            shape_tag = ""
+        rows.append(f"**{p['code']} {p['name']}** ({p['industry']}) {close_s} 获利{win_s}{shape_tag}  ")
     return header + "\n" + "\n".join(rows)
 
 

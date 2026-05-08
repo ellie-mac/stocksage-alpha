@@ -360,7 +360,13 @@ def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
                 close_s = f"¥{float(_price_raw):.2f}" if _price_raw and not __import__("math").isnan(float(_price_raw)) else ""
             except (TypeError, ValueError):
                 close_s = ""
-            lines.append(f"{p['code']} {p['name']} {p.get('industry', '')} {close_s}  ")
+            sp = p.get("spread_pct")
+            try:
+                sp_f = float(sp)
+                shape_tag = " 锥" if sp_f < 15 else (" 散" if sp_f > 30 else "")
+            except (TypeError, ValueError):
+                shape_tag = ""
+            lines.append(f"{p['code']} {p['name']} {p.get('industry', '')} {close_s}{shape_tag}  ")
         lines.append("")
 
     gc_data = _load_gc_picks()
