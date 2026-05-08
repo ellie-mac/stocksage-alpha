@@ -515,11 +515,11 @@ def h_status() -> str:
             other_procs.append((pid, cmd))
 
     if ss_procs:
-        lines.append("StockSage 进程:")
+        lines.append("暴富进程:")
         for pid, cmd in ss_procs:
             lines.append(f"  ✅ {_describe_cmdline(cmd)}  PID {pid}")
     else:
-        lines.append("❌ 无 StockSage 进程运行")
+        lines.append("❌ 无暴富进程运行")
 
     if other_procs:
         lines.append("\n其他 Python 进程:")
