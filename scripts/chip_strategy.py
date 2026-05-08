@@ -888,7 +888,13 @@ def _cad_run_one(df_all, mods: str, trade_date: str, pro) -> tuple[dict, int]:
             picks_list.append({"code": str(code), "name": name, "industry": ind,
                                "close": close, "winner_rate": win, "spread_pct": spread_pct})
         # Sort within tier: tighter spread first (NaN to end)
-        picks_list.sort(key=lambda p: p["spread_pct"] if not math.isnan(float(p["spread_pct"] or float("nan"))) else 1e9)
+        def _spread_key(p: dict) -> float:
+            try:
+                v = float(p.get("spread_pct", float("nan")))
+                return v if not math.isnan(v) else 1e9
+            except (TypeError, ValueError):
+                return 1e9
+        picks_list.sort(key=_spread_key)
         saves[tier_name] = picks_list
 
     if "m" in mods:
