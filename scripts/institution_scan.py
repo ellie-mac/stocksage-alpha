@@ -220,9 +220,7 @@ def run_institution_scan(min_funds: int = 2, push: bool = False,
 
 
 def _push_results(data: dict) -> None:
-    cfg = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-    from common import send_wechat, configure_pushplus
-    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+    from common import push_wechat
 
     hits       = data.get("hits", [])
     quarter    = data.get("scan_quarter", "?")
@@ -241,16 +239,16 @@ def _push_results(data: dict) -> None:
     else:
         items = [f"季度: {_fmt_q(quarter)}  扫描基金: {fund_count}只  阈值: >={min_funds}家新增"]
         for r in hits:
-            fund_lines = "\n\n".join(
-                f"· {b['fund_name'][:10]}  占净值{b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新增（披露{b['disclosure_date'] or '未知'}）"
+            fund_parts = "<br>".join(
+                f"`{b['fund_name'][:10]}  占净值{b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新增（披露{b['disclosure_date'] or '未知'}）`"
                 for b in r["buyers"]
             )
             items.append(
-                f"**{r['stock_code']} {r['stock_name']}**  {r['fund_count']}家新增\n\n{fund_lines}"
+                f"**{r['stock_code']} {r['stock_name']}**  {r['fund_count']}家新增<br>{fund_parts}"
             )
         body = "\n\n".join(items)
 
-    send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
+    push_wechat(title, body)
     print(f"[institution_scan] 微信推送完成", flush=True)
 
     try:

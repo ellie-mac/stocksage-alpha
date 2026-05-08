@@ -253,9 +253,7 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
 
 
 def _push_results(data: dict) -> None:
-    cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-    from common import send_wechat, configure_pushplus
-    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+    from common import push_wechat
 
     picks    = data.get("picks", [])
     date_s   = data.get("date", "?")
@@ -273,10 +271,10 @@ def _push_results(data: dict) -> None:
         for p in picks[:15]:
             chg = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
             tags = "·".join(p.get("breakdown", []))
-            stock_lines.append(f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}  `{tags}`  ")
+            stock_lines.append(f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}<br>`{tags}`  ")
         legend_block = f"快照: {snap_t[:16] if snap_t else '未知'}\n\n```\n{_LEGEND}\n```"
         body = legend_block + "\n\n" + "\n".join(stock_lines)
-    send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
+    push_wechat(title, body)
     print(f"[hot_scan] 微信推送完成", flush=True)
 
     # 飞书卡片
