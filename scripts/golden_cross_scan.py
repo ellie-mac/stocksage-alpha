@@ -354,8 +354,8 @@ def _push_results(data: dict) -> None:
         stock_lines = []
         for p in picks:
             sig_s = "·".join(_SIG_SHORT.get(s, s) for s in p["signals"])
-            stock_lines.append(f"- {p['code']} {p['name']} ¥{p['close']:.2f}  `{sig_s}`")
-        blocks.append(f"**【{t} {label}  {len(picks)}只】**\n" + "\n".join(stock_lines))
+            stock_lines.append(f"- {p['code']} {p['name']} ¥{p['close']:.2f}  `{sig_s}`  ")
+        blocks.append(f"**【{t} {label}  {len(picks)}只】**  \n" + "\n".join(stock_lines))
 
     blocks.append("⚠️ 仅供参考，不构成投资建议")
 
