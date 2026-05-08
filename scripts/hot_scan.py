@@ -269,12 +269,13 @@ def _push_results(data: dict) -> None:
     if not picks:
         body = f"热榜扫描无符合条件的股票"
     else:
-        lines = [f"快照: {snap_t[:16] if snap_t else '未知'}  \n{_LEGEND}", ""]
+        stock_lines = []
         for p in picks[:15]:
             chg = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
             tags = "·".join(p.get("breakdown", []))
-            lines.append(f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}  `{tags}`  ")
-        body = "\n".join(lines)
+            stock_lines.append(f"- **{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}  `{tags}`")
+        legend_block = f"快照: {snap_t[:16] if snap_t else '未知'}\n\n{_LEGEND}"
+        body = legend_block + "\n\n" + "\n".join(stock_lines)
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
     print(f"[hot_scan] 微信推送完成", flush=True)
 
