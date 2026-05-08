@@ -1299,8 +1299,8 @@ def run(
         return "、".join(ns) + suffix
 
     # ── Push 1: 持仓信号（卖出 + 当前持仓表）─────────────────────────────────
-    # Send whenever there are sell alerts, OR always_send is True (heartbeat/daily report)
-    if sell_alerts or always_send:
+    # Only send when there are actual sell alerts
+    if sell_alerts:
         hold_parts = []
         if strong_sells: hold_parts.append(f"🔴 {len(strong_sells)} 强卖（{_names(strong_sells)}）")
         if stall_sells:  hold_parts.append(f"⚠️ {len(stall_sells)} 减仓（{_names(stall_sells)}）")
