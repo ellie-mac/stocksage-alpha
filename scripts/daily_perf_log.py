@@ -32,6 +32,7 @@ HOT_PERF_PATH   = DATA_DIR / "hot_daily_perf.json"
 
 CHIP_TIERS = ["T1", "T2", "T3", "T4"]
 GC_TIERS   = ["G0", "G1", "G2"]
+HOT_TIERS  = ["H0", "H1"]
 
 
 # ── 行情 ──────────────────────────────────────────────────────────────────────
@@ -160,13 +161,15 @@ def _load_gc(today: str) -> dict[str, list[dict]]:
     return {t: tiers.get(t, []) for t in GC_TIERS}
 
 
-def _load_hot(today: str) -> list[dict]:
-    """热榜策略：找前日 hot_scan_YYYYMMDD.json 的 picks 列表"""
+def _load_hot(today: str) -> dict[str, list[dict]]:
+    """热榜策略：H0=热度top5%，H1=全部picks"""
     raw = _find_prev("hot_scan_????????.json", today, days=3)
     if not raw:
-        return []
-    return [{"code": str(p["code"]).zfill(6), "name": p.get("name", p["code"])}
-            for p in raw.get("picks", []) if p.get("code")]
+        return {t: [] for t in HOT_TIERS}
+    picks = [{"code": str(p["code"]).zfill(6), "name": p.get("name", p["code"]),
+               "rank_pct": p.get("rank_pct", 100)}
+              for p in raw.get("picks", []) if p.get("code")]
+    return {"H0": [p for p in picks if p.get("rank_pct", 100) <= 5], "H1": picks}
 
 
 # ── 推送格式 ──────────────────────────────────────────────────────────────────
@@ -211,22 +214,27 @@ def main() -> None:
     date_fmt = f"{today[4:6]}/{today[6:]}"
 
     # ── 加载各策略选股 ────────────────────────────────────────────────────────
-    main_picks    = _load_main(today)
+    main_all      = _load_main(today)
     chip_by_tier  = _load_chip(today)
     gc_by_tier    = _load_gc(today)
-    hot_picks     = _load_hot(today)
+    hot_by_tier   = _load_hot(today)
+
+    main_m0 = main_all[:5]
+    main_m1 = main_all[:10]   # M1统计用全10只
+    main_m1_extra = main_all[5:10]  # M1展示时只显示6-10
 
     chip_flat = [p for picks in chip_by_tier.values() for p in picks]
     gc_flat   = [p for picks in gc_by_tier.values()   for p in picks]
+    hot_flat  = hot_by_tier["H1"]
 
-    print(f"[daily_perf] 主策略 {len(main_picks)}只 / 筹码 {len(chip_flat)}只 / 金叉 {len(gc_flat)}只 / 热榜 {len(hot_picks)}只")
+    print(f"[daily_perf] 主策略 {len(main_m1)}只(M0:{len(main_m0)}/M1:{len(main_m1)}) / 筹码 {len(chip_flat)}只 / 金叉 {len(gc_flat)}只 / 热榜H0:{len(hot_by_tier['H0'])}只/H1:{len(hot_flat)}只")
 
-    if not main_picks and not chip_flat and not gc_flat and not hot_picks:
+    if not main_m1 and not chip_flat and not gc_flat and not hot_flat:
         print("[daily_perf] 四个策略均无数据，退出")
         return
 
     # ── 一次性拉取所有行情 ────────────────────────────────────────────────────
-    all_codes = list({p["code"] for p in main_picks + chip_flat + gc_flat + hot_picks})
+    all_codes = list({p["code"] for p in main_m1 + chip_flat + gc_flat + hot_flat})
     print(f"[daily_perf] 获取 {len(all_codes)} 只行情 ...")
     prices = _fetch_prices(all_codes)
     print(f"[daily_perf] 获取到 {len(prices)} 只")
@@ -235,27 +243,36 @@ def main() -> None:
         return
 
     # ── 统计 ──────────────────────────────────────────────────────────────────
-    ms = _stats(main_picks, prices)
+    main_tier_stats = {"M0": _stats(main_m0, prices), "M1": _stats(main_m1, prices)}
+    ms = main_tier_stats["M1"]
     chip_tier_stats = {t: _stats(chip_by_tier[t], prices) for t in CHIP_TIERS}
     gc_tier_stats   = {t: _stats(gc_by_tier[t],   prices) for t in GC_TIERS}
+    hot_tier_stats  = {t: _stats(hot_by_tier[t],  prices) for t in HOT_TIERS}
     cs = _stats(chip_flat, prices)
     gs = _stats(gc_flat,   prices)
-    hs = _stats(hot_picks, prices)
+    hs = hot_tier_stats["H1"]
 
-    for label, s in [("主策略", ms), ("筹码", cs), ("金叉", gs), ("热榜", hs)]:
+    for label, s in [("主策略M1", ms), ("筹码", cs), ("金叉", gs), ("热榜H1", hs)]:
         print(f"  [{label}] {s['n']}只  胜率{_wr(s)}  均涨{_ar(s)}")
 
     # ── 构建推送 ──────────────────────────────────────────────────────────────
     sections: list[str] = []
 
-    # 主策略：全部5只各自换行
-    if ms["results"]:
-        rows = [f"  {r['code']} {r['name']} {r['pct']:+.2f}%"
-                for r in sorted(ms["results"], key=lambda r: r["pct"], reverse=True)]
-        sections.append(_fmt_section(
-            f"{_emoji(ms['win_rate'])} **主策略 {ms['n']}只  胜率{_wr(ms)}  均{_ar(ms)}**",
-            rows,
-        ))
+    # 主策略：M0前5 + M1后5（不重复）
+    sm0 = main_tier_stats["M0"]
+    sm1 = main_tier_stats["M1"]
+    if sm0["results"] or sm1["results"]:
+        rows = [f"{_emoji(sm1['win_rate'])} **主策略 {sm1['n']}只  胜率{_wr(sm1)}  均{_ar(sm1)}**"]
+        if sm0["n"] > 0:
+            rows.append(f"**M0** {sm0['n']}只  胜率{_wr(sm0)}  均{_ar(sm0)}")
+            for r in sorted(sm0["results"], key=lambda r: r["pct"], reverse=True):
+                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
+        m1_extra = [r for r in sm1["results"] if r["code"] not in {x["code"] for x in sm0["results"]}]
+        if m1_extra:
+            rows.append(f"**M1** {sm1['n']}只  胜率{_wr(sm1)}  均{_ar(sm1)}")
+            for r in sorted(m1_extra, key=lambda r: r["pct"], reverse=True):
+                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
+        sections.append("  \n".join(rows))
 
     # 筹码策略：各档胜率 + 前五
     if cs["results"]:
@@ -279,15 +296,23 @@ def main() -> None:
             rows.append(f"**{t}** {s['n']}只  胜率{_wr(s)}  均{_ar(s)}")
             for r in s["top5"]:
                 sig_s = "·".join(_SIG_SHORT.get(sg, sg) for sg in r.get("signals", []))
-                sig_tag = f" `{sig_s}`" if sig_s else ""
+                sig_tag = f"<br>`{sig_s}`" if sig_s else ""
                 rows.append(f"  {r['name']} {r['pct']:+.2f}%{sig_tag}")
         sections.append("  \n".join(rows))
 
-    # 热榜策略：平列，前五
-    if hs["results"]:
-        rows = [f"{_emoji(hs['win_rate'])} **热榜策略 {hs['n']}只  胜率{_wr(hs)}  均{_ar(hs)}**"]
-        for r in hs["top5"]:
-            rows.append(f"  {r['name']} {r['pct']:+.2f}%")
+    # 热榜策略：H0（top5%）+ H1（全部）
+    sh0 = hot_tier_stats["H0"]
+    sh1 = hot_tier_stats["H1"]
+    if sh0["results"] or sh1["results"]:
+        rows = [f"{_emoji(sh1['win_rate'])} **热榜策略 {sh1['n']}只  胜率{_wr(sh1)}  均{_ar(sh1)}**"]
+        if sh0["n"] > 0:
+            rows.append(f"**H0** {sh0['n']}只  胜率{_wr(sh0)}  均{_ar(sh0)}")
+            for r in sh0["top5"]:
+                rows.append(f"  {r['name']} {r['pct']:+.2f}%")
+        if sh1["n"] > 0:
+            rows.append(f"**H1** {sh1['n']}只  胜率{_wr(sh1)}  均{_ar(sh1)}")
+            for r in sh1["top5"]:
+                rows.append(f"  {r['name']} {r['pct']:+.2f}%")
         sections.append("  \n".join(rows))
 
     sections.append("⚠️ 仅供参考，不构成投资建议")
@@ -302,7 +327,7 @@ def main() -> None:
     ts = now.isoformat(timespec="seconds")
     _append(MAIN_PERF_PATH,
             {"date": today, "logged": ts, "n": ms["n"],
-             "win_rate": ms["win_rate"], "avg_ret": ms["avg_ret"], "top5": ms["results"]},
+             "win_rate": ms["win_rate"], "avg_ret": ms["avg_ret"], "top5": ms["top5"]},
             today, args.force)
     _append(CHIP_PERF_PATH,
             {"date": today, "logged": ts,
@@ -314,7 +339,8 @@ def main() -> None:
             today, args.force)
     _append(HOT_PERF_PATH,
             {"date": today, "logged": ts,
-             "n": hs["n"], "win_rate": hs["win_rate"], "avg_ret": hs["avg_ret"]},
+             "n": sh1["n"], "win_rate": sh1["win_rate"], "avg_ret": sh1["avg_ret"],
+             "h0_n": sh0["n"], "h0_win_rate": sh0["win_rate"]},
             today, args.force)
     print("[daily_perf] 历史记录已写入")
 
