@@ -1304,7 +1304,7 @@ def run(
         hold_parts = []
         if strong_sells: hold_parts.append(f"🔴 {len(strong_sells)} 强卖（{_names(strong_sells)}）")
         if stall_sells:  hold_parts.append(f"⚠️ {len(stall_sells)} 减仓（{_names(stall_sells)}）")
-        if not hold_parts: hold_parts.append("持仓日报")
+        if not hold_parts: hold_parts.append("日报")
         hold_title = f"持仓 {' | '.join(hold_parts)}"
 
         _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
