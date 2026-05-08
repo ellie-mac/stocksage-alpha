@@ -28,7 +28,10 @@ try:
     from mootdx.quotes import Quotes
 
     universe = json.loads(Path(r'C:\Users\jiapeichen\repos\stocksage-alpha\data\universe_main.json').read_text())
-    sample = universe[:100]
+    # 过滤掉北交所（bj/43/92开头），只测 SH/SZ
+    szsh = [c for c in universe if c[:2] not in ('bj', '43', '92') and not c.startswith('9')]
+    sample = szsh[:100]
+    print(f'SH/SZ universe: {len(szsh)}  sample: {sample[:5]}...', flush=True)
 
     # 每线程新建连接（当前实现）
     errors = {}
