@@ -3,10 +3,11 @@
 每日统一胜率记录 — 收盘后一条微信
 运行时间：16:00（市场收盘后）
 
-包含三个策略：
+包含四个策略：
   主策略    — latest_picks.json（前日 18:30 扫盘）
   筹码策略  — CAH∩CAD∩CADM 三者共有 T1-T4（前日 20:30 扫描）
   金叉共振  — golden_cross_YYYYMMDD.json G0-G2（前日 19:30 扫描）
+  热榜策略  — hot_scan_YYYYMMDD.json picks（前日 19:00 扫描）
 
 用法：
     python -X utf8 scripts/daily_perf_log.py [--dry-run] [--force]
@@ -27,6 +28,7 @@ SIG_PATH        = DATA_DIR / "signals_log.json"
 MAIN_PERF_PATH  = DATA_DIR / "main_daily_perf.json"
 CHIP_PERF_PATH  = DATA_DIR / "chip_daily_perf.json"
 GC_PERF_PATH    = DATA_DIR / "gc_daily_perf.json"
+HOT_PERF_PATH   = DATA_DIR / "hot_daily_perf.json"
 
 CHIP_TIERS = ["T1", "T2", "T3", "T4"]
 GC_TIERS   = ["G0", "G1", "G2"]
@@ -158,6 +160,15 @@ def _load_gc(today: str) -> dict[str, list[dict]]:
     return {t: tiers.get(t, []) for t in GC_TIERS}
 
 
+def _load_hot(today: str) -> list[dict]:
+    """热榜策略：找前日 hot_scan_YYYYMMDD.json 的 picks 列表"""
+    raw = _find_prev("hot_scan_????????.json", today, days=3)
+    if not raw:
+        return []
+    return [{"code": str(p["code"]).zfill(6), "name": p.get("name", p["code"])}
+            for p in raw.get("picks", []) if p.get("code")]
+
+
 # ── 推送格式 ──────────────────────────────────────────────────────────────────
 
 def _fmt_section(header: str, rows: list[str]) -> str:
@@ -203,18 +214,19 @@ def main() -> None:
     main_picks    = _load_main(today)
     chip_by_tier  = _load_chip(today)
     gc_by_tier    = _load_gc(today)
+    hot_picks     = _load_hot(today)
 
     chip_flat = [p for picks in chip_by_tier.values() for p in picks]
     gc_flat   = [p for picks in gc_by_tier.values()   for p in picks]
 
-    print(f"[daily_perf] 主策略 {len(main_picks)}只 / 筹码 {len(chip_flat)}只 / 金叉 {len(gc_flat)}只")
+    print(f"[daily_perf] 主策略 {len(main_picks)}只 / 筹码 {len(chip_flat)}只 / 金叉 {len(gc_flat)}只 / 热榜 {len(hot_picks)}只")
 
-    if not main_picks and not chip_flat and not gc_flat:
-        print("[daily_perf] 三个策略均无数据，退出")
+    if not main_picks and not chip_flat and not gc_flat and not hot_picks:
+        print("[daily_perf] 四个策略均无数据，退出")
         return
 
     # ── 一次性拉取所有行情 ────────────────────────────────────────────────────
-    all_codes = list({p["code"] for p in main_picks + chip_flat + gc_flat})
+    all_codes = list({p["code"] for p in main_picks + chip_flat + gc_flat + hot_picks})
     print(f"[daily_perf] 获取 {len(all_codes)} 只行情 ...")
     prices = _fetch_prices(all_codes)
     print(f"[daily_perf] 获取到 {len(prices)} 只")
@@ -228,8 +240,9 @@ def main() -> None:
     gc_tier_stats   = {t: _stats(gc_by_tier[t],   prices) for t in GC_TIERS}
     cs = _stats(chip_flat, prices)
     gs = _stats(gc_flat,   prices)
+    hs = _stats(hot_picks, prices)
 
-    for label, s in [("主策略", ms), ("筹码", cs), ("金叉", gs)]:
+    for label, s in [("主策略", ms), ("筹码", cs), ("金叉", gs), ("热榜", hs)]:
         print(f"  [{label}] {s['n']}只  胜率{_wr(s)}  均涨{_ar(s)}")
 
     # ── 构建推送 ──────────────────────────────────────────────────────────────
@@ -270,6 +283,13 @@ def main() -> None:
                 rows.append(f"  {r['name']} {r['pct']:+.2f}%{sig_tag}")
         sections.append("  \n".join(rows))
 
+    # 热榜策略：平列，前五
+    if hs["results"]:
+        rows = [f"{_emoji(hs['win_rate'])} **热榜策略 {hs['n']}只  胜率{_wr(hs)}  均{_ar(hs)}**"]
+        for r in hs["top5"]:
+            rows.append(f"  {r['name']} {r['pct']:+.2f}%")
+        sections.append("  \n".join(rows))
+
     sections.append("⚠️ 仅供参考，不构成投资建议")
     push_body = "\n\n".join(sections)
     print(f"\n{push_body}\n")
@@ -292,6 +312,10 @@ def main() -> None:
             {"date": today, "logged": ts,
              "total_n": gs["n"], "total_win_rate": gs["win_rate"], "total_avg_ret": gs["avg_ret"]},
             today, args.force)
+    _append(HOT_PERF_PATH,
+            {"date": today, "logged": ts,
+             "n": hs["n"], "win_rate": hs["win_rate"], "avg_ret": hs["avg_ret"]},
+            today, args.force)
     print("[daily_perf] 历史记录已写入")
 
     # ── 推送 ──────────────────────────────────────────────────────────────────
@@ -306,6 +330,7 @@ def main() -> None:
         if ms["win_rate"] is not None: parts.append(f"主{ms['win_rate']}%")
         if cs["win_rate"] is not None: parts.append(f"筹{cs['win_rate']}%")
         if gs["win_rate"] is not None: parts.append(f"叉{gs['win_rate']}%")
+        if hs["win_rate"] is not None: parts.append(f"热{hs['win_rate']}%")
         title = f"收盘胜率 {date_fmt} | {' / '.join(parts)}"
         send_wechat(title, push_body, sendkey)
         print("[daily_perf] 微信推送成功")

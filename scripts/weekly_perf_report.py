@@ -23,6 +23,7 @@ DATA_DIR = ROOT / "data"
 MAIN_PERF_PATH = DATA_DIR / "main_daily_perf.json"
 CHIP_PERF_PATH = DATA_DIR / "chip_daily_perf.json"
 GC_PERF_PATH   = DATA_DIR / "gc_daily_perf.json"
+HOT_PERF_PATH  = DATA_DIR / "hot_daily_perf.json"
 
 
 def _load(path: Path) -> list[dict]:
@@ -90,10 +91,11 @@ def main() -> None:
     main_recs = _filter_week(_load(MAIN_PERF_PATH), mon_str, today_str)
     chip_recs = _filter_week(_load(CHIP_PERF_PATH), mon_str, today_str)
     gc_recs   = _filter_week(_load(GC_PERF_PATH),   mon_str, today_str)
+    hot_recs  = _filter_week(_load(HOT_PERF_PATH),  mon_str, today_str)
 
-    print(f"[weekly_perf] 主策略 {len(main_recs)}天 / 筹码 {len(chip_recs)}天 / 金叉 {len(gc_recs)}天")
+    print(f"[weekly_perf] 主策略 {len(main_recs)}天 / 筹码 {len(chip_recs)}天 / 金叉 {len(gc_recs)}天 / 热榜 {len(hot_recs)}天")
 
-    if not main_recs and not chip_recs and not gc_recs:
+    if not main_recs and not chip_recs and not gc_recs and not hot_recs:
         print("[weekly_perf] 本周无胜率数据，跳过")
         return
 
@@ -124,6 +126,15 @@ def main() -> None:
         for r in sorted(gc_recs, key=lambda x: x["date"]):
             e = _emoji(r.get("total_win_rate"))
             rows.append(f"  {e} {_date_fmt(r['date'])} {r['total_n']}只  胜率{_wr_str(r.get('total_win_rate'))}  均{_ar_str(r.get('total_avg_ret'))}")
+        sections.append("  \n".join(rows))
+
+    # 热榜策略
+    if hot_recs:
+        avg_wr, avg_ret = _week_avg(hot_recs, "win_rate", "avg_ret")
+        rows = [f"{_emoji(avg_wr)} **热榜策略** 周均胜率{_wr_str(avg_wr)}  均涨{_ar_str(avg_ret)}"]
+        for r in sorted(hot_recs, key=lambda x: x["date"]):
+            e = _emoji(r.get("win_rate"))
+            rows.append(f"  {e} {_date_fmt(r['date'])} {r['n']}只  胜率{_wr_str(r.get('win_rate'))}  均{_ar_str(r.get('avg_ret'))}")
         sections.append("  \n".join(rows))
 
     sections.append("⚠️ 仅供参考，不构成投资建议")
