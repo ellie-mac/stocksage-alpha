@@ -421,29 +421,6 @@ def _append_signals_log(buy_alerts: list[dict], sell_alerts: list[dict],
         try: os.remove(_stmp)
         except OSError: pass
 
-    # Write latest_picks.json so xhs/writer.py can read results without re-running screener
-    if buy_alerts or smallcap_candidates:
-        def _pick(b):
-            return {"code": b["code"], "name": b.get("name", b["code"]),
-                    "score": b.get("buy_score", 0), "change_pct": b.get("change_pct"),
-                    "buy_score": b.get("buy_score"), "sell_score": b.get("sell_score"),
-                    "bullish": b.get("bullish", []), "bearish": b.get("bearish", [])}
-        latest = {
-            "timestamp": datetime.now().isoformat(),
-            "source":    source,
-            "results":   [_pick(b) for b in buy_alerts],
-            "smallcap":  [_pick(b) for b in smallcap_candidates],
-            "regime":    source,
-        }
-        _ltmp = LATEST_PICKS_PATH + ".tmp"
-        try:
-            with open(_ltmp, "w", encoding="utf-8") as f:
-                json.dump(latest, f, ensure_ascii=False, indent=2)
-            os.replace(_ltmp, LATEST_PICKS_PATH)
-        except Exception:
-            try: os.remove(_ltmp)
-            except OSError: pass
-
     print(f"  Signals logged → signals_log.json "
           f"(buy={len(buy_alerts)}, sell={len(sell_alerts)})")
 
@@ -1467,15 +1444,8 @@ def run_loop(
                                if isinstance(v, str) and v}
     t_trade_state:      dict = {}   # code -> {sell_price, cover_price, date}
     _error_notified:    dict = {}   # error_key -> last WeChat push datetime (1h rate limit)
-    _etf_buy_state:     dict = {}   # code -> last ETF buy-alert datetime  (20-min cooldown)
-    _etf_sell_state:    dict = {}   # code -> last ETF sell-alert datetime (20-min cooldown)
-    _etf_activity:      dict = {}   # code -> {"buys": int, "sells": int}  (reset daily)
-    _etf_activity_date:     Optional[object] = None
-    _etf_closing_date:      Optional[object] = None
-    _etf_status_last_sent:  Optional[object] = None   # last periodic ETF status push
-    _etf_all_scores_latest: list = []               # last ETF scan results (passed to watchlist push)
-    _ETF_COOLDOWN_MIN = 20
-    _ETF_STATUS_INTERVAL_MIN = 60   # periodic standalone ETF status (main push gets ETF via etf_scores)
+    _etf_activity:      dict = {}   # code -> {"buys": int, "sells": int}（收盘快报读取）
+    _etf_closing_date:  Optional[object] = None
     _xhs_triggered_today: set = set()  # slots triggered today
     _xhs_date: Optional[object] = None              # date _xhs_triggered_today belongs to
     _auction_checked_date: Optional[object] = None   # date of last 竞价检验
@@ -1634,63 +1604,42 @@ def run_loop(
 
                 threading.Thread(target=_run_universe_refresh, daemon=True).start()
 
-        # ── Evening preview scan (18:00 — picks for tomorrow, feeds XHS night post) ─
+        # ── Evening nightly scan (18:00) → nightly_scan.py 非阻塞子进程 ────────
         if (now.hour == 18 and 0 <= now.minute < 5
                 and _premarket_scan_date != now.date()):
             _premarket_scan_date = now.date()
-            print(f"[{run_time}] Evening preview scan (18:00)...")
+            print(f"[{run_time}] Evening nightly_scan.py (18:00)...")
             try:
-                _pm_regime = None
-                try:
-                    mkt = score_market_regime(fetcher.get_market_regime_data())
-                    if mkt:
-                        _pm_regime = (mkt.get("score", 5.0),
-                                      mkt.get("details", {}).get("signal", "unknown"))
-                except Exception:
-                    pass
-                _pm_universe = config.get("screener_universe", [])
-                picked = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
-                             _regime=_pm_regime, universe_override=_pm_universe)
-                _premarket_picks = [b["code"] for b in (picked or [])]
-                # Write picks to file for writer.py
-                _preview_path = os.path.join(_ROOT, "data", "preview_picks.json")
-                os.makedirs(os.path.dirname(_preview_path), exist_ok=True)
-                with open(_preview_path, "w", encoding="utf-8") as _f:
-                    json.dump({
-                        "date":    datetime.now().strftime("%Y-%m-%d"),
-                        "time":    datetime.now().strftime("%H:%M"),
-                        "regime":  _pm_regime[1] if _pm_regime else "unknown",
-                        "picks":   [b for b in (picked or [])
-                                    if not b.get("error")],
-                    }, _f, ensure_ascii=False, indent=2)
-                print(f"  Preview picks saved: {_premarket_picks}")
+                _ns_script = os.path.join(_ROOT, "scripts", "nightly_scan.py")
+                _ns_cmd = [sys.executable, "-X", "utf8", _ns_script]
+                if dry_run:
+                    _ns_cmd.append("--dry-run")
+                _ns_log = os.path.join(_ROOT, "scripts", "logs", "nightly_scan_18.log")
+                os.makedirs(os.path.dirname(_ns_log), exist_ok=True)
+                with open(_ns_log, "a", encoding="utf-8") as _nsf:
+                    subprocess.Popen(_ns_cmd, stdout=_nsf, stderr=_nsf, cwd=_ROOT)
+                print(f"  nightly_scan.py launched (log: {_ns_log})")
                 _trigger_xhs_post("night", dry_run)
             except Exception as e:
-                print(f"  [ERROR] Evening preview scan failed: {e}")
+                print(f"  [ERROR] Evening nightly_scan failed: {e}")
 
-        # ── Night scan (22:00 — post-close signals only, no XHS) ──────────────
+        # ── Night scan (22:00) → nightly_scan.py 非阻塞子进程 ────────────────
         if (now.hour == 22 and 0 <= now.minute < 5
                 and _night_scan_date != now.date()):
             _night_scan_date = now.date()
-            print(f"[{run_time}] Night scan (22:00)...")
+            print(f"[{run_time}] Night nightly_scan.py (22:00)...")
             try:
-                _nt_regime = None
-                try:
-                    mkt = score_market_regime(fetcher.get_market_regime_data())
-                    if mkt:
-                        _nt_regime = (mkt.get("score", 5.0),
-                                      mkt.get("details", {}).get("signal", "unknown"))
-                except Exception:
-                    pass
-                _nt_universe = config.get("screener_universe", [])
-                _nt_picked = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
-                                 _regime=_nt_regime, universe_override=_nt_universe,
-                                 sell_only=False)
-                _night_picks = [b["code"] for b in (_nt_picked or [])]
-                print(f"  Night picks saved: {_night_picks}")
-                # No XHS trigger here — night post moved to 18:00 scan
+                _ns_script = os.path.join(_ROOT, "scripts", "nightly_scan.py")
+                _ns_cmd = [sys.executable, "-X", "utf8", _ns_script]
+                if dry_run:
+                    _ns_cmd.append("--dry-run")
+                _ns_log = os.path.join(_ROOT, "scripts", "logs", "nightly_scan_22.log")
+                os.makedirs(os.path.dirname(_ns_log), exist_ok=True)
+                with open(_ns_log, "a", encoding="utf-8") as _nsf:
+                    subprocess.Popen(_ns_cmd, stdout=_nsf, stderr=_nsf, cwd=_ROOT)
+                print(f"  nightly_scan.py launched (log: {_ns_log})")
             except Exception as e:
-                print(f"  [ERROR] Night scan failed: {e}")
+                print(f"  [ERROR] Night nightly_scan failed: {e}")
 
         # ── Daily heartbeat + cache purge (09:00, before market open) ──────────
         if (now.weekday() < 5
@@ -1880,197 +1829,15 @@ def run_loop(
                 except Exception:
                     pass
 
-        # ── Fast check (trading hours only: 09:30–15:00) ─────────────────────────
+        # ── Fast check 已禁用（实时持仓预警不再需要）────────────────────────────
         _market_open = (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and now.hour < 15
         fast_alerts: list[dict] = []
-        if _market_open:
-            print(f"[{run_time}] Fast check ({len(holdings)} holdings)...")
-            fast_alerts = fast_check_holdings(
-                holdings, thresholds, alert_state, t_trade_state,
-                urgent_alert_state=urgent_alert_state,
-                atr_cache=_atr_cache or None,
-            )
-            print(f"  {len(fast_alerts)} alert(s)")
-            # event_log — fast alerts
-            try:
-                import event_log as _elog
-                _fdate = now.strftime("%Y-%m-%d")
-                _frows = []
-                for fa in fast_alerts:
-                    _chg = fa.get("change_pct", 0.0)
-                    _ftype = "fast_surge" if _chg > 0 else "fast_drop"
-                    _frows.append({
-                        "date": _fdate, "strategy": "main", "code": fa["code"],
-                        "signal_type": _ftype,
-                        "price": fa.get("price"),
-                        "score": _chg,
-                        "details": {"name": fa.get("name"), "change_pct": _chg,
-                                     "pnl_pct": fa.get("pnl_pct"),
-                                     "reasons": (fa.get("reasons") or [])[:2]},
-                    })
-                if _frows:
-                    _elog.log_events(_frows)
-            except Exception:
-                pass
-        # if fast_alerts and _market_open:  # 持仓实时预警已禁用
-        #     title = f"⚡ {len(fast_alerts)} 实时预警"
-        #     desp  = build_fast_wechat_desp(fast_alerts, run_time,
-        #                                    stop_loss_pct=thresholds.get("stop_loss_pct", -8.0))
-        #     try:
-        #         send_wechat(title, desp, sendkey, dry_run=dry_run)
-        #     except Exception as e:
-        #         print(f"  [ERROR] 微信推送失败: {e}")
+        # if _market_open:
+        #     fast_alerts = fast_check_holdings(...)
+        #     ...（已禁用）
 
-        # ── ETF watchlist scan (every fast-check cycle, T+0 20-min cooldown) ──
+        # ── ETF 日内扫描已移至 etf_strategy.py（由 nightly_scan.py 统一调度）──────
         _regime_this_iter = None
-        etf_list = config.get("etf_watchlist", [])
-        if etf_list and _is_trading_hours():
-            # Reset daily activity counter
-            if _etf_activity_date != now.date():
-                _etf_activity = {e["code"]: {"buys": 0, "sells": 0} for e in etf_list}
-                _etf_activity_date = now.date()
-
-            print(f"[{run_time}] ETF scan ({len(etf_list)} ETFs)...", end=" ", flush=True)
-            etf_buy_alerts: list[dict] = []
-            etf_sell_alerts: list[dict] = []
-            etf_all_scores: list[dict] = []   # all scored ETFs for periodic status
-            _etf_regime = _regime_this_iter  # reuse if already fetched, else None
-
-            _etf_w = weights_from_config_dict(FACTOR_WEIGHTS_ETF)
-            with ThreadPoolExecutor(max_workers=min(len(etf_list), 4)) as _ex:
-                _futs = {_ex.submit(_score_one_buy, e["code"], _etf_w): e for e in etf_list}
-                for _fut in as_completed(_futs):
-                    _etf_entry = _futs[_fut]
-                    _s = _fut.result()
-                    # Merge shares/cost from etf_watchlist entry
-                    _s["shares"]     = _etf_entry.get("shares", 0)
-                    _s["cost_price"] = _etf_entry.get("cost_price", 0)
-                    cost = _s["cost_price"] or 0
-                    price = _s.get("price") or 0
-                    _s["pnl_pct"] = round((price - cost) / cost * 100, 2) if cost > 0 else 0.0
-
-                    etf_all_scores.append(_s)
-                    code = _s["code"]
-                    _etf_activity.setdefault(code, {"buys": 0, "sells": 0})
-                    _t = thresholds
-                    _sell_trigger = _t.get("sell_score_trigger", 60)
-                    _stall        = _t.get("stall_sell_score", 40)
-                    _stop_loss    = _t.get("stop_loss_pct", -8.0)
-
-                    # ── ETF sell check (T+0: no T+1 lock, 20-min cooldown) ─────
-                    _sell_reasons: list[str] = []
-                    if (_s.get("shares", 0) or 0) > 0:
-                        if _s["sell_score"] >= _sell_trigger:
-                            _sell_reasons.append(
-                                f"综合卖出评分 {_s['sell_score']:.0f}/100 ≥ {_sell_trigger}")
-                        elif _stall <= _s["sell_score"] < _sell_trigger:
-                            _sell_reasons.append(
-                                f"逢高减仓参考: 卖出信号 **{_s['sell_score']:.0f}**"
-                                f"（阈值 {_stall}–{_sell_trigger}）")
-                        if _s["pnl_pct"] <= _stop_loss:
-                            _sell_reasons.append(f"止损触发: 浮亏 {_s['pnl_pct']:+.1f}%")
-                    _last_sell = _etf_sell_state.get(code)
-                    _sell_ok = (not _last_sell or
-                                (now - _last_sell).total_seconds() >= _ETF_COOLDOWN_MIN * 60)
-                    if _sell_reasons and _sell_ok:
-                        _etf_sell_state[code] = now
-                        _etf_activity[code]["sells"] += 1
-                        etf_sell_alerts.append({**_s, "reasons": _sell_reasons})
-
-                    # ── ETF buy check ─────────────────────────────────────────
-                    _rs = _etf_regime[0] if _etf_regime else 5.0
-                    _buy_trigger = thresholds.get("buy_score_trigger", 65)
-                    if _rs <= 2:
-                        _buy_trigger = round(_buy_trigger * 1.25, 1)
-                    elif _rs <= 4:
-                        _buy_trigger = round(_buy_trigger * 1.15, 1)
-                    _last_buy = _etf_buy_state.get(code)
-                    _buy_ok = (not _last_buy or
-                               (now - _last_buy).total_seconds() >= _ETF_COOLDOWN_MIN * 60)
-                    if (_s["buy_score"] >= _buy_trigger and
-                            _s["sell_score"] < _sell_trigger * 0.7 and
-                            _buy_ok):
-                        _etf_buy_state[code] = now
-                        _etf_activity[code]["buys"] += 1
-                        etf_buy_alerts.append(_s)
-
-            print(f"{len(etf_buy_alerts)} buy / {len(etf_sell_alerts)} sell")
-            _etf_all_scores_latest = etf_all_scores  # persist for next watchlist push
-
-            if (etf_buy_alerts or etf_sell_alerts) and _market_open:
-                _parts = []
-                _sell_trig = thresholds.get("sell_score_trigger", 60)
-                _stall_s   = thresholds.get("stall_sell_score", 40)
-                strong_s = [a for a in etf_sell_alerts if a["sell_score"] >= _sell_trig]
-                stall_s  = [a for a in etf_sell_alerts if _stall_s <= a["sell_score"] < _sell_trig]
-                strong_b = [a for a in etf_buy_alerts if a["buy_score"] >= 80]
-                add_b    = [a for a in etf_buy_alerts if a["buy_score"] < 80]
-                def _en(lst, n=3):
-                    ns = [a.get("name") or a.get("code","") for a in lst[:n]]
-                    return "、".join(ns) + ("…" if len(lst) > n else "")
-                if strong_s: _parts.append(f"🔴 {len(strong_s)} 强卖（{_en(strong_s)}）")
-                if stall_s:  _parts.append(f"⚠️ {len(stall_s)} 减仓（{_en(stall_s)}）")
-                if strong_b: _parts.append(f"✅ {len(strong_b)} 强买（{_en(strong_b)}）")
-                if add_b:    _parts.append(f"💡 {len(add_b)} 加仓（{_en(add_b)}）")
-                _stop = thresholds.get("stop_loss_pct", -8.0)
-                _etf_lines = []
-                for _a in etf_sell_alerts:
-                    _etf_lines.append(
-                        f"### {_a['name']} ({_a['code']})\n"
-                        f"卖出评分: **{_a['sell_score']:.0f}** | 浮盈: **{_a['pnl_pct']:+.1f}%**")
-                    for _r in _a["reasons"]:
-                        _etf_lines.append(f"- {_r}")
-                for _a in etf_buy_alerts:
-                    _p = _a.get("price") or 0
-                    _etf_lines.append(
-                        f"### {_a['name']} ({_a['code']})\n"
-                        f"买入评分: **{_a['buy_score']:.0f}** | 现价: **{_p}**")
-                _etf_lines.append("\n> T+0 / 仅供参考")
-                try:
-                    send_wechat(
-                        f"ETF {' | '.join(_parts)}",
-                        "\n".join(_etf_lines), sendkey, dry_run=dry_run)
-                except Exception as _e:
-                    print(f"  [ERROR] ETF 推送失败: {_e}")
-
-            # ── Periodic ETF status (every 30 min, even without alerts) ──────
-            _need_etf_status = (
-                _market_open and etf_all_scores and (
-                    _etf_status_last_sent is None or
-                    (now - _etf_status_last_sent).total_seconds() >= _ETF_STATUS_INTERVAL_MIN * 60
-                )
-            )
-            if _need_etf_status:
-                _sorted_buy = sorted(etf_all_scores, key=lambda x: x.get("buy_score", 0), reverse=True)
-                _top_buy = _sorted_buy[:5]
-                _status_lines = ["**Top ETF 买入评分**\n"]
-                for _se in _top_buy:
-                    _p = _se.get("price") or 0
-                    _pnl = _se.get("pnl_pct", 0)
-                    _pnl_str = f" | 浮盈: {_pnl:+.1f}%" if _se.get("shares", 0) > 0 else ""
-                    _status_lines.append(
-                        f"- {_se['name']} ({_se['code']}): "
-                        f"买入 **{_se.get('buy_score', 0):.0f}** / "
-                        f"卖出 {_se.get('sell_score', 0):.0f} | 价 {_p}{_pnl_str}"
-                    )
-                _hold_etfs = [s for s in etf_all_scores if s.get("shares", 0) > 0]
-                if _hold_etfs:
-                    _status_lines.append("\n**持仓 ETF**\n")
-                    for _se in sorted(_hold_etfs, key=lambda x: x.get("pnl_pct", 0), reverse=True):
-                        _p = _se.get("price") or 0
-                        _status_lines.append(
-                            f"- {_se['name']} ({_se['code']}): "
-                            f"买入 {_se.get('buy_score', 0):.0f} / 卖出 {_se.get('sell_score', 0):.0f} "
-                            f"| 浮盈 {_se.get('pnl_pct', 0):+.1f}%"
-                        )
-                _status_lines.append(f"\n> 共扫描 {len(etf_all_scores)} 只 ETF")
-                try:
-                    send_wechat(
-                        f"ETF 池子状态 ({run_time})",
-                        "\n".join(_status_lines), sendkey, dry_run=dry_run)
-                    _etf_status_last_sent = now
-                except Exception as _e:
-                    print(f"  [ERROR] ETF 状态推送失败: {_e}")
 
         # ── Watchlist scan (every 5 min, trading hours only) ─────────────────
         # Extract bare 6-digit codes from watchlist (supports both old and new format)
@@ -2109,8 +1876,7 @@ def run_loop(
             print(f"[{run_time}] Watchlist scan ({len(watchlist)} stocks)...")
             try:
                 run(dry_run=dry_run, universe_override=watchlist,
-                    sell_alert_state=sell_alert_state, _regime=_regime_this_iter,
-                    etf_scores=_etf_all_scores_latest if _etf_all_scores_latest else None)
+                    sell_alert_state=sell_alert_state, _regime=_regime_this_iter)
                 _watchlist_last_scan = now
             except Exception as e:
                 print(f"  [ERROR] Watchlist scan failed: {e}")
@@ -2119,23 +1885,14 @@ def run_loop(
         if need_full:
             print(f"[{run_time}] Full factor check ({session_key} session)...")
 
-            # ── Opening auction quality check (9:25, once per day) ───────────
-            if session_key == "morning" and _auction_checked_date != now.date():
-                _auction_checked_date = now.date()
-                try:
-                    # Union of 22:00 night picks + 01:00 pre-market picks (deduped, order preserved)
-                    _auction_picks = list(dict.fromkeys(_night_picks + _premarket_picks))
-                    _check_opening_auction(
-                        holdings   = holdings,
-                        pre_picks  = _auction_picks,
-                        watchlist  = _wl_codes(config),
-                        sendkey    = sendkey,
-                        dry_run    = dry_run,
-                        weights    = _fw,
-                        thresholds = thresholds,
-                    )
-                except Exception as e:
-                    print(f"  [竞价检验] 异常: {e}")
+            # ── Opening auction quality check 已禁用（竞价检验效果不佳）────────
+            # if session_key == "morning" and _auction_checked_date != now.date():
+            #     _auction_checked_date = now.date()
+            #     try:
+            #         _auction_picks = list(dict.fromkeys(_night_picks + _premarket_picks))
+            #         _check_opening_auction(...)
+            #     except Exception as e:
+            #         print(f"  [竞价检验] 异常: {e}")
 
             # ── Preauction XHS trigger (fires at start of morning session) ────
             if session_key == "morning" and "preauction" not in _xhs_triggered_today:
