@@ -238,9 +238,9 @@ def _push_results(data: dict) -> None:
         return f"({d[5:10].replace('-', '/')})" if len(d) >= 10 else ""
 
     if not hits:
-        body = f"扫描 {fund_count} 只基金，{_fmt_q(quarter)}，无股票被 >={min_funds} 家同时新增"
+        body = f"**{_fmt_q(quarter)} 季报 | {fund_count}只基金**\n\n无股票被 >={min_funds} 家同时新增"
     else:
-        items = [f"{_fmt_q(quarter)}  扫描{fund_count}只基金  >={min_funds}家新增"]
+        items = [f"**{_fmt_q(quarter)} 季报 | 监测{fund_count}只基金 | ≥{min_funds}家新增**"]
         for r in hits:
             fund_parts = "<br>".join(
                 f"`{b['fund_name'][:10]}  占{b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新{_fmt_disc(b.get('disclosure_date', ''))}`"
