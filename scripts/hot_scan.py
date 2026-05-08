@@ -273,7 +273,7 @@ def _push_results(data: dict) -> None:
         for p in picks[:15]:
             chg = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
             tags = "·".join(p.get("breakdown", []))
-            stock_lines.append(f"- **{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}  `{tags}`  ")
+            stock_lines.append(f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}  `{tags}`  ")
         legend_block = f"快照: {snap_t[:16] if snap_t else '未知'}\n\n```\n{_LEGEND}\n```"
         body = legend_block + "\n\n" + "\n".join(stock_lines)
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
