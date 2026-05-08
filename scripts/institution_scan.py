@@ -243,7 +243,7 @@ def _push_results(data: dict) -> None:
         items = [f"{_fmt_q(quarter)}  扫描{fund_count}只基金  >={min_funds}家新增"]
         for r in hits:
             fund_parts = "<br>".join(
-                f"`{b['fund_name'][:10]}  {b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新{_fmt_disc(b.get('disclosure_date', ''))}`"
+                f"`{b['fund_name'][:10]}  占{b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新{_fmt_disc(b.get('disclosure_date', ''))}`"
                 for b in r["buyers"]
             )
             items.append(
@@ -254,22 +254,12 @@ def _push_results(data: dict) -> None:
     push_wechat(title, body)
     print(f"[institution_scan] 微信推送完成", flush=True)
 
-    try:
-        from notify import push_feishu_card
-        card_lines = [f"{_fmt_q(quarter)}  扫描{fund_count}只基金  >={min_funds}家新增", ""]
-        if hits:
-            for r in hits:
-                card_lines.append(f"{r['stock_code']} {r['stock_name']}  {r['fund_count']}家新增")
-                for b in r["buyers"]:
-                    disc_s = _fmt_disc(b.get("disclosure_date", ""))
-                    card_lines.append(f"  · {b['fund_name'][:10]}  {b['ratio']:.2f}%  {_fmt_q(b['latest_q'])}新{disc_s}")
-                card_lines.append("")
-        else:
-            card_lines.append("无股票被多家基金同时新增")
-        card_lines.append("仅供参考，不构成投资建议")
-        push_feishu_card(title, card_lines)
-    except Exception as e:
-        print(f"[institution_scan] 飞书推送失败: {e}", flush=True)
+    # 飞书推送已禁用（内容过长）
+    # try:
+    #     from notify import push_feishu_card
+    #     ...
+    # except Exception as e:
+    #     print(f"[institution_scan] 飞书推送失败: {e}", flush=True)
 
 
 if __name__ == "__main__":

@@ -277,25 +277,12 @@ def _push_results(data: dict) -> None:
     push_wechat(title, body)
     print(f"[hot_scan] 微信推送完成", flush=True)
 
-    # 飞书卡片
-    try:
-        from notify import push_feishu_card
-        card_lines = [f"快照: {snap_t[:16] if snap_t else '未知'}  共{len(picks)}只", ""]
-        card_lines += _LEGEND.splitlines()
-        card_lines.append("")
-        if picks:
-            for p in picks[:15]:
-                chg_s = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
-                tags = "·".join(p.get("breakdown", []))
-                card_lines.append(f"{p['code']} {p['name']}  ¥{p['close']}  {chg_s}  热度#{p['rank']}")
-                card_lines.append(f"  `{tags}`")
-                card_lines.append("")
-        else:
-            card_lines.append("无符合条件的股票")
-        card_lines.append("仅供参考，不构成投资建议")
-        push_feishu_card(title, card_lines)
-    except Exception as e:
-        print(f"[hot_scan] 飞书推送失败: {e}", flush=True)
+    # 飞书推送已禁用（内容过长）
+    # try:
+    #     from notify import push_feishu_card
+    #     ...
+    # except Exception as e:
+    #     print(f"[hot_scan] 飞书推送失败: {e}", flush=True)
 
 
 if __name__ == "__main__":

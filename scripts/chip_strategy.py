@@ -980,34 +980,13 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
     print(f"\n{title}\n")
     from common import push_wechat as _pw
     _pw(title, body, dry_run=dry_run)
-    if not dry_run:
-        try:
-            from notify import push_feishu_card
-            _WIN = {"T1": "≥95%", "T2": "90-95%", "T3": "85-90%"}
-            card_lines: list[str] = []
-            for saves_dict, label in [
-                (cadm_top, "✅三筛俱过"),
-                (cah_only, "🔍cah独有"),
-                (cad_only, "💡cad独有"),
-            ]:
-                total = sum(len(saves_dict.get(t[0], [])) for t in top_tiers)
-                if not total:
-                    continue
-                card_lines.append(f"{label} 共{total}只")
-                for t in top_tiers:
-                    picks = saves_dict.get(t[0], [])
-                    if not picks:
-                        continue
-                    card_lines.append(f"{t[0]}({_WIN.get(t[0], '')}) {len(picks)}只")
-                    for p in picks:
-                        close_s = f"{float(p['close']):.2f}" if not math.isnan(float(p.get('close') or 0)) else "-"
-                        win_s   = f"{float(p['winner_rate']):.1f}%" if not math.isnan(float(p.get('winner_rate') or 0)) else "-"
-                        card_lines.append(f"{p.get('code','')} {str(p.get('name',''))[:6]} {str(p.get('industry',''))[:5]}  {close_s}  获利{win_s}")
-                card_lines.append("")
-            card_lines.append(f"数据: Tushare Pro · {datetime.now():%Y-%m-%d %H:%M}")
-            push_feishu_card(title, card_lines)
-        except Exception:
-            pass
+    # 飞书推送已禁用（内容过长）
+    # if not dry_run:
+    #     try:
+    #         from notify import push_feishu_card
+    #         ...
+    #     except Exception:
+    #         pass
 
 
 def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool = False,
@@ -1164,12 +1143,13 @@ def main() -> None:
                                  max_today_pct=max_today_pct, max_6m_ratio=max_6m_ratio,
                                  max_price=max_price, exclude_kcb=exclude_kcb)
     _push_wechat(title, body, dry_run=args.dry_run)
-    if not args.dry_run:
-        try:
-            from notify import push_feishu_card
-            push_feishu_card(title, body.splitlines())
-        except Exception:
-            pass
+    # 飞书推送已禁用（内容过长）
+    # if not args.dry_run:
+    #     try:
+    #         from notify import push_feishu_card
+    #         push_feishu_card(title, body.splitlines())
+    #     except Exception:
+    #         pass
 
 
 if __name__ == "__main__":

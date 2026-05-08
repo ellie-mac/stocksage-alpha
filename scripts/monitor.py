@@ -1411,12 +1411,13 @@ def run(
             send_wechat(buy_title, buy_desp, sendkey, dry_run=dry_run)
         except Exception as e:
             print(f"[ERROR] 选股推送失败: {e}")
-        if not dry_run:
-            try:
-                from notify import push_feishu_content
-                push_feishu_content(f"{buy_title}\n{buy_desp}")
-            except Exception:
-                pass
+        # 飞书推送已禁用（内容过长）
+        # if not dry_run:
+        #     try:
+        #         from notify import push_feishu_content
+        #         push_feishu_content(f"{buy_title}\n{buy_desp}")
+        #     except Exception:
+        #         pass
 
     return buy_alerts
 

@@ -364,11 +364,12 @@ def _push_results(data: dict) -> None:
     print(f"\n{title}\n{body}")
     push_wechat(title, body)
     print("[notify] 推送成功")
-    try:
-        from notify import push_feishu_content
-        push_feishu_content(f"{title}\n{body}")
-    except Exception:
-        pass
+    # 飞书推送已禁用（内容过长）
+    # try:
+    #     from notify import push_feishu_content
+    #     push_feishu_content(f"{title}\n{body}")
+    # except Exception:
+    #     pass
 
 
 def main() -> None:
