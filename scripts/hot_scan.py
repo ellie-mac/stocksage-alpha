@@ -29,13 +29,13 @@ OUT_LATEST = ROOT / "data" / "hot_scan_latest.json"
 
 
 _LEGEND = (
-    "· 短强  收盘>MA5  短期向上/+30\n"
-    "· 中强  MA5>MA20  中期向上/+30\n"
-    "· 长强  MA20>MA60  长期向上/+20\n"
-    "· 净涨  5日涨幅>噪音(0.5×ATR21/收盘)  排除震荡假突破/+20\n"
-    "· 深调  距20日高点<-15%  深度回调惩罚/-20\n"
-    "· 量增  5日均量>20日均量×1.2  放量确认/+10\n"
-    "· 缩量  5日均量<20日均量×0.7  无量拉升/-10\n"
+    "· 短强  收盘>MA5  短期向上/+30  \n"
+    "· 中强  MA5>MA20  中期向上/+30  \n"
+    "· 长强  MA20>MA60  长期向上/+20  \n"
+    "· 净涨  5日涨幅>噪音(0.5×ATR21/收盘)  排除震荡假突破/+20  \n"
+    "· 深调  距20日高点<-15%  深度回调惩罚/-20  \n"
+    "· 量增  5日均量>20日均量×1.2  放量确认/+10  \n"
+    "· 缩量  5日均量<20日均量×0.7  无量拉升/-10  \n"
     "· 连热  昨日热榜前50%  持续关注/+15"
 )
 
@@ -274,7 +274,7 @@ def _push_results(data: dict) -> None:
             chg = f"+{p['change_pct']:.1f}%" if p["change_pct"] >= 0 else f"{p['change_pct']:.1f}%"
             tags = "·".join(p.get("breakdown", []))
             stock_lines.append(f"**{p['code']} {p['name']}**  ¥{p['close']}  {chg}  热度#{p['rank']}  `{tags}`  ")
-        legend_block = f"快照: {snap_t[:16] if snap_t else '未知'}\n\n```\n{_LEGEND}\n```"
+        legend_block = f"快照: {snap_t[:16] if snap_t else '未知'}  \n{_LEGEND}"
         body = legend_block + "\n\n" + "\n".join(stock_lines)
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""))
     print(f"[hot_scan] 微信推送完成", flush=True)
