@@ -66,8 +66,16 @@ def _in_window(slot: str) -> bool:
     return True
 
 
+def _tier_filter(tiers: dict, picks: list) -> tuple[dict, list]:
+    """T1+T2 only; include T3 if T1+T2 combined < 20."""
+    t1_t2 = sum(len(tiers.get(t, [])) for t in ("T1", "T2"))
+    keep = ("T1", "T2", "T3") if t1_t2 < 20 else ("T1", "T2")
+    return ({k: v for k, v in tiers.items() if k in keep},
+            [p for p in picks if p.get("tier") in keep])
+
+
 def _load_scan() -> dict:
-    """取 CAH ∩ CAD ∩ CADM 三者 T1-T4 交集；三者缺任一则 fallback 到仅 CAD。"""
+    """取 CAH ∩ CAD ∩ CADM 三者 T1-T2 交集（T1+T2<20 时加入 T3）；三者缺任一则 fallback 到仅 CAD。"""
     cah_data  = json.loads(CAH_PATH.read_text(encoding="utf-8"))  if CAH_PATH.exists()  else None
     cad_data  = json.loads(CAD_PATH.read_text(encoding="utf-8"))  if CAD_PATH.exists()  else None
     cadm_data = json.loads(CADM_PATH.read_text(encoding="utf-8")) if CADM_PATH.exists() else None
@@ -92,6 +100,7 @@ def _load_scan() -> dict:
                 p2["tier"] = tier_key
                 all_picks.append(p2)
 
+        tiers_out, all_picks = _tier_filter(tiers_out, all_picks)
         if all_picks:
             return {"date": date, "all_picks": all_picks,
                     "tiers": tiers_out, "filter": "CAH∩CAD∩CADM"}
@@ -99,14 +108,16 @@ def _load_scan() -> dict:
 
     # fallback: cad only
     if cad_data:
+        tiers_cad = cad_data.get("tiers", {})
         all_picks = []
-        for tier_key, picks in cad_data.get("tiers", {}).items():
+        for tier_key, picks in tiers_cad.items():
             for p in picks:
                 p2 = dict(p); p2["tier"] = tier_key
                 all_picks.append(p2)
+        tiers_cad, all_picks = _tier_filter(tiers_cad, all_picks)
         if all_picks:
             return {"date": cad_data.get("date", datetime.now().strftime("%Y%m%d")),
-                    "all_picks": all_picks, "tiers": cad_data.get("tiers", {}),
+                    "all_picks": all_picks, "tiers": tiers_cad,
                     "filter": cad_data.get("mods", "")}
 
     if not SCAN_PATH.exists():
