@@ -309,9 +309,9 @@ def _load_recent_ak_cache(max_days: int = 3) -> pd.DataFrame | None:
 # Akshare-based chip distribution (自算版，无需 Tushare 额度)
 # ---------------------------------------------------------------------------
 
-def _calc_chip_stats(hist_df: pd.DataFrame, current_price: float) -> tuple[float, float]:
+def _calc_chip_stats(hist_df: pd.DataFrame, current_price: float) -> tuple[float, float, float]:
     """
-    Compute winner_rate (%) and cost_95pct from OHLCV history.
+    Compute (winner_rate, cost_95pct, cost_50pct) from OHLCV history.
     hist_df: columns [low, high, vol/volume, turnover(%)], sorted oldest → newest.
 
     Uses turnover-rate decay (同花顺 methodology):
@@ -368,13 +368,15 @@ def _calc_chip_stats(hist_df: pd.DataFrame, current_price: float) -> tuple[float
 
     total = chip.sum()
     if total <= 0:
-        return 0.0, 0.0
+        return 0.0, 0.0, 0.0
 
     winner_rate = float(chip[mids <= current_price].sum() / total * 100)
     cumsum      = np.cumsum(chip)
     idx95       = int(np.searchsorted(cumsum, 0.95 * total))
     cost_95pct  = float(mids[min(idx95, N - 1)])
-    return winner_rate, cost_95pct
+    idx50       = int(np.searchsorted(cumsum, 0.50 * total))
+    cost_50pct  = float(mids[min(idx50, N - 1)])
+    return winner_rate, cost_95pct, cost_50pct
 
 
 def _fetch_stock_hist_ak(code6: str, start_date: str, end_date: str) -> pd.DataFrame | None:
@@ -461,7 +463,7 @@ def fetch_chip_data_ak(trade_date: str) -> pd.DataFrame:
         close = float(last.get("close", 0))
         if close <= 0:
             continue
-        wr, c95 = _calc_chip_stats(hist, close)
+        wr, c95, c50 = _calc_chip_stats(hist, close)
         # Use actual last date from price history, not the query date
         last_date = last.get("date")
         if hasattr(last_date, "strftime"):
@@ -476,7 +478,7 @@ def fetch_chip_data_ak(trade_date: str) -> pd.DataFrame:
             "winner_rate": wr,
             "cost_95pct":  c95,
             "cost_85pct":  float("nan"),
-            "cost_50pct":  float("nan"),
+            "cost_50pct":  c50,
             "cost_5pct":   float("nan"),
             "weight_avg":  float("nan"),
             "close":       close,
