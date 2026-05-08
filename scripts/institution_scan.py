@@ -76,7 +76,25 @@ def _new_positions(df: pd.DataFrame, latest_q: str, prev_q: str) -> set[str]:
     return latest_codes - prev_codes
 
 
-def run_institution_scan(min_funds: int = 2, push: bool = False) -> dict:
+def _has_changes(new_output: dict, prev_path: Path) -> bool:
+    """比较新扫描结果与上次保存结果，有新股/家数增加/季度变化则返回 True。"""
+    if not prev_path.exists():
+        return True
+    try:
+        prev = json.loads(prev_path.read_text(encoding="utf-8"))
+    except Exception:
+        return True
+    if new_output.get("scan_quarter") != prev.get("scan_quarter"):
+        return True
+    prev_map = {h["stock_code"]: h["fund_count"] for h in prev.get("hits", [])}
+    for h in new_output.get("hits", []):
+        if h["stock_code"] not in prev_map or h["fund_count"] > prev_map[h["stock_code"]]:
+            return True
+    return False
+
+
+def run_institution_scan(min_funds: int = 2, push: bool = False,
+                         push_if_changed: bool = False) -> dict:
     watchlist = json.loads(WATCHLIST_PATH.read_text(encoding="utf-8"))
     funds = watchlist.get("funds", [])
     if not min_funds:
@@ -191,6 +209,12 @@ def run_institution_scan(min_funds: int = 2, push: bool = False) -> dict:
 
     if push:
         _push_results(output)
+    elif push_if_changed:
+        if _has_changes(output, OUT_LATEST):
+            print("[institution_scan] 检测到变化，推送", flush=True)
+            _push_results(output)
+        else:
+            print("[institution_scan] 无变化，跳过推送", flush=True)
 
     return output
 
@@ -250,6 +274,8 @@ def _push_results(data: dict) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--min-funds", type=int, default=0, help="至少几家新增（0=读配置文件）")
-    parser.add_argument("--push", action="store_true")
+    parser.add_argument("--push", action="store_true", help="无论是否变化都推送")
+    parser.add_argument("--push-if-changed", action="store_true", help="与上次结果对比，有变化才推送（定时任务用）")
     args = parser.parse_args()
-    run_institution_scan(min_funds=args.min_funds, push=args.push)
+    run_institution_scan(min_funds=args.min_funds, push=args.push,
+                         push_if_changed=args.push_if_changed)

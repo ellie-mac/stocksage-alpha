@@ -20,6 +20,7 @@
     python -X utf8 scripts/chip_strategy.py --refresh-names  # 强制刷新名称缓存
     python -X utf8 scripts/chip_strategy.py --cad                       # 数据驱动多档扫描
     python -X utf8 scripts/chip_strategy.py --cad --mods bekh bekhm    # 指定 mods
+    python -X utf8 scripts/chip_strategy.py --cad --always-t12         # 量化早报模式：T1+T2永远显示，T3只在<30时加
 """
 from __future__ import annotations
 

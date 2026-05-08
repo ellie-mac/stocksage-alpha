@@ -5,7 +5,7 @@ scripts/run_cad_pipeline.py — 自愈筹码流水线
 流程：
   1. 检查今日 AK 筹码缓存是否完整（>= MIN_ROWS 条）
   2. 不完整 → 运行 chip_Night（daily_chip_scan.py --ak --no-push）
-  3. 运行 chip_CadScan（chip_cad.py --mods bekh bekhm）
+  3. 运行 chip_CadScan（chip_cad.py --cad --mods bekh bekhm --always-t12）
   4. 任一步失败 → 发详细微信通知（步骤/退出码/日志尾部/修复命令）
 
 chip_Night（18:00）作为独立预热任务保留，大多数情况 20:30 直接命中缓存。
