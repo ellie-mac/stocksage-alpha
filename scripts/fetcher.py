@@ -627,12 +627,12 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     with different `days` values share a single cache entry per stock.
 
     Source priority:
-      1. East Money  (stock_zh_a_hist)    — best adjusted (qfq) data
-      2. Tushare Pro (daily, adj=qfq)     — basic tier, reliable; data available 15:00-16:00
-      3. BaoStock                          — free, no V8; single-socket, Windows-fragile
+      1. mootdx/通达信                    — TCP binary; fast from any region; unadjusted
+      2. East Money  (stock_zh_a_hist)    — qfq adjusted; HTTP may timeout from non-CN
+      3. Tushare Pro (daily, adj=qfq)     — basic tier, reliable; data available 15:00-16:00
       4. Tencent Finance (stock_zh_a_hist_tx) — independent server (qq.com), qfq, no BJ
-      5. 163/Netease (stock_zh_a_daily)   — V8-based
-      6. mootdx/通达信                    — binary TCP; unadjusted (last resort)
+      5. BaoStock                          — free, no V8; single-socket, Windows-fragile
+      6. 163/Netease (stock_zh_a_daily)   — V8-based
     """
     global _hist_em_failed, _hist_em_failed_at
     global _hist_ts_failed, _hist_ts_failed_at
@@ -655,7 +655,39 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             return cached.tail(days).reset_index(drop=True)
         return cached
 
-    # ── Source 1: East Money ─────────────────────────────────────────────
+    # ── Source 1: mootdx / 通达信 (TCP binary, fastest from any region) ──
+    # Unadjusted prices. TCP eliminates HTTP timeout risk from non-CN hosts.
+    if not _hist_tdx_failed:
+        try:
+            from mootdx.quotes import Quotes as _MootdxQuotes
+            _tdx = _MootdxQuotes.factory(market='std')
+            df = _tdx.bars(symbol=code, frequency=9, offset=fetch_days + 50)
+            if df is not None and not df.empty:
+                df = df.reset_index(drop=True)
+                if "vol" in df.columns and "volume" in df.columns:
+                    df = df.drop(columns=["vol"])
+                elif "vol" in df.columns:
+                    df = df.rename(columns={"vol": "volume"})
+                df["date"] = pd.to_datetime(df["datetime"]).dt.normalize()
+                for col in ["open", "high", "low", "close", "volume"]:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors="coerce")
+                df = df.sort_values("date").reset_index(drop=True)
+                df["change_pct"] = df["close"].pct_change() * 100
+                df["change_amt"] = df["close"].diff()
+                cutoff = pd.Timestamp.now() - pd.Timedelta(days=fetch_days + 10)
+                df = df[df["date"] >= cutoff].reset_index(drop=True)
+                if not df.empty:
+                    cache.set_df(cache_key, df)
+                    if len(df) > days:
+                        return df.tail(days).reset_index(drop=True)
+                    return df
+        except ImportError:
+            _hist_tdx_failed_at = _time.time(); _hist_tdx_failed = True
+        except Exception:
+            _hist_tdx_failed_at = _time.time(); _hist_tdx_failed = True
+
+    # ── Source 2: East Money ─────────────────────────────────────────────
     if not _hist_em_failed:
         with _em_hist_sem:   # max 2 concurrent EM requests — prevents rate-limit cascade
             try:
@@ -684,7 +716,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             except Exception:
                 _hist_em_failed_at = _time.time(); _hist_em_failed = True
 
-    # ── Source 2: Tushare Pro daily (adj=qfq) ────────────────────────────
+    # ── Source 3: Tushare Pro daily (adj=qfq) ────────────────────────────
     # Basic tier (120pts), 500 calls/min, data available ~15:00-16:00 each day.
     if not _hist_ts_failed:
         with _ts_hist_sem:   # max 3 concurrent Tushare requests
@@ -721,7 +753,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             except Exception:
                 _hist_ts_failed_at = _time.time(); _hist_ts_failed = True
 
-    # ── Source 3: Tencent Finance (stock_zh_a_hist_tx) ─────────────────────
+    # ── Source 4: Tencent Finance (stock_zh_a_hist_tx) ─────────────────────
     # Fully concurrent (no global lock), independent server (qq.com/gtimg.cn).
     # Does not support BJ exchange (8xx/43xxxx) stocks.
     # Moved before BaoStock because BaoStock is serialised by _bs_lock.
@@ -753,7 +785,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         except Exception:
             _hist_tx_failed_at = _time.time(); _hist_tx_failed = True
 
-    # ── Source 4: BaoStock (free, no V8, reliable; serialised by _bs_lock) ──
+    # ── Source 5: BaoStock (free, no V8, reliable; serialised by _bs_lock) ──
     # BaoStock's Python client is NOT thread-safe: all concurrent callers share
     # one TCP socket.  Without _bs_lock here, concurrent rs.next() calls in
     # different threads consume each other's response bytes, leaving some threads
@@ -839,7 +871,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     except Exception:
         pass
 
-    # ── Source 5: 163/Netease via stock_zh_a_daily (V8 — last resort) ───
+    # ── Source 6: 163/Netease via stock_zh_a_daily (V8 — last resort) ───
     # Note: 163/Netease does not carry BJ exchange stocks; they will 404 silently.
     # BJ stocks (prefix="bj") should have been served by BaoStock above.
     try:
@@ -871,39 +903,6 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         return df
     except Exception:
         pass
-
-    # ── Source 6: mootdx / 通达信 (unadjusted — last resort) ─────────────
-    # WARNING: returns unadjusted prices. Price-based factors (momentum, MA, etc.)
-    # may be slightly off for stocks with recent corporate actions.
-    if not _hist_tdx_failed:
-        try:
-            from mootdx.quotes import Quotes as _MootdxQuotes  # lazy import
-            _tdx = _MootdxQuotes.factory(market='std')
-            df = _tdx.bars(symbol=code, frequency=9, offset=fetch_days + 50)
-            if df is not None and not df.empty:
-                df = df.reset_index(drop=True)
-                if "vol" in df.columns and "volume" in df.columns:
-                    df = df.drop(columns=["vol"])
-                elif "vol" in df.columns:
-                    df = df.rename(columns={"vol": "volume"})
-                df["date"] = pd.to_datetime(df["datetime"]).dt.normalize()
-                for col in ["open", "high", "low", "close", "volume"]:
-                    if col in df.columns:
-                        df[col] = pd.to_numeric(df[col], errors="coerce")
-                df = df.sort_values("date").reset_index(drop=True)
-                df["change_pct"] = df["close"].pct_change() * 100
-                df["change_amt"] = df["close"].diff()
-                cutoff = pd.Timestamp.now() - pd.Timedelta(days=fetch_days + 10)
-                df = df[df["date"] >= cutoff].reset_index(drop=True)
-                if not df.empty:
-                    cache.set_df(cache_key, df)
-                    if len(df) > days:
-                        return df.tail(days).reset_index(drop=True)
-                    return df
-        except ImportError:
-            _hist_tdx_failed_at = _time.time(); _hist_tdx_failed = True
-        except Exception:
-            _hist_tdx_failed_at = _time.time(); _hist_tdx_failed = True
 
     return None
 
@@ -1626,46 +1625,77 @@ def _build_concept_reverse_map() -> dict:
         cached = cache.get(cache_key, _CONCEPT_MAP_TTL)  # double-checked after acquiring lock
         if cached is not None:
             return cached
+        # ── AKShare (primary) ────────────────────────────────────────────
         try:
             from concurrent.futures import ThreadPoolExecutor
             concept_df = _call_with_timeout(ak.stock_board_concept_name_em, 30)
-            if concept_df is None or concept_df.empty:
-                return {}
-            concept_df.columns = [c.strip() for c in concept_df.columns]
-            name_col = next(
-                (c for c in concept_df.columns if "名称" in c),
-                concept_df.columns[0],
-            )
-            concept_names = [str(n) for n in concept_df[name_col].dropna().tolist()]
+            if concept_df is not None and not concept_df.empty:
+                concept_df.columns = [c.strip() for c in concept_df.columns]
+                name_col = next(
+                    (c for c in concept_df.columns if "名称" in c),
+                    concept_df.columns[0],
+                )
+                concept_names = [str(n) for n in concept_df[name_col].dropna().tolist()]
 
-            reverse_map: dict = {}
+                reverse_map: dict = {}
 
-            def _fetch_cons(cname: str):
-                try:
-                    df = _call_with_timeout(ak.stock_board_concept_cons_em, 20, symbol=cname)
-                    if df is None or df.empty:
+                def _fetch_cons(cname: str):
+                    try:
+                        df = _call_with_timeout(ak.stock_board_concept_cons_em, 20, symbol=cname)
+                        if df is None or df.empty:
+                            return cname, []
+                        df.columns = [c.strip() for c in df.columns]
+                        code_col = next(
+                            (c for c in df.columns if "代码" in c or c.lower() == "code"),
+                            None,
+                        )
+                        if code_col is None:
+                            return cname, []
+                        codes = [str(c).zfill(6) for c in df[code_col].dropna().tolist()]
+                        return cname, codes
+                    except Exception:
                         return cname, []
-                    df.columns = [c.strip() for c in df.columns]
-                    code_col = next(
-                        (c for c in df.columns if "代码" in c or c.lower() == "code"),
-                        None,
-                    )
-                    if code_col is None:
-                        return cname, []
-                    codes = [str(c).zfill(6) for c in df[code_col].dropna().tolist()]
-                    return cname, codes
-                except Exception:
-                    return cname, []
 
-            with ThreadPoolExecutor(max_workers=16) as ex:
-                for cname, codes in ex.map(_fetch_cons, concept_names):
-                    for code in codes:
-                        reverse_map.setdefault(code, []).append(cname)
+                with ThreadPoolExecutor(max_workers=16) as ex:
+                    for cname, codes in ex.map(_fetch_cons, concept_names):
+                        for code in codes:
+                            reverse_map.setdefault(code, []).append(cname)
 
-            cache.set(cache_key, reverse_map)
-            return reverse_map
+                if reverse_map:
+                    cache.set(cache_key, reverse_map)
+                    return reverse_map
         except Exception:
-            return {}
+            pass
+
+        # ── Tushare fallback ─────────────────────────────────────────────
+        try:
+            import time as _t
+            pro = _get_tushare_pro()
+            if pro is not None:
+                concept_df = pro.concept(src='ts')
+                if concept_df is not None and not concept_df.empty:
+                    reverse_map = {}
+                    for _, row in concept_df.iterrows():
+                        cid   = str(row.get("id", "")).strip()
+                        cname = str(row.get("concept_name", "")).strip()
+                        if not cid or not cname:
+                            continue
+                        try:
+                            detail = pro.concept_detail(id=cid, fields='ts_code')
+                            if detail is not None and not detail.empty:
+                                for ts_code in detail["ts_code"].dropna():
+                                    code6 = str(ts_code).split(".")[0].zfill(6)
+                                    reverse_map.setdefault(code6, []).append(cname)
+                            _t.sleep(0.4)  # ~2.5 calls/s, stays inside Tushare rate limit
+                        except Exception:
+                            continue
+                    if reverse_map:
+                        cache.set(cache_key, reverse_map)
+                        return reverse_map
+        except Exception:
+            pass
+
+        return {}
 
 
 def get_concept_momentum(code: str) -> Optional[list]:
