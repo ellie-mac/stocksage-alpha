@@ -492,6 +492,7 @@ def h_status() -> str:
         "batch_financials.py", "build_universe.py", "chip_strategy.py",
         "daily_chip_scan.py", "run_cad_pipeline.py",
         "prefetch.py", "research.py", "integrity_check.py", "hot_scan.py", "pos_check.py",
+        "institution_scan.py", "golden_cross_scan.py", "chip_cad.py",
     }
     ss_procs, other_procs = [], []
     for pid, cmd in proc_list:
