@@ -991,7 +991,7 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
                 sections.append(s)
 
     if cad_only_total:
-        sections.append(f"\n## 💡 cad独有 T1-T3（BOLL等通过，MACD未收敛）共{cad_only_total}只")
+        sections.append(f"\n## 💡 cad独有 C0-C2（BOLL等通过，MACD未收敛）共{cad_only_total}只")
         for t in top_tiers:
             s = _cad_build_section(t[0], cad_only.get(t[0], []), "cad")
             if s:
