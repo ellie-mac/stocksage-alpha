@@ -902,13 +902,14 @@ def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
 
 
 def _tier_cap(tiers: dict[str, list], limit: int = 30) -> dict[str, list]:
-    """T1+T2 永远显示；T3 仅在 T1+T2 < limit 时才加入。"""
+    """如果T1>=limit只显示T1；T1+T2>=limit只显示T1+T2；否则全显示。"""
     t1 = tiers.get("T1", [])
     t2 = tiers.get("T2", [])
-    result: dict[str, list] = {"T1": t1, "T2": t2}
-    if len(t1) + len(t2) < limit:
-        result["T3"] = tiers.get("T3", [])
-    return result
+    if len(t1) >= limit:
+        return {"T1": t1}
+    if len(t1) + len(t2) >= limit:
+        return {"T1": t1, "T2": t2}
+    return tiers
 
 
 def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_date: str,
