@@ -114,12 +114,35 @@ def _ar(s: dict) -> str:
 
 # ── 各策略数据加载 ─────────────────────────────────────────────────────────────
 
+_EXCH_SUFFIX = {"sz": ".SZ", "sh": ".SH", "bj": ".BJ"}
+
+
 def _norm_code(code: str) -> str:
     """'sz002183' / 'sh600158' / '000001.SZ' → '000001'."""
     s = str(code)
-    if len(s) > 2 and s[:2].lower() in ("sz", "sh", "bj"):
+    if len(s) > 2 and s[:2].lower() in _EXCH_SUFFIX:
         return s[2:]
     return s.split(".")[0]
+
+
+def _ts_code(code: str) -> str:
+    """'sz002183' → '002183.SZ'; plain code → '' (suffix unknown)."""
+    s = str(code)
+    if len(s) > 2 and s[:2].lower() in _EXCH_SUFFIX:
+        return s[2:] + _EXCH_SUFFIX[s[:2].lower()]
+    return ""
+
+
+_STOCK_NAMES: dict = {}
+
+
+def _stock_names() -> dict:
+    global _STOCK_NAMES
+    if not _STOCK_NAMES:
+        p = DATA_DIR / "stock_names.json"
+        if p.exists():
+            _STOCK_NAMES = json.loads(p.read_text(encoding="utf-8"))
+    return _STOCK_NAMES
 
 
 def _load_main(today: str) -> tuple[list[dict], list[dict]]:
@@ -152,7 +175,7 @@ def _find_prev(glob_pat: str, today: str, days: int = 3) -> dict | None:
     from datetime import datetime as _dt, timedelta
     cutoff = (_dt.strptime(today, "%Y%m%d") - timedelta(days=days)).strftime("%Y%m%d")
     candidates = sorted(
-        (p for p in DATA_DIR.glob(glob_pat) if cutoff <= p.stem[-8:] <= today),
+        (p for p in DATA_DIR.glob(glob_pat) if cutoff <= p.stem[-8:] < today),
         key=lambda p: p.stem[-8:], reverse=True,
     )
     if not candidates:
@@ -161,6 +184,18 @@ def _find_prev(glob_pat: str, today: str, days: int = 3) -> dict | None:
         return json.loads(candidates[0].read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+_CHIP_LEGACY = {"T1": "C0", "T2": "C1", "T3": "C2", "T4": "C3"}
+
+
+def _chip_tier_picks(tiers_dict: dict, ct: str) -> list:
+    """Read tier ct from tiers_dict; fall back to legacy T-key for old files."""
+    picks = tiers_dict.get(ct)
+    if picks is None:
+        legacy = next((lk for lk, ck in _CHIP_LEGACY.items() if ck == ct), None)
+        picks = tiers_dict.get(legacy, []) if legacy else []
+    return picks
 
 
 def _load_chip(today: str) -> dict[str, list[dict]]:
@@ -177,11 +212,11 @@ def _load_chip(today: str) -> dict[str, list[dict]]:
     base_key = next(k for k in ("cad", "cadm", "cah") if k in available)
     base = available[base_key]
     filter_sets = [
-        {p["code"] for ct in CHIP_TIERS for p in src.get("tiers", {}).get(ct, [])}
+        {p["code"] for ct in CHIP_TIERS for p in _chip_tier_picks(src.get("tiers", {}), ct)}
         for k, src in available.items() if k != base_key
     ]
     return {
-        ct: [p for p in base.get("tiers", {}).get(ct, [])
+        ct: [p for p in _chip_tier_picks(base.get("tiers", {}), ct)
              if all(p["code"] in fs for fs in filter_sets)]
         for ct in CHIP_TIERS
     }
@@ -193,7 +228,15 @@ def _load_gc(today: str) -> dict[str, list[dict]]:
     if not gc:
         return {t: [] for t in GC_TIERS}
     tiers = gc.get("tiers", {})
-    def _norm(p): return {**p, "code": _norm_code(p.get("code", ""))}
+    names = _stock_names()
+    def _norm(p):
+        orig = str(p.get("code", ""))
+        normed = _norm_code(orig)
+        name = p.get("name", "")
+        if not name or name == orig:
+            ts = _ts_code(orig)
+            name = names.get(ts, {}).get("name", "") or normed
+        return {**p, "code": normed, "name": name}
     return {t: [_norm(p) for p in tiers.get(t, [])] for t in GC_TIERS}
 
 
