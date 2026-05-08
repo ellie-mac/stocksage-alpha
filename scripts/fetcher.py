@@ -634,6 +634,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
       5. BaoStock                          — free, no V8; single-socket, Windows-fragile
       6. 163/Netease (stock_zh_a_daily)   — V8-based
     """
+    code = normalize_code(code)  # strip sh/sz/bj prefix; idempotent on 6-digit codes
     global _hist_em_failed, _hist_em_failed_at
     global _hist_ts_failed, _hist_ts_failed_at
     global _hist_tx_failed, _hist_tx_failed_at
