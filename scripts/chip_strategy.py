@@ -810,7 +810,7 @@ def format_message(
 
         close_s = f"{close:.2f}" if pd.notna(close) else "-"
         wavg_s  = f"{wavg:.2f}"  if pd.notna(wavg)  else "-"
-        lines.append(f"{code} {name} {ind}  {close_s}  均{wavg_s}  ")
+        lines.append(f"**{code} {name}** {ind}  {close_s}  均{wavg_s}  ")
 
     lines += ["", f"数据: Tushare Pro · {datetime.now():%Y-%m-%d %H:%M}"]
     return title, "\n".join(lines)
@@ -907,7 +907,7 @@ def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
     for p in picks:
         close_s = f"{p['close']:.2f}" if not math.isnan(float(p['close'] or 0)) else "-"
         win_s   = f"{p['winner_rate']:.1f}%" if not math.isnan(float(p['winner_rate'] or 0)) else "-"
-        rows.append(f"{p['name']}({p['industry']}) {close_s} 获利{win_s}  ")
+        rows.append(f"**{p['code']} {p['name']}** ({p['industry']}) {close_s} 获利{win_s}  ")
     return header + "\n" + "\n".join(rows)
 
 

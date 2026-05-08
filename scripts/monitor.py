@@ -1358,7 +1358,7 @@ def run(
                 lines = [f"## {label}\n"]
                 for s in top_candidates:
                     signal = " ✅" if s in buy_alerts else ""
-                    lines.append(f"- **{s['name']}**（{s['code']}）买入分:{s['buy_score']:.0f}{signal}")
+                    lines.append(f"**{s['code']} {s['name']}** 买入分:{s['buy_score']:.0f}{signal}  ")
                 buy_desp_parts.append("\n".join(lines))
         elif buy_alerts:
             buy_desp_parts.append("## 主策略买入\n")
@@ -1372,8 +1372,7 @@ def run(
                 cap_str = f" {cap_b:.0f}亿" if cap_b else ""
                 signal_mark = " ✅" if s.get("_sc_signal") else ""
                 sc_lines.append(
-                    f"- **{s['name']}**（{s['code']}）"
-                    f"买入分:{s['buy_score']:.0f}{cap_str}{signal_mark}"
+                    f"**{s['code']} {s['name']}** 买入分:{s['buy_score']:.0f}{cap_str}{signal_mark}  "
                 )
             buy_desp_parts.append("\n\n" + "\n".join(sc_lines))
 
