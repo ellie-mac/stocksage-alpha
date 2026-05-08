@@ -155,58 +155,39 @@ def prefetch_concept() -> None:
 # ── fundflow prefetch ─────────────────────────────────────────────────────────
 
 def prefetch_fundflow(force: bool = False) -> None:
-    """预热全市场资金流向缓存。跳过未过期条目，只补缺失/过期的。"""
-    import fetcher
-    import cache as _cache
+    """
+    预热全市场资金流向缓存。
 
-    codes = _load_universe()
-    if not codes:
-        return
+    使用 tushare moneyflow_ths(trade_date=...) 一次批量拉全市场当日数据（1 次 API 调用），
+    拆分后写入各股票 fundflow 缓存，供 get_fund_flow() 直接命中。
+    限速 2次/小时，每次运行拉今日 + 昨日（共 2 次），不超限。
+    """
+    import fetcher
+    from datetime import date as _date
 
     now_h = datetime.now().hour
     if not force and now_h < 15:
         print(f"[prefetch/fundflow] 当前 {_now_str()}，需 15:00 后运行，跳过", flush=True)
         return
 
-    print(f"[prefetch/fundflow] 开始预热 {len(codes)} 只资金流向  {_now_str()}", flush=True)
-    ttl   = _cache.smart_price_ttl()
-    total = len(codes)
-    done = skipped = failed = 0
-    t0 = time.time()
+    try:
+        raw = fetcher.get_trade_calendar()
+        all_dates = sorted(d.replace("-", "") for d in raw)
+        today_str = _date.today().strftime("%Y%m%d")
+        past = [d for d in all_dates if d <= today_str]
+        target_dates = past[-2:] if len(past) >= 2 else past
+    except Exception:
+        target_dates = [_date.today().strftime("%Y%m%d")]
 
-    def _warm_one(code: str) -> str:
-        cached = _cache.get_df(f"fundflow_{code}", ttl)
-        if cached is not None:
-            return "skip"
-        df = fetcher.get_fund_flow(code, days=20)
-        if df is None or df.empty:
-            return "fail"
-        return "ok"
+    print(f"[prefetch/fundflow] 批量拉取 {target_dates}  {_now_str()}", flush=True)
+    total_cached = 0
+    for td in target_dates:
+        n = fetcher.prefetch_fund_flow_by_date(td)
+        total_cached += n
 
-    with ThreadPoolExecutor(max_workers=5) as ex:
-        futures = {ex.submit(_warm_one, c): c for c in codes}
-        for fut in as_completed(futures):
-            result = fut.result()
-            done += 1
-            if result == "skip":
-                skipped += 1
-            elif result == "fail":
-                failed += 1
-            if done % 500 == 0 or done == total:
-                elapsed = time.time() - t0
-                rate    = done / elapsed if elapsed > 0 else 0
-                eta     = (total - done) / rate if rate > 0 else 0
-                print(
-                    f"[prefetch/fundflow] {done}/{total}  "
-                    f"新增:{done-skipped-failed}  跳过:{skipped}  失败:{failed}  "
-                    f"eta:{eta/60:.0f}min  {_now_str()}",
-                    flush=True,
-                )
-
-    elapsed = time.time() - t0
     print(
         f"[prefetch/fundflow] 完成 {_now_str()}  "
-        f"总耗时:{elapsed/60:.1f}min  新增:{done-skipped-failed}  跳过:{skipped}  失败:{failed}",
+        f"共写入缓存 {total_cached} 条（{len(target_dates)} 个交易日）",
         flush=True,
     )
 

@@ -1075,6 +1075,46 @@ def _fetch_fund_flow_ts(code: str) -> Optional["pd.DataFrame"]:
         return None
 
 
+def prefetch_fund_flow_by_date(trade_date: str) -> int:
+    """
+    Batch-fetch all stocks' fund flow for one trade_date via tushare moneyflow_ths.
+    Splits result and writes each stock into the fundflow cache.
+    Costs 1 API call (2/hour quota), returns number of stocks cached.
+    """
+    pro = _get_tushare_pro()
+    if pro is None:
+        return 0
+    try:
+        df = pro.moneyflow_ths(trade_date=trade_date)
+        if df is None or df.empty:
+            return 0
+    except Exception as e:
+        print(f"[prefetch_fund_flow] {trade_date} error: {e}", flush=True)
+        return 0
+
+    df = df.rename(columns=_TS_FUNDFLOW_RENAME)
+    cached_count = 0
+    for _, row in df.iterrows():
+        raw_code = str(row.get("ts_code", ""))
+        if not raw_code:
+            continue
+        code = raw_code.split(".")[0]
+        cache_key = f"fundflow_{code}"
+        existing = cache.get_df(cache_key, 48 * 3600)
+        row_df = pd.DataFrame([row.drop(labels=["ts_code"], errors="ignore")])
+        if existing is not None and not existing.empty:
+            merged = pd.concat([existing, row_df], ignore_index=True)
+            if "trade_date" in merged.columns:
+                merged = merged.drop_duplicates(subset=["trade_date"]).sort_values("trade_date")
+            merged = merged.tail(_FUND_FLOW_MAX_DAYS).reset_index(drop=True)
+            cache.set_df(cache_key, merged)
+        else:
+            cache.set_df(cache_key, row_df.reset_index(drop=True))
+        cached_count += 1
+    print(f"[prefetch_fund_flow] {trade_date} cached {cached_count} stocks", flush=True)
+    return cached_count
+
+
 def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
     """
     Fetch per-stock order-flow breakdown (large / medium / small orders).
