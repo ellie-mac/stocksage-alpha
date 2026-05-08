@@ -917,7 +917,7 @@ def _check_opening_auction(
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     desp = f"*{now_str}*\n\n" + "\n\n".join(sections) + "\n\n> 仅供参考，不构成投资建议"
     try:
-        send_wechat("[StockSage] 开盘竞价简报 🔔", desp, sendkey, dry_run=dry_run)
+        send_wechat("开盘竞价简报 🔔", desp, sendkey, dry_run=dry_run)
         print(f"  [竞价检验] 推送完成（{len(verdicts)} 只）")
     except Exception as e:
         print(f"  [竞价检验] 推送失败: {e}")
@@ -1305,7 +1305,7 @@ def run(
         if strong_sells: hold_parts.append(f"🔴 {len(strong_sells)} 强卖（{_names(strong_sells)}）")
         if stall_sells:  hold_parts.append(f"⚠️ {len(stall_sells)} 减仓（{_names(stall_sells)}）")
         if not hold_parts: hold_parts.append("持仓日报")
-        hold_title = f"[StockSage 持仓] {' | '.join(hold_parts)}"
+        hold_title = f"持仓 {' | '.join(hold_parts)}"
 
         _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
         hold_desp_parts = [f"*{run_time}*\n市场 {_re_emoji} {regime_score:.0f}/10 {_regime_key}\n"]
@@ -1344,7 +1344,7 @@ def run(
         if smallcap_alerts: buy_parts.append(f"📊 {len(smallcap_alerts)} 小盘（{_names(smallcap_alerts)}）")
         if etf_alerts:     buy_parts.append(f"🏦 {len(etf_alerts)} ETF（{_names(etf_alerts)}）")
         if not buy_parts:  buy_parts.append("今日关注")
-        buy_title = f"[StockSage] {' | '.join(buy_parts)}"
+        buy_title = f"{' | '.join(buy_parts)}"
 
         _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
         buy_desp_parts = [f"*{run_time}*\n市场 {_re_emoji} {regime_score:.0f}/10 {_regime_key}\n"]
@@ -1557,7 +1557,7 @@ def run_loop(
         _error_notified[key] = datetime.now()
         try:
             send_wechat(
-                f"[StockSage] ⚠️ 扫描异常",
+                f"⚠️ 扫描异常",
                 f"**{key}** 发生错误:\n\n```\n{msg[:400]}\n```\n\n"
                 f"> {datetime.now().strftime('%Y-%m-%d %H:%M')}",
                 sendkey, dry_run=dry_run,
@@ -1624,7 +1624,7 @@ def run_loop(
                             _universe_refresh_done.set()
                             try:
                                 send_wechat(
-                                    "[StockSage] 股票池已更新 🔄",
+                                    "股票池已更新 🔄",
                                     f"今日 screener_universe 刷新完成\n\n"
                                     f"- 候选股票: **{n}** 只（全量扫描）\n"
                                     f"- 自选池（每30分钟扫描）:\n{_wl_lines(cfg)}\n\n"
@@ -1724,7 +1724,7 @@ def run_loop(
                 f"> {now.strftime('%Y-%m-%d')} 开盘前自检"
             )
             try:
-                send_wechat("[StockSage] 今日监控在线 ✅", desp, sendkey, dry_run=dry_run)
+                send_wechat("今日监控在线 ✅", desp, sendkey, dry_run=dry_run)
             except Exception as e:
                 print(f"  [WARN] Heartbeat push failed: {e}")
 
@@ -1791,7 +1791,7 @@ def run_loop(
                 + "\n\n> 仅供参考，不构成投资建议"
             )
             try:
-                send_wechat("[StockSage] 今日收盘 📊", closing_desp, sendkey, dry_run=dry_run)
+                send_wechat("今日收盘 📊", closing_desp, sendkey, dry_run=dry_run)
             except Exception as e:
                 print(f"  [WARN] Closing summary push failed: {e}")
             # XHS evening post: today's watchlist performance summary
@@ -1921,7 +1921,7 @@ def run_loop(
             except Exception:
                 pass
         if fast_alerts and _market_open:
-            title = f"[StockSage ⚡] {len(fast_alerts)} 实时预警"
+            title = f"⚡ {len(fast_alerts)} 实时预警"
             desp  = build_fast_wechat_desp(fast_alerts, run_time,
                                            stop_loss_pct=thresholds.get("stop_loss_pct", -8.0))
             try:
@@ -2036,7 +2036,7 @@ def run_loop(
                 _etf_lines.append("\n> T+0 / 仅供参考")
                 try:
                     send_wechat(
-                        f"[StockSage ETF] {' | '.join(_parts)}",
+                        f"ETF {' | '.join(_parts)}",
                         "\n".join(_etf_lines), sendkey, dry_run=dry_run)
                 except Exception as _e:
                     print(f"  [ERROR] ETF 推送失败: {_e}")
@@ -2074,7 +2074,7 @@ def run_loop(
                 _status_lines.append(f"\n> 共扫描 {len(etf_all_scores)} 只 ETF")
                 try:
                     send_wechat(
-                        f"[StockSage ETF] 池子状态 ({run_time})",
+                        f"ETF 池子状态 ({run_time})",
                         "\n".join(_status_lines), sendkey, dry_run=dry_run)
                     _etf_status_last_sent = now
                 except Exception as _e:

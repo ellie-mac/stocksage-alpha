@@ -350,7 +350,7 @@ def run_loop(interval_min: int = 5, dry_run: bool = False) -> None:
                 + "\n\n> T+0 / 仅供参考，不构成投资建议"
             )
             try:
-                _send("[StockSage ETF] 今日收盘 📊", closing_desp, sendkey, dry_run)
+                _send("ETF 今日收盘 📊", closing_desp, sendkey, dry_run)
             except Exception as e:
                 print(f"  [WARN] Closing push failed: {e}")
 
@@ -424,7 +424,7 @@ def run_loop(interval_min: int = 5, dry_run: bool = False) -> None:
             if stall_sells:  parts.append(f"⚠️ {len(stall_sells)} 减仓参考")
             if strong_buys:  parts.append(f"✅ {len(strong_buys)} 强买")
             if add_buys:     parts.append(f"💡 {len(add_buys)} 加仓参考")
-            title = f"[StockSage ETF] {' | '.join(parts)}"
+            title = f"ETF {' | '.join(parts)}"
             desp = _build_desp(buy_alerts, sell_alerts, today_activity,
                                 run_time, regime_score, regime_signal, thresholds)
             try:
