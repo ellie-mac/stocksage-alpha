@@ -24,4 +24,13 @@ scripts/logs/
 scripts/*.log
 scripts/live_scores.json
 stock-bot/config.json
+stock-bot/feishu_config.json
+data/hot_rank_log/
+data/.integrity_state.json
+# root-level test/debug artifacts
+*.log
+*.err
+ic_test*
+ic_value_fix*
+test_out.log
 stock-bot/*.log
