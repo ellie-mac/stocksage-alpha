@@ -145,7 +145,7 @@ def main() -> None:
 
     # ── Step 3: chip_CadScan ───────────────────────────────────────────────
     cad_log = LOGS / "chip_cad.log"
-    cad_cmd = [PYTHON, "-X", "utf8", str(CHIP_CAD), "--cad", "--mods", "bekh", "bekhm"]
+    cad_cmd = [PYTHON, "-X", "utf8", str(CHIP_CAD), "--cad", "--mods", "bekh", "bekhm", "--always-t12"]
     print(f"[pipeline] chip_CadScan 开始 ...", flush=True)
     rc = _run(cad_cmd, cad_log)
 

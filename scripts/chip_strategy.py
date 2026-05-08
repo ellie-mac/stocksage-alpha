@@ -901,10 +901,17 @@ def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
     return header + "\n" + "\n".join(rows)
 
 
-def _tier_cap(tiers: dict[str, list], limit: int = 30) -> dict[str, list]:
-    """如果T1>=limit只显示T1；T1+T2>=limit只显示T1+T2；否则全显示。"""
+def _tier_cap(tiers: dict[str, list], limit: int = 30, always_t12: bool = False) -> dict[str, list]:
+    """如果T1>=limit只显示T1；T1+T2>=limit只显示T1+T2；否则全显示。
+    always_t12=True: T1+T2永远显示，T3只在T1+T2<limit时才加（量化早报调度模式）。"""
     t1 = tiers.get("T1", [])
     t2 = tiers.get("T2", [])
+    if always_t12:
+        t3 = tiers.get("T3", [])
+        base = {"T1": t1, "T2": t2}
+        if len(t1) + len(t2) < limit:
+            base["T3"] = t3
+        return base
     if len(t1) >= limit:
         return {"T1": t1}
     if len(t1) + len(t2) >= limit:
@@ -913,26 +920,27 @@ def _tier_cap(tiers: dict[str, list], limit: int = 30) -> dict[str, list]:
 
 
 def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_date: str,
-                     sendkey: str, dry_run: bool, src_note: str = "") -> None:
+                     sendkey: str, dry_run: bool, src_note: str = "",
+                     always_t12: bool = False) -> None:
     """三段推送：cadm/cah/cad 三者 T1-T3 精华。"""
     date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
     top_tiers = [t for t in _TIER_ORDER if t[0] in ("T1", "T2", "T3")]
 
-    cadm_top = _tier_cap({t[0]: cadm_saves.get(t[0], []) for t in top_tiers})
+    cadm_top = _tier_cap({t[0]: cadm_saves.get(t[0], []) for t in top_tiers}, always_t12=always_t12)
     cadm_top_total = sum(len(v) for v in cadm_top.values())
 
     cad_codes = {p["code"] for picks in cad_saves.values() for p in picks}
     cah_only: dict[str, list[dict]] = _tier_cap({
         t[0]: [p for p in cah_saves.get(t[0], []) if p["code"] not in cad_codes]
         for t in top_tiers
-    })
+    }, always_t12=always_t12)
     cah_only_total = sum(len(v) for v in cah_only.values())
 
     cadm_codes = {p["code"] for picks in cadm_saves.values() for p in picks}
     cad_only: dict[str, list[dict]] = _tier_cap({
         t[0]: [p for p in cad_saves.get(t[0], []) if p["code"] not in cadm_codes]
         for t in top_tiers
-    })
+    }, always_t12=always_t12)
     cad_only_total = sum(len(v) for v in cad_only.values())
 
     sections = []
@@ -991,7 +999,8 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
             pass
 
 
-def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool = False) -> None:
+def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool = False,
+             always_t12: bool = False) -> None:
     """数据驱动多档扫描入口（原 chip_cad.py main）。"""
     import json as _json
     cfg     = _json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
@@ -1026,7 +1035,8 @@ def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool =
         cah_saves,  _ = _cad_run_one(df_all, "h",     trade_date, pro)
         cadm_saves, _ = _cad_run_one(df_all, "bekhm", trade_date, pro)
         cad_saves,  _ = _cad_run_one(df_all, "bekh",  trade_date, pro)
-        _cad_merged_push(cah_saves, cadm_saves, cad_saves, trade_date, sendkey, dry_run, src_note=_src_note)
+        _cad_merged_push(cah_saves, cadm_saves, cad_saves, trade_date, sendkey, dry_run,
+                         src_note=_src_note, always_t12=always_t12)
     else:
         for mods_str in mods_list:
             saves, total = _cad_run_one(df_all, mods_str, trade_date, pro)
@@ -1069,11 +1079,14 @@ def main() -> None:
     parser.add_argument("--macd-zero",     action="store_true",
                         help="|hist|/close<=1%，柱子离零轴不太远")
     parser.add_argument("--dry-run",       action="store_true")
+    parser.add_argument("--always-t12",    action="store_true",
+                        help="--cad专用: T1+T2永远显示，T3只在T1+T2<30时才加（量化早报模式）")
     parser.add_argument("--refresh-names", action="store_true", help="强制刷新名称缓存")
     args = parser.parse_args()
 
     if args.cad:
-        cad_main(mods_list=args.mods, date=args.date, dry_run=args.dry_run)
+        cad_main(mods_list=args.mods, date=args.date, dry_run=args.dry_run,
+                 always_t12=args.always_t12)
         return
 
     max_today_pct = args.max_today_pct if args.max_today_pct > 0 else None
