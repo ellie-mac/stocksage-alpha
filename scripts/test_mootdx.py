@@ -20,6 +20,46 @@ except Exception as e:
     traceback.print_exc()
 
 print(flush=True)
+print('=== mootdx 共享连接 100只批量测试 ===', flush=True)
+try:
+    import json
+    from pathlib import Path
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from mootdx.quotes import Quotes
+
+    universe = json.loads(Path(r'C:\Users\jiapeichen\repos\stocksage-alpha\data\universe_main.json').read_text())
+    sample = universe[:100]
+
+    # 每线程新建连接（当前实现）
+    def fetch_one(code):
+        try:
+            tdx = Quotes.factory(market='std')
+            df = tdx.bars(symbol=code, frequency=9, offset=600)
+            return 'ok' if (df is not None and not df.empty) else 'empty'
+        except Exception as e:
+            return f'err:{e}'
+
+    t0 = time.time()
+    ok = fail = 0
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        futs = {ex.submit(fetch_one, c): c for c in sample}
+        for fut in as_completed(futs):
+            r = fut.result()
+            if r == 'ok':
+                ok += 1
+            else:
+                fail += 1
+    elapsed = time.time() - t0
+    rate = 100 / elapsed
+    eta_full = len(universe) / rate / 60
+    print(f'100只  OK:{ok}  FAIL:{fail}  elapsed:{elapsed:.1f}s  速率:{rate:.1f}只/s  预计全量:{eta_full:.0f}min', flush=True)
+
+except Exception as e:
+    import traceback
+    print(f'批量测试 ERROR: {e}', flush=True)
+    traceback.print_exc()
+
+print(flush=True)
 print('=== fetcher.get_price_history 测试（001979 招商蛇口）===', flush=True)
 try:
     import fetcher
@@ -43,8 +83,7 @@ try:
     import cache as _cache
     import fetcher
 
-    # 检查缓存状态（小 TTL 让已有缓存看起来像过期）
-    old = _cache.get('concept_reverse_map', 10)  # 10s TTL — 必定过期
+    old = _cache.get('concept_reverse_map', 10)
     print(f'10s TTL 缓存命中: {old is not None}', flush=True)
 
     valid = _cache.get('concept_reverse_map', 7*24*3600)
