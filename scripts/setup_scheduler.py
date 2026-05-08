@@ -59,7 +59,7 @@ def _bot_bat(name: str, script: Path, log: Path) -> tuple[Path, str]:
     content = (
         f'@echo off\n'
         f'chcp 65001 > nul\n'
-        f'title StockSage {name}\n'
+        f'title StockSage {name.replace("StockSage_", "").replace("stocksage_", "")}\n'
         f'cd /d "{REPO_ROOT}"\n'
         f':loop\n'
         f'"{PYTHON}" -X utf8 "{script}" >> "{log}" 2>&1\n'
