@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from report_utils import forward_return, load_json, save_json
 
 # ── 路径定义 ────────────────────────────────────────────────────────────────────
 _ROOT          = Path(__file__).parent.parent
@@ -22,22 +24,12 @@ FWD_WINDOWS = [1, 5, 20]
 
 # ── 辅助函数 ────────────────────────────────────────────────────────────────────
 
-def _load_json(path: Path) -> list | dict:
-    """安全读取 JSON；文件不存在时返回空列表。"""
-    if not path.exists():
-        return []
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _save_json(path: Path, obj, dry_run: bool = False) -> None:
+def _save_json_dry(path: Path, obj, dry_run: bool = False) -> None:
     """写入 JSON；dry_run 时只打印不写盘。"""
     if dry_run:
         print(f"  [dry-run] 跳过写入 {path}")
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=2)
+    save_json(path, obj)
 
 
 def _get_closes(code: str, start_date: str, end_date: str) -> dict[str, float]:
@@ -61,28 +53,6 @@ def _get_closes(code: str, start_date: str, end_date: str) -> dict[str, float]:
     except Exception as e:
         print(f"  WARN fetch {code}: {e}")
         return {}
-
-
-def _fwd_return(closes: dict[str, float], signal_date: str,
-                entry_price: float, n: int) -> float | None:
-    """
-    计算 T+N 交易日的远期收益率（%）。
-    若数据不足则返回 None。
-    """
-    if not closes or entry_price <= 0:
-        return None
-    sorted_dates = sorted(closes.keys())
-    # 找 signal_date 之后的第一个交易日索引
-    try:
-        first_after = next(i for i, d in enumerate(sorted_dates) if d > signal_date)
-    except StopIteration:
-        return None
-    target_idx = first_after + n - 1
-    if target_idx >= len(sorted_dates):
-        return None
-    target_date = sorted_dates[target_idx]
-    target_close = closes[target_date]
-    return round((target_close - entry_price) / entry_price * 100, 4)
 
 
 def _enough_time_passed(signal_date: str, n: int, today: str,
@@ -155,7 +125,7 @@ def fill_signal_returns(signals_log: list, today: str, dry_run: bool) -> list:
 
             for n in missing:
                 if _enough_time_passed(run_date, n, today, closes):
-                    ret = _fwd_return(closes, run_date, price, n)
+                    ret = forward_return(closes, run_date, price, n)
                     if ret is not None:
                         sig[f"fwd_ret_{n}d"] = ret
                         updated += 1
@@ -179,13 +149,13 @@ def snapshot_watchlist(today: str, dry_run: bool) -> None:
         print("  WARN: watchlist_scan_latest.json 不存在，跳过快照。")
         return
 
-    scan = _load_json(SCAN_CACHE)
+    scan = load_json(SCAN_CACHE)
     scan_date = scan.get("date", "") if isinstance(scan, dict) else ""
     if scan_date != today:
         print(f"  WARN: scan_cache 日期 {scan_date!r} 不是今天 {today}，跳过。")
         return
 
-    wl_log: list = _load_json(WATCHLIST_LOG) if WATCHLIST_LOG.exists() else []  # type: ignore[assignment]
+    wl_log: list = load_json(WATCHLIST_LOG) if WATCHLIST_LOG.exists() else []  # type: ignore[assignment]
 
     # 检查今天是否已存在
     if any(e.get("date") == today for e in wl_log):
@@ -201,7 +171,7 @@ def snapshot_watchlist(today: str, dry_run: bool) -> None:
         entries.append(entry)
 
     wl_log.append({"date": today, "entries": entries})
-    _save_json(WATCHLIST_LOG, wl_log, dry_run)
+    _save_json_dry(WATCHLIST_LOG, wl_log, dry_run)
     print(f"  已追加 {len(entries)} 条自选股记录（{today}）。")
 
 
@@ -214,7 +184,7 @@ def fill_watchlist_returns(today: str, dry_run: bool) -> None:
         print("  watchlist_log.json 不存在，跳过。")
         return
 
-    wl_log: list = _load_json(WATCHLIST_LOG)  # type: ignore[assignment]
+    wl_log: list = load_json(WATCHLIST_LOG)  # type: ignore[assignment]
     updated = 0
 
     for day_entry in wl_log:
@@ -235,12 +205,12 @@ def fill_watchlist_returns(today: str, dry_run: bool) -> None:
 
             for n in missing:
                 if _enough_time_passed(entry_date, n, today, closes):
-                    ret = _fwd_return(closes, entry_date, price, n)
+                    ret = forward_return(closes, entry_date, price, n)
                     if ret is not None:
                         item[f"fwd_ret_{n}d"] = ret
                         updated += 1
 
-    _save_json(WATCHLIST_LOG, wl_log, dry_run)
+    _save_json_dry(WATCHLIST_LOG, wl_log, dry_run)
     print(f"  自选股远期收益已更新 {updated} 个字段。")
 
 
@@ -358,7 +328,7 @@ def main() -> None:
 
     # --report 模式：直接从磁盘加载并打印
     if args.report:
-        perf = _load_json(PERF_LOG) if PERF_LOG.exists() else {}
+        perf = load_json(PERF_LOG) if PERF_LOG.exists() else {}
         if not perf:
             print("signal_performance.json 不存在，请先运行一次不带 --report 的命令。")
             return
@@ -369,7 +339,7 @@ def main() -> None:
     print(f"signal_tracker 运行日期: {today}  dry_run={args.dry_run}")
 
     # 1. 读取并更新 signals_log
-    signals_log: list = _load_json(SIGNALS_LOG)  # type: ignore[assignment]
+    signals_log: list = load_json(SIGNALS_LOG)  # type: ignore[assignment]
     if not isinstance(signals_log, list):
         signals_log = []
 
@@ -377,7 +347,7 @@ def main() -> None:
 
     # 写回 signals_log
     if not args.dry_run and signals_log:
-        _save_json(SIGNALS_LOG, signals_log)
+        save_json(SIGNALS_LOG, signals_log)
         print("  signals_log.json 已更新。")
 
     # 2. 快照今日自选股扫描
@@ -389,7 +359,7 @@ def main() -> None:
     # 4. 计算汇总绩效
     print("\n=== 计算汇总绩效 ===")
     perf = compute_performance(signals_log)
-    _save_json(PERF_LOG, perf, args.dry_run)
+    _save_json_dry(PERF_LOG, perf, args.dry_run)
 
     # 5. 打印报告
     print_report(perf)

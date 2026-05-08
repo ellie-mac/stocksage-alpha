@@ -298,7 +298,6 @@ _CHIP_TIERS = {
 _TASK_DESC = {
     "chip_Premarket":     "盘前数据兜底",
     "main_Morning":       "主策略盘前兜底",
-    "xhs_Morning":        "量化早报 📱",
     "xhs_Midday":         "午间快报 📱",
     "xhs_Evening":        "收盘总结 📱",
     "daily_PerfLog":      "策略收盘胜率 📱",
@@ -313,15 +312,17 @@ _TASK_DESC = {
     "hot_Scan":           "热榜扫描 📱",
     "institution_Scan":   "机构扫盘 📱",
     "main_Night":         "夜间数据预热",
-    "factor_Analysis":    "因子IC分析",
     "integrity_Check":    "数据完整性检查",
     "weekly_PerfReport":  "周度绩效报告",
+}
+
+_TASK_DESC_BG = {
+    "factor_Analysis":    "因子IC分析",
     "hot_Rank_0935":      "热榜记录 9:35",
     "hot_Rank_1000":      "热榜记录 10:00",
     "hot_Rank_1100":      "热榜记录 11:00",
     "hot_Rank_1330":      "热榜记录 13:30",
     "hot_Rank_1430":      "热榜记录 14:30",
-    "StockSage_LarkBot":  "飞书机器人",
 }
 
 _FACTOR_ZH = {
@@ -610,7 +611,8 @@ def h_logs(n: int = 20) -> str:
 
 
 def h_tasks() -> str:
-    names_list = "','".join(_TASK_DESC.keys())
+    all_names = list(_TASK_DESC.keys()) + list(_TASK_DESC_BG.keys())
+    names_list = "','".join(all_names)
     ps = (
         f"$today = (Get-Date).Date;"
         f"$names = @('{names_list}');"
@@ -630,30 +632,41 @@ def h_tasks() -> str:
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
             capture_output=True, timeout=20, encoding="utf-8", errors="replace",
         )
-        rows = []
+        by_name: dict[str, tuple] = {}
         for line in (r.stdout or "").splitlines():
             parts = line.strip().split("|||")
             if len(parts) == 4:
                 name, status, last_run, next_run = parts
-                rows.append((status, name, _TASK_DESC.get(name, ""), last_run, next_run))
-        if not rows:
+                by_name[name] = (status, last_run, next_run)
+
+        if not by_name:
             return "❌ 无任务数据"
-        rows.sort(key=lambda x: x[4])
+
         today_mdd    = date.today().strftime("%m/%d")
         tomorrow_mdd = (date.today() + timedelta(days=1)).strftime("%m/%d")
-        lines = []
-        for status, name, desc, last_run, next_run in rows:
+
+        def _tick(status: str, next_run: str) -> str:
             if status == "OK":
-                tick = "✅"
-            elif next_run != "--" and next_run.startswith(tomorrow_mdd):
-                tick = "❌"  # daily task - should have run today but window passed
-            else:
-                tick = "⬜"
-            time_parts = []
-            if last_run != "--": time_parts.append(f"⬆️{last_run}")
-            if next_run != "--": time_parts.append(f"⬇️{next_run}")
-            time_s = ("\n  " + "  ".join(time_parts)) if time_parts else ""
+                return "✅"
+            if next_run != "--" and next_run.startswith(tomorrow_mdd):
+                return "❌"
+            return "⬜"
+
+        lines = []
+        for name, desc in _TASK_DESC.items():
+            status, last_run, next_run = by_name.get(name, ("--", "--", "--"))
+            tick = _tick(status, next_run)
+            time_s = f"  {last_run}" if last_run != "--" else ""
             lines.append(f"{tick} {name} / {desc}{time_s}")
+
+        # Background tasks: one summary line
+        bg_ok  = sum(1 for n in _TASK_DESC_BG if by_name.get(n, ("--",))[0] == "OK")
+        bg_tot = len(_TASK_DESC_BG)
+        lines.append(f"\n后台({bg_ok}/{bg_tot}完成): " + "  ".join(
+            ("✅" if by_name.get(n, ("--",))[0] == "OK" else "⬜") + n.split("_")[-1]
+            for n in _TASK_DESC_BG
+        ))
+
         return "\n".join(lines)
     except Exception as e:
         return f"❌ 查询失败: {e}"

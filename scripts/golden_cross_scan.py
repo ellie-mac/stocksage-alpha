@@ -364,12 +364,21 @@ def _push_results(data: dict) -> None:
     print(f"\n{title}\n{body}")
     push_wechat(title, body)
     print("[notify] 推送成功")
-    # 飞书推送已禁用（内容过长）
-    # try:
-    #     from notify import push_feishu_content
-    #     push_feishu_content(f"{title}\n{body}")
-    # except Exception:
-    #     pass
+
+
+def load_gc_results(max_age_days: int = 3) -> dict:
+    """Load golden cross scan results from disk.
+
+    Returns empty dict if the file is missing or older than max_age_days.
+    """
+    if not OUT_LATEST.exists():
+        return {}
+    data = json.loads(OUT_LATEST.read_text(encoding="utf-8"))
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(days=max_age_days)).strftime("%Y%m%d")
+    if data.get("date", "") < cutoff:
+        return {}
+    return data
 
 
 def main() -> None:

@@ -81,6 +81,10 @@ def _get_forward_return(
     Uses a process-level dict `price_cache` keyed by code to avoid redundant
     fetcher calls when the same code appears multiple times in the log.
     Returns None if we lack sufficient history.
+
+    Note: uses the same concept as `forward_return` in scripts/report_utils.py,
+    but fetches its own price history via fetcher rather than accepting a
+    pre-built closes dict.
     """
     if code not in price_cache:
         df = fetcher.get_price_history(code, 600)

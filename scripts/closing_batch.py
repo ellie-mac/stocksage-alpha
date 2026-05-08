@@ -53,7 +53,7 @@ def main() -> None:
     print(f"[closing_batch] 开始 {now:%Y-%m-%d %H:%M}")
 
     # 1. XHS evening post
-    writer = os.path.join(_ROOT, "xhs", "writer.py")
+    writer = os.path.join(_ROOT, "xhs", "reporter.py")
     if os.path.exists(writer):
         if args.dry_run:
             print("[closing_batch] dry-run: XHS evening 跳过")
@@ -61,10 +61,10 @@ def main() -> None:
             _run("XHS evening", [_PY, "-X", "utf8", writer, "evening", "--style", "auto"],
                  timeout=120)
     else:
-        print("[closing_batch] xhs/writer.py 不存在，跳过")
+        print("[closing_batch] xhs/reporter.py 不存在，跳过")
 
     # 2. signal_tracker.py
-    tracker = os.path.join(_ROOT, "scripts", "signal_tracker.py")
+    tracker = os.path.join(_ROOT, "scripts", "tools", "signal_tracker.py")
     if os.path.exists(tracker):
         _run("signal_tracker", [_PY, "-X", "utf8", tracker], timeout=300)
     else:

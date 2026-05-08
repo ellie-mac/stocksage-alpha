@@ -25,6 +25,75 @@ TIERS = [
     {"label": "C2 85-90%",  "min_win": 85,  "max_win": 90},
 ]
 
+_CAH_PATH  = ROOT / "data" / "chip_cah_latest.json"
+_CAD_PATH  = ROOT / "data" / "chip_cad_latest.json"
+_CADM_PATH = ROOT / "data" / "chip_cadm_latest.json"
+_SCAN_PATH = ROOT / "data" / "chip_scan_latest.json"
+
+
+def _cascade_filter_tiers(
+    tier_order: tuple, tiers: dict, picks: list, threshold: int = 30
+) -> tuple[dict, list]:
+    """Include tiers one at a time until cumulative count >= threshold."""
+    keep: list[str] = []
+    total = 0
+    for t in tier_order:
+        cnt = len(tiers.get(t, []))
+        if cnt == 0:
+            continue
+        keep.append(t)
+        total += cnt
+        if total >= threshold:
+            break
+    keep_set = set(keep)
+    return (
+        {k: v for k, v in tiers.items() if k in keep_set},
+        [p for p in picks if p.get("tier") in keep_set],
+    )
+
+
+def load_chip_results() -> dict:
+    """Load latest chip scan results.
+
+    Priority: CAH∩CAD∩CADM intersection → CAD only → chip_scan_latest.json fallback.
+    Returns empty dict if no data is available.
+    """
+    from datetime import datetime
+
+    cah_data  = json.loads(_CAH_PATH.read_text(encoding="utf-8"))  if _CAH_PATH.exists()  else None
+    cad_data  = json.loads(_CAD_PATH.read_text(encoding="utf-8"))  if _CAD_PATH.exists()  else None
+    cadm_data = json.loads(_CADM_PATH.read_text(encoding="utf-8")) if _CADM_PATH.exists() else None
+
+    if cah_data and cad_data and cadm_data:
+        date = cad_data.get("date", datetime.now().strftime("%Y%m%d"))
+        tiers_out: dict[str, list] = {}
+        for tier_key in ("T1", "T2", "T3", "T4"):
+            cah_codes  = {p["code"] for p in cah_data.get("tiers",  {}).get(tier_key, [])}
+            cad_codes  = {p["code"] for p in cad_data.get("tiers",  {}).get(tier_key, [])}
+            cadm_codes = {p["code"] for p in cadm_data.get("tiers", {}).get(tier_key, [])}
+            common     = cah_codes & cad_codes & cadm_codes
+            cad_lookup = {p["code"]: p for p in cad_data.get("tiers", {}).get(tier_key, [])}
+            tiers_out[tier_key] = [cad_lookup[c] for c in common if c in cad_lookup]
+        all_picks = [dict(p, tier=t) for t, ps in tiers_out.items() for p in ps]
+        tiers_out, all_picks = _cascade_filter_tiers(("T1", "T2", "T3", "T4"), tiers_out, all_picks)
+        if all_picks:
+            return {"date": date, "all_picks": all_picks,
+                    "tiers": tiers_out, "filter": "CAH∩CAD∩CADM"}
+
+    if cad_data:
+        tiers_cad = cad_data.get("tiers", {})
+        all_picks = [dict(p, tier=t) for t, ps in tiers_cad.items() for p in ps]
+        tiers_cad, all_picks = _cascade_filter_tiers(("T1", "T2", "T3", "T4"), tiers_cad, all_picks)
+        if all_picks:
+            return {"date": cad_data.get("date", datetime.now().strftime("%Y%m%d")),
+                    "all_picks": all_picks, "tiers": tiers_cad,
+                    "filter": cad_data.get("mods", "CAD")}
+
+    if _SCAN_PATH.exists():
+        return json.loads(_SCAN_PATH.read_text(encoding="utf-8"))
+
+    return {}
+
 
 def _push(title: str, body: str) -> None:
     try:
@@ -186,12 +255,6 @@ def main() -> None:
 
     if not args.dry_run and not args.no_push:
         _push(title, body)
-        # 飞书推送已禁用（内容过长）
-        # try:
-        #     from notify import push_feishu_card
-        #     ...
-        # except Exception:
-        #     pass
 
 
 if __name__ == "__main__":

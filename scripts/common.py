@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -23,6 +23,15 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 sys.path.insert(0, os.path.dirname(__file__))
 
 import cache as _cache
+
+# Trading calendar — canonical implementation lives in trading_calendar.py.
+# Re-exported here for backward compatibility with callers that do
+# `from common import is_trading_day` etc.
+from trading_calendar import (  # noqa: F401
+    _MORNING_OPEN, _MORNING_CLOSE, _AFTERNOON_OPEN, _AFTERNOON_CLOSE,
+    _load_trade_dates, get_trade_dates,
+    is_trading_day, is_trading_hours, next_session_seconds,
+)
 
 
 def retry(attempts: int = 3, backoff: float = 3.0, exc_types: tuple = (Exception,)):
@@ -42,83 +51,6 @@ def retry(attempts: int = 3, backoff: float = 3.0, exc_types: tuple = (Exception
         return wrapper
     return decorator
 
-
-# ── Trading session windows ────────────────────────────────────────────────────
-_MORNING_OPEN    = (9, 25)
-_MORNING_CLOSE   = (11, 35)
-_AFTERNOON_OPEN  = (12, 55)
-_AFTERNOON_CLOSE = (15, 5)
-
-
-# ── Trading calendar ───────────────────────────────────────────────────────────
-
-def _load_trade_dates() -> set[str]:
-    """
-    Load A-share trading dates from Sina.  Cached for 24 h.
-    Returns a set of 'YYYY-MM-DD' strings.
-    On failure returns an empty set (callers should degrade gracefully).
-    """
-    cached = _cache.get("trade_dates_sina", _cache.TTL_VALUATION)  # 24 h
-    if cached is not None:
-        return set(cached)
-    try:
-        import akshare as ak
-        df = ak.tool_trade_date_hist_sina()
-        dates = df["trade_date"].astype(str).tolist()
-        _cache.set("trade_dates_sina", dates)
-        return set(dates)
-    except Exception as e:
-        print(f"  [WARN] trading calendar fetch failed: {e}")
-        return set()
-
-
-def is_trading_day(dt: Optional[datetime] = None) -> bool:
-    """True if `dt` (default: now) is a scheduled A-share trading day."""
-    if dt is None:
-        dt = datetime.now()
-    if dt.weekday() >= 5:          # weekend
-        return False
-    dates = _load_trade_dates()
-    if not dates:                  # calendar unavailable → trust weekday check
-        return True
-    return dt.strftime("%Y-%m-%d") in dates
-
-
-def is_trading_hours(dt: Optional[datetime] = None) -> bool:
-    """True if `dt` (default: now) falls within an A-share trading window."""
-    if dt is None:
-        dt = datetime.now()
-    if not is_trading_day(dt):
-        return False
-    hm = (dt.hour, dt.minute)
-    return (_MORNING_OPEN <= hm <= _MORNING_CLOSE or
-            _AFTERNOON_OPEN <= hm <= _AFTERNOON_CLOSE)
-
-
-def next_session_seconds() -> int:
-    """Seconds until the next trading session opens."""
-    now = datetime.now()
-    # Try today's morning open
-    today_open = now.replace(hour=_MORNING_OPEN[0], minute=_MORNING_OPEN[1],
-                              second=0, microsecond=0)
-    if now < today_open and is_trading_day(now):
-        return max(0, int((today_open - now).total_seconds()))
-    # Try today's afternoon open
-    aftn_open = now.replace(hour=_AFTERNOON_OPEN[0], minute=_AFTERNOON_OPEN[1],
-                             second=0, microsecond=0)
-    if now < aftn_open and is_trading_day(now):
-        return max(0, int((aftn_open - now).total_seconds()))
-    # Find next trading day morning open
-    candidate = now + timedelta(days=1)
-    for _ in range(10):           # guard against long holiday gaps
-        candidate = candidate.replace(hour=_MORNING_OPEN[0],
-                                      minute=_MORNING_OPEN[1],
-                                      second=0, microsecond=0)
-        if is_trading_day(candidate):
-            return max(0, int((candidate - now).total_seconds()))
-        candidate += timedelta(days=1)
-    # Fallback: 16 hours
-    return 16 * 3600
 
 
 # ── WeChat push ────────────────────────────────────────────────────────────────

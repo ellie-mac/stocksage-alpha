@@ -41,7 +41,7 @@ DATA    = ROOT / "data"
 sys.path.insert(0, str(SCRIPTS))
 
 import cache as _cache
-from common import send_wechat, configure_pushplus
+from common import configure_pushplus, get_trade_dates
 
 _NAMES_FILE = DATA / "stock_names.json"   # persistent: {ts_code: {name, industry}}
 _NAMES_TTL  = 7 * 24 * 3600               # refresh weekly
@@ -69,37 +69,12 @@ def _get_pro():
 # Latest trade date
 # ---------------------------------------------------------------------------
 
-def _get_trade_dates(year: str | None = None) -> set[str]:
-    """Return valid trading dates (YYYYMMDD) from Tushare trade_cal. Cached 24h."""
-    if year is None:
-        year = datetime.now().strftime("%Y")
-    cached = _cache.get(f"trade_calendar_{year}", 24 * 3600)
-    if cached:
-        return set(cached)
-    try:
-        import tushare as ts
-        cfg = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-        token = cfg.get("tushare", {}).get("token", "")
-        if not token:
-            return set()
-        ts.set_token(token)
-        pro = ts.pro_api()
-        df = pro.trade_cal(exchange="SSE", start_date=f"{year}0101", end_date=f"{year}1231")
-        if df is None or df.empty:
-            return set()
-        open_dates = df[df["is_open"] == 1]["cal_date"].tolist()
-        _cache.set(f"trade_calendar_{year}", open_dates)
-        return set(open_dates)
-    except Exception:
-        return set()
-
-
 def _latest_trade_date() -> str:
     now = datetime.now()
     d   = now.date()
     if now.hour < 15 or (now.hour == 15 and now.minute < 30) or d.weekday() >= 5:
         d -= timedelta(days=1)
-    trade_dates = _get_trade_dates(d.strftime("%Y"))
+    trade_dates = get_trade_dates(d.strftime("%Y"))
     if trade_dates:
         for _ in range(20):
             if d.strftime("%Y%m%d") in trade_dates:
@@ -115,7 +90,7 @@ def _latest_trade_date() -> str:
 # Stock names — persistent JSON file, refreshed weekly
 # ---------------------------------------------------------------------------
 
-def _names_stale(force: bool = False) -> bool:
+def _is_names_stale(force: bool = False) -> bool:
     if force or not _NAMES_FILE.exists():
         return True
     age = time.time() - _NAMES_FILE.stat().st_mtime
@@ -127,7 +102,7 @@ def load_names(force: bool = False) -> dict[str, dict]:
     Return {ts_code: {name, industry}}.
     Loads from data/stock_names.json; refreshes if stale.
     """
-    if not _names_stale(force):
+    if not _is_names_stale(force):
         try:
             data = json.loads(_NAMES_FILE.read_text(encoding="utf-8"))
             if data:
@@ -379,11 +354,11 @@ def _calc_chip_stats(hist_df: pd.DataFrame, current_price: float) -> tuple[float
     return winner_rate, cost_95pct, cost_50pct
 
 
-def _fetch_stock_hist_ak(code6: str, start_date: str, end_date: str) -> pd.DataFrame | None:
+def _fetch_stock_hist_ak(code: str, start_date: str, end_date: str) -> pd.DataFrame | None:
     """Fetch daily OHLCV from akshare for one stock. Returns df[low,high,vol,close,pct_chg,amount] or None."""
     try:
         import akshare as ak
-        df = ak.stock_zh_a_hist(symbol=code6, period="daily",
+        df = ak.stock_zh_a_hist(symbol=code, period="daily",
                                 start_date=start_date, end_date=end_date,
                                 adjust="")
         if df is None or df.empty:
@@ -398,12 +373,12 @@ def _fetch_stock_hist_ak(code6: str, start_date: str, end_date: str) -> pd.DataF
         return None
 
 
-def _ts_code_suffix(code6: str) -> str:
-    if code6.startswith("6") or code6.startswith("5"):
-        return code6 + ".SH"
-    if code6.startswith("4") or code6.startswith("8") or code6.startswith("9"):
-        return code6 + ".BJ"
-    return code6 + ".SZ"
+def _ts_code_suffix(code: str) -> str:
+    if code.startswith("6") or code.startswith("5"):
+        return code + ".SH"
+    if code.startswith("4") or code.startswith("8") or code.startswith("9"):
+        return code + ".BJ"
+    return code + ".SZ"
 
 
 def fetch_chip_data_ak(trade_date: str) -> pd.DataFrame:
@@ -1002,13 +977,6 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
     print(f"\n{title}\n")
     from common import push_wechat as _pw
     _pw(title, body, dry_run=dry_run)
-    # 飞书推送已禁用（内容过长）
-    # if not dry_run:
-    #     try:
-    #         from notify import push_feishu_card
-    #         ...
-    #     except Exception:
-    #         pass
 
 
 def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool = False,
@@ -1165,13 +1133,6 @@ def main() -> None:
                                  max_today_pct=max_today_pct, max_6m_ratio=max_6m_ratio,
                                  max_price=max_price, exclude_kcb=exclude_kcb)
     _push_wechat(title, body, dry_run=args.dry_run)
-    # 飞书推送已禁用（内容过长）
-    # if not args.dry_run:
-    #     try:
-    #         from notify import push_feishu_card
-    #         push_feishu_card(title, body.splitlines())
-    #     except Exception:
-    #         pass
 
 
 if __name__ == "__main__":

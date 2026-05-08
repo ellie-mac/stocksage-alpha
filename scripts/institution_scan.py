@@ -274,12 +274,6 @@ def _push_results(data: dict) -> None:
     push_wechat(title, body)
     print(f"[institution_scan] 微信推送完成", flush=True)
 
-    # 飞书推送已禁用（内容过长）
-    # try:
-    #     from notify import push_feishu_card
-    #     ...
-    # except Exception as e:
-    #     print(f"[institution_scan] 飞书推送失败: {e}", flush=True)
 
 
 if __name__ == "__main__":

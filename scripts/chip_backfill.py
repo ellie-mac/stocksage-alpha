@@ -30,12 +30,12 @@ DATES = [
 ]
 
 
-def _cached(date: str) -> bool:
+def _is_cached(date: str) -> bool:
     return (SCRIPTS / "cache" / "chip" / f"chip_data_ak_{date}.json").exists()
 
 
 def main() -> None:
-    todo = [d for d in DATES if not _cached(d)]
+    todo = [d for d in DATES if not _is_cached(d)]
     if not todo:
         print("[backfill] 所有日期均已有缓存，无需补跑")
         return
