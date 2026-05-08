@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-列出 VM 上所有 StockSage 相关 Python 进程（脚本名 + 内存 + CPU 时长）。
+列出 VM 上的 Python 进程，区分「我们的进程」和「其他进程」。
 
 用法：
     python -X utf8 scripts/tools/ps_list.py
@@ -15,20 +15,53 @@ PS = (
     "@{N='CPU(s)';E={[math]::Round($_.UserModeTime/1e7)}},"
     "@{N='Script';E={if ($_.CommandLine) {"
     "  ($_.CommandLine -split ' ') | Where-Object { $_ -like '*.py' } | Select-Object -First 1"
-    "} else {'N/A'}}} "
+    "} else {''}}} "
     "| Sort-Object 'Mem(MB)' -Descending "
-    "| Format-Table -AutoSize"
+    "| ConvertTo-Json -AsArray"
 )
 
 result = subprocess.run(
     ["powershell", "-NonInteractive", "-Command", PS],
     capture_output=True, text=True, encoding="utf-8", errors="replace"
 )
-# Filter out PSReadLine warning lines
-lines = [l for l in result.stdout.splitlines()
-         if not l.startswith("Set-PSReadLineOption") and "PSReadLine" not in l
-         and "profile.ps1" not in l and "CategoryInfo" not in l
-         and "FullyQualifiedErrorId" not in l and "ArgumentException" not in l]
-print("\n".join(lines))
-if result.returncode != 0 and result.stderr:
-    print(result.stderr[:500], file=sys.stderr)
+
+import json, re
+
+# Strip PSReadLine noise
+raw = re.sub(r"Set-PSReadLineOption.*?FullyQualifiedErrorId[^\n]*\n", "", result.stdout, flags=re.DOTALL)
+raw = raw.strip()
+
+try:
+    procs = json.loads(raw) if raw else []
+except Exception:
+    print(result.stdout)
+    sys.exit(0)
+
+OURS = {"stocksage-alpha", "lark_agent"}
+
+ours, others = [], []
+for p in procs:
+    script = p.get("Script") or ""
+    if any(k in script for k in OURS):
+        ours.append(p)
+    else:
+        others.append(p)
+
+def _fmt(rows: list) -> None:
+    if not rows:
+        print("  (无)")
+        return
+    print(f"  {'PID':>6}  {'Mem(MB)':>7}  {'CPU(s)':>6}  Script")
+    print(f"  {'─'*6}  {'─'*7}  {'─'*6}  {'─'*40}")
+    for p in rows:
+        script = (p.get("Script") or "").replace("\\", "/")
+        # 只保留 stocksage-alpha/ 之后的部分
+        if "stocksage-alpha/" in script:
+            script = script.split("stocksage-alpha/")[-1]
+        print(f"  {p['ProcessId']:>6}  {p['Mem(MB)']:>7}  {p['CPU(s)']:>6}  {script}")
+
+print("=== 我们的进程 ===")
+_fmt(ours)
+print()
+print("=== 其他 Python 进程 ===")
+_fmt(others)
