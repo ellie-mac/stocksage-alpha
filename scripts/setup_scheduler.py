@@ -59,7 +59,7 @@ def _bot_bat(name: str, script: Path, log: Path) -> tuple[Path, str]:
     content = (
         f'@echo off\n'
         f'chcp 65001 > nul\n'
-        f'title StockSage {name.replace("StockSage_", "").replace("stocksage_", "")}\n'
+        f'title {name.replace("StockSage_", "").replace("stocksage_", "")}\n'
         f'cd /d "{REPO_ROOT}"\n'
         f':loop\n'
         f'"{PYTHON}" -X utf8 "{script}" >> "{log}" 2>&1\n'
@@ -180,7 +180,7 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
         content = (
             f'@echo off\n'
             f'chcp 65001 > nul\n'
-            f'title StockSage 夜间数据准备\n'
+            f'title 夜间数据准备\n'
             f'cd /d "{REPO_ROOT}"\n'
             f'mkdir "{LOGS_DIR}" 2>nul\n'
             f'{discord_start_cmd}\n'
@@ -246,7 +246,7 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
     content = (
         f'@echo off\n'
         f'chcp 65001 > nul\n'
-        f'title StockSage {title_text}\n'
+        f'title {title_text}\n'
         f'cd /d "{REPO_ROOT}"\n'
         f'mkdir "{LOGS_DIR}" 2>nul\n'
         f'{discord_start_cmd}\n'
