@@ -50,32 +50,28 @@ def _fetch_prices(codes: list[str]) -> dict[str, float]:
         if result:
             return result
 
-    # fallback：逐只取最近两日收盘价计算涨跌幅（mootdx，无地域限制）
-    print("[daily_perf] spot_em 不可用，改用 fetcher 批量拉收盘价", flush=True)
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import fetcher as _fetcher
-    result: dict[str, float] = {}
-
-    def _one(code: str):
-        try:
-            df = _fetcher.get_price_history(code, days=5)
-            if df is None or len(df) < 2:
-                return code, None
-            c0 = float(df["close"].iloc[-2])
-            c1 = float(df["close"].iloc[-1])
-            if c0 <= 0:
-                return code, None
-            return code, round((c1 - c0) / c0 * 100, 2)
-        except Exception:
-            return code, None
-
-    with ThreadPoolExecutor(max_workers=20) as ex:
-        futs = {ex.submit(_one, c): c for c in codes}
-        for fut in as_completed(futs):
-            code, pct = fut.result()
-            if pct is not None:
-                result[code] = pct
-    return result
+    # fallback：tushare daily 一次拉全市场今日涨跌幅
+    print("[daily_perf] spot_em 不可用，改用 tushare daily fallback", flush=True)
+    try:
+        import json as _json, tushare as _ts
+        from datetime import date as _date, timedelta as _td
+        _cfg = _json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
+        _token = _cfg.get("tushare", {}).get("token", "")
+        _ts.set_token(_token)
+        _pro = _ts.pro_api()
+        for _delta in range(3):
+            _d = (_date.today() - _td(days=_delta)).strftime("%Y%m%d")
+            _df = _pro.daily(trade_date=_d, fields="ts_code,pct_chg")
+            if _df is not None and not _df.empty:
+                _df["_code"] = _df["ts_code"].str.split(".").str[0]
+                _df = _df[_df["_code"].isin(codes)]
+                result = dict(zip(_df["_code"], _df["pct_chg"].astype(float)))
+                if result:
+                    print(f"[daily_perf] tushare daily {_d} 拿到 {len(result)} 只", flush=True)
+                    return result
+    except Exception as e:
+        print(f"[daily_perf] tushare daily 失败: {e}", flush=True)
+    return {}
 
 
 # ── 统计工具 ──────────────────────────────────────────────────────────────────
@@ -145,7 +141,7 @@ def _find_prev(glob_pat: str, today: str, days: int = 3) -> dict | None:
     from datetime import datetime as _dt, timedelta
     cutoff = (_dt.strptime(today, "%Y%m%d") - timedelta(days=days)).strftime("%Y%m%d")
     candidates = sorted(
-        (p for p in DATA_DIR.glob(glob_pat) if cutoff <= p.stem[-8:] <= today),
+        (p for p in DATA_DIR.glob(glob_pat) if cutoff <= p.stem[-8:] < today),
         key=lambda p: p.stem[-8:], reverse=True,
     )
     if not candidates:
