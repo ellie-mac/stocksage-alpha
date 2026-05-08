@@ -66,16 +66,26 @@ def _in_window(slot: str) -> bool:
     return True
 
 
-def _tier_filter(tiers: dict, picks: list) -> tuple[dict, list]:
-    """T1+T2 only; include T3 if T1+T2 combined < 20."""
-    t1_t2 = sum(len(tiers.get(t, [])) for t in ("T1", "T2"))
-    keep = ("T1", "T2", "T3") if t1_t2 < 20 else ("T1", "T2")
-    return ({k: v for k, v in tiers.items() if k in keep},
-            [p for p in picks if p.get("tier") in keep])
+def _cascade_filter(tier_order: tuple, tiers: dict, picks: list,
+                    threshold: int = 30) -> tuple[dict, list]:
+    """Include tiers one at a time until cumulative count >= threshold."""
+    keep: list[str] = []
+    total = 0
+    for t in tier_order:
+        cnt = len(tiers.get(t, []))
+        if cnt == 0:
+            continue
+        keep.append(t)
+        total += cnt
+        if total >= threshold:
+            break
+    keep_set = set(keep)
+    return ({k: v for k, v in tiers.items() if k in keep_set},
+            [p for p in picks if p.get("tier") in keep_set])
 
 
 def _load_scan() -> dict:
-    """取 CAH ∩ CAD ∩ CADM 三者 T1-T2 交集（T1+T2<20 时加入 T3）；三者缺任一则 fallback 到仅 CAD。"""
+    """取 CAH ∩ CAD ∩ CADM 三者交集；从 T1 开始级联到满 30 只；三者缺任一则 fallback 到仅 CAD。"""
     cah_data  = json.loads(CAH_PATH.read_text(encoding="utf-8"))  if CAH_PATH.exists()  else None
     cad_data  = json.loads(CAD_PATH.read_text(encoding="utf-8"))  if CAD_PATH.exists()  else None
     cadm_data = json.loads(CADM_PATH.read_text(encoding="utf-8")) if CADM_PATH.exists() else None
@@ -100,7 +110,7 @@ def _load_scan() -> dict:
                 p2["tier"] = tier_key
                 all_picks.append(p2)
 
-        tiers_out, all_picks = _tier_filter(tiers_out, all_picks)
+        tiers_out, all_picks = _cascade_filter(("T1","T2","T3","T4"), tiers_out, all_picks)
         if all_picks:
             return {"date": date, "all_picks": all_picks,
                     "tiers": tiers_out, "filter": "CAH∩CAD∩CADM"}
@@ -114,7 +124,7 @@ def _load_scan() -> dict:
             for p in picks:
                 p2 = dict(p); p2["tier"] = tier_key
                 all_picks.append(p2)
-        tiers_cad, all_picks = _tier_filter(tiers_cad, all_picks)
+        tiers_cad, all_picks = _cascade_filter(("T1","T2","T3","T4"), tiers_cad, all_picks)
         if all_picks:
             return {"date": cad_data.get("date", datetime.now().strftime("%Y%m%d")),
                     "all_picks": all_picks, "tiers": tiers_cad,
@@ -153,13 +163,27 @@ def _load_gc_picks() -> dict:
     return data
 
 
+_GC_ALL_LABELS = {"G0": "7信号", "G1": "6信号", "G2": "5信号", "G3": "4信号"}
+_GC_TIER_ORDER = ("G0", "G1", "G2", "G3")
+
+
 def _fmt_gc_section(gc_data: dict, prices: dict[str, dict] | None = None) -> list[str]:
-    """金叉共振区块：G0+G1（7/6信号）含胜率和均收益。"""
+    """金叉共振区块：从最高档级联推送直到累计满30只。"""
     if not gc_data:
         return []
     tiers = gc_data.get("tiers", {})
-    _LABELS = {"G0": "7信号", "G1": "6信号"}
-    total = sum(len(tiers.get(t, [])) for t in _LABELS)
+    # cascade: include tiers until cumulative count >= 30
+    keep: list[str] = []
+    total = 0
+    for t in _GC_TIER_ORDER:
+        cnt = len(tiers.get(t, []))
+        if cnt == 0:
+            continue
+        keep.append(t)
+        total += cnt
+        if total >= 30:
+            break
+    _LABELS = {t: _GC_ALL_LABELS[t] for t in keep if t in _GC_ALL_LABELS}
     if total == 0:
         return []
 
