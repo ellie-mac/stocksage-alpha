@@ -26,20 +26,16 @@ DISCORD_BOT   = REPO_ROOT / "stock-bot" / "discord_bot.py"
 BOT_LOGS      = REPO_ROOT / "stock-bot"
 CHIP_WRITER   = XHS_DIR   / "chip_writer.py"
 DAILY_SCAN    = SCRIPTS   / "daily_chip_scan.py"
-PERF_LOG      = SCRIPTS   / "chip_perf_log.py"
-MAIN_PERF_LOG = SCRIPTS   / "main_perf_log.py"
 MONITOR       = SCRIPTS   / "monitor.py"
 BATCH_FIN     = SCRIPTS   / "tools" / "batch_financials.py"
 GEN_UNIVERSE  = SCRIPTS   / "tools" / "generate_full_universe.py"
-GC_PERF_LOG       = SCRIPTS   / "gc_perf_log.py"
 DAILY_PERF_LOG    = SCRIPTS   / "daily_perf_log.py"
-CHIP_CAD          = SCRIPTS   / "chip_cad.py"
 CAD_PIPELINE      = SCRIPTS   / "run_cad_pipeline.py"
 GOLDEN_CROSS_SCAN = SCRIPTS   / "golden_cross_scan.py"
 PREFETCH          = SCRIPTS   / "prefetch.py"
 INTEGRITY_CHECK   = SCRIPTS   / "integrity_check.py"
 NOTIFY_FAIL       = SCRIPTS   / "notify_failure.py"
-NOTIFY_DISCORD    = SCRIPTS   / "notify_discord.py"
+NOTIFY            = SCRIPTS   / "notify.py"
 HOT_RANK_LOGGER   = SCRIPTS   / "tools" / "hot_rank_logger.py"
 HOT_SCAN          = SCRIPTS   / "hot_scan.py"
 
@@ -155,8 +151,6 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
         "chip_morning":    "xhs_Morning",
         "chip_midday":     "xhs_Midday",
         "chip_evening":    "xhs_Evening",
-        "perf_log":        "chip_PerfLog",
-        "main_perf_log":   "main_PerfLog",
         "monitor_scan":    "main_Scan",
         "market_warm":     "market_Warm",
         "price_prefetch":  "price_Prefetch",
@@ -167,11 +161,11 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
     task_name = task_name_override or slot_names.get(slot, slot)
     notify_cmd        = (f'"{PYTHON}" -X utf8 "{NOTIFY_FAIL}" "{task_name}"'
                          f' >> "{log}\\notify_failure.log" 2>&1')
-    discord_start_cmd = (f'"{PYTHON}" -X utf8 "{NOTIFY_DISCORD}" "{task_name}" "{desc}" "started"'
+    discord_start_cmd = (f'"{PYTHON}" -X utf8 "{NOTIFY}" "{task_name}" "{desc}" "started"'
                          f' >> "{log}\\notify_discord.log" 2>&1')
-    discord_ok_cmd    = (f'"{PYTHON}" -X utf8 "{NOTIFY_DISCORD}" "{task_name}" "{desc}"'
+    discord_ok_cmd    = (f'"{PYTHON}" -X utf8 "{NOTIFY}" "{task_name}" "{desc}"'
                          f' >> "{log}\\notify_discord.log" 2>&1')
-    discord_fail_cmd  = (f'"{PYTHON}" -X utf8 "{NOTIFY_DISCORD}" "{task_name}" "{desc}" "failed"'
+    discord_fail_cmd  = (f'"{PYTHON}" -X utf8 "{NOTIFY}" "{task_name}" "{desc}" "failed"'
                          f' >> "{log}\\notify_discord.log" 2>&1')
 
     if slot == "keepalive":
@@ -216,15 +210,6 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
     elif slot == "daily_perf_log":
         path = TASKS_DIR / "run_daily_perf_log.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{DAILY_PERF_LOG}" --force >> "{log}\\daily_perf_log.log" 2>&1'
-    elif slot == "gc_perf_log":
-        path = TASKS_DIR / "run_gc_perf_log.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{GC_PERF_LOG}" --force >> "{log}\\gc_perf_log.log" 2>&1'
-    elif slot == "perf_log":
-        path = TASKS_DIR / "run_chip_perf_log.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{PERF_LOG}" --force >> "{log}\\chip_perf_log.log" 2>&1'
-    elif slot == "main_perf_log":
-        path = TASKS_DIR / "run_main_perf_log.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{MAIN_PERF_LOG}" --force >> "{log}\\main_perf_log.log" 2>&1'
     elif slot == "monitor_scan":
         path = TASKS_DIR / "run_monitor_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{MONITOR}" --always-send >> "{log}\\monitor_scan.log" 2>&1'
