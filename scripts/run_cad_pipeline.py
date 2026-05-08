@@ -35,10 +35,7 @@ MIN_ROWS = 4000   # AK 缓存低于此行数视为不完整（完整约 5000+）
 def _send_failure(step: str, rc: int, log_path: Path, fix_cmd: str) -> None:
     """发送详细失败通知：步骤名、退出码、日志尾 30 行、修复命令。"""
     try:
-        from common import configure_pushplus, send_wechat
-        cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-        sendkey = cfg.get("serverchan", {}).get("sendkey", "")
-        configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+        from common import push_wechat
 
         log_tail = ""
         if log_path.exists():
@@ -56,7 +53,7 @@ def _send_failure(step: str, rc: int, log_path: Path, fix_cmd: str) -> None:
             f"**手动修复命令**：\n"
             f"```\n{fix_cmd}\n```"
         )
-        send_wechat(title, body, sendkey)
+        push_wechat(title, body)
         print(f"[pipeline] 失败通知已发送: {title}", flush=True)
     except Exception as e:
         print(f"[pipeline] 通知发送失败: {e}", flush=True)

@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).parent))
 
-from common import configure_pushplus, send_wechat
+from common import push_wechat, load_alert_config
 
 
 def _send_discord(webhook_url: str, task: str, detail: str) -> None:
@@ -38,9 +38,7 @@ def main() -> None:
     task   = sys.argv[1] if len(sys.argv) > 1 else "未知任务"
     detail = sys.argv[2] if len(sys.argv) > 2 else ""
 
-    cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-    sendkey = cfg.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+    cfg = load_alert_config()
     webhook_url = cfg.get("discord", {}).get("webhook_url", "")
 
     title = f"⚠️ 任务失败: {task}"
@@ -49,7 +47,7 @@ def main() -> None:
         body += f"\n\n{detail}"
 
     print(f"[notify] 发送失败通知: {title}", flush=True)
-    send_wechat(title, body, sendkey)
+    push_wechat(title, body)
 
     # if webhook_url:
     #     try:

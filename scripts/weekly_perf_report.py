@@ -148,12 +148,9 @@ def main() -> None:
     try:
         import sys
         sys.path.insert(0, str(ROOT / "scripts"))
-        from common import send_wechat, configure_pushplus
-        cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-        sendkey = cfg.get("serverchan", {}).get("sendkey", "")
-        configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+        from common import push_wechat
         title = f"周胜率周报 {week_label}"
-        send_wechat(title, body, sendkey)
+        push_wechat(title, body)
         print("[weekly_perf] 微信推送成功")
     except Exception as e:
         print(f"[weekly_perf] 微信推送失败: {e}")

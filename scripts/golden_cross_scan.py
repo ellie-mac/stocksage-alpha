@@ -327,11 +327,7 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
 
 
 def _push_results(data: dict) -> None:
-    import json as _json
-    cfg     = _json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-    sendkey = cfg.get("serverchan", {}).get("sendkey", "")
-    from common import send_wechat, configure_pushplus
-    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+    from common import push_wechat
 
     date   = data["date"]
     tiers  = data["tiers"]
@@ -366,7 +362,7 @@ def _push_results(data: dict) -> None:
     title = f"金叉共振 {date_s}"
     body  = "\n\n".join(blocks)
     print(f"\n{title}\n{body}")
-    send_wechat(title, body, sendkey)
+    push_wechat(title, body)
     print("[notify] 推送成功")
     try:
         from notify import push_feishu_content

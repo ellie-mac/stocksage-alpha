@@ -40,11 +40,8 @@ SCHED_TIME = {"morning": dtime(9, 25), "midday": dtime(11, 35), "evening": dtime
 
 def _push(title: str, body: str) -> None:
     try:
-        cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-        sendkey = cfg.get("serverchan", {}).get("sendkey", "")
-        from common import send_wechat, configure_pushplus
-        configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
-        send_wechat(title, body, sendkey)
+        from common import push_wechat
+        push_wechat(title, body)
         print("[notify] 推送成功")
     except Exception as e:
         print(f"[notify] 推送失败: {e}")

@@ -180,6 +180,29 @@ def send_wechat(title: str, desp: str, sendkey: str, dry_run: bool = False) -> N
         print(f"[WARN] 未配置推送渠道（pushplus.token / serverchan.sendkey），跳过: {title}")
 
 
+def load_alert_config() -> dict:
+    """Load alert_config.json from repo root. Returns {} on failure."""
+    import json as _json
+    from pathlib import Path
+    cfg_path = Path(__file__).resolve().parent.parent / "alert_config.json"
+    try:
+        return _json.loads(cfg_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def push_wechat(title: str, body: str, dry_run: bool = False) -> None:
+    """Load alert_config, configure pushplus, and send WeChat — one call."""
+    cfg = load_alert_config()
+    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+    send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""), dry_run=dry_run)
+
+
+def is_limit_locked(pct_chg: float, threshold: float = 9.5) -> bool:
+    """True if stock hit limit-up or limit-down (|pct_chg| >= threshold)."""
+    return abs(pct_chg) >= threshold
+
+
 # ── Spot market (cached) ──────────────────────────────────────────────────────
 
 def get_spot_em(retries: int = 3):

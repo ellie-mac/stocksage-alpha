@@ -17,7 +17,7 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
 from chip_strategy import fetch_chip_data, fetch_chip_data_ak, fetch_6m_high, screen, add_indicators, load_names, _get_pro, _latest_trade_date
-from common import send_wechat, configure_pushplus
+from common import push_wechat
 
 TIERS = [
     {"label": "T1 ≥95%",    "min_win": 95,  "max_win": None},
@@ -28,10 +28,7 @@ TIERS = [
 
 def _push(title: str, body: str) -> None:
     try:
-        cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-        sendkey = cfg.get("serverchan", {}).get("sendkey", "")
-        configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
-        send_wechat(title, body, sendkey)
+        push_wechat(title, body)
         print(f"[notify] 微信推送成功")
     except Exception as e:
         print(f"[notify] 推送失败: {e}")

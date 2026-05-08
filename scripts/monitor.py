@@ -49,6 +49,7 @@ from common import (
     configure_pushplus,
     is_etf   as _is_etf,
     is_t1_locked as _is_t1_locked_common,
+    is_limit_locked,
 )
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
@@ -637,8 +638,8 @@ def fast_check_holdings(
         pnl_pct    = ((price - cost) / cost * 100) if cost > 0 else 0.0
         change_pct = quote.get("change_pct") or 0.0
 
-        is_limit_up   = change_pct >= 9.5
-        is_limit_down = change_pct <= -9.5
+        is_limit_up   = is_limit_locked(change_pct)
+        is_limit_down = is_limit_locked(-change_pct)
 
         # ATR-adaptive thresholds: use per-stock volatility if caller pre-computed ATR
         if atr_cache and code in atr_cache and price > 0:

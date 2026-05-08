@@ -322,17 +322,14 @@ def main() -> None:
     try:
         import sys
         sys.path.insert(0, str(ROOT / "scripts"))
-        from common import send_wechat, configure_pushplus
-        cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-        sendkey = cfg.get("serverchan", {}).get("sendkey", "")
-        configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+        from common import push_wechat
         parts = []
         if ms["win_rate"] is not None: parts.append(f"主{ms['win_rate']}%")
         if cs["win_rate"] is not None: parts.append(f"筹{cs['win_rate']}%")
         if gs["win_rate"] is not None: parts.append(f"叉{gs['win_rate']}%")
         if hs["win_rate"] is not None: parts.append(f"热{hs['win_rate']}%")
         title = f"收盘胜率 {date_fmt} | {' / '.join(parts)}"
-        send_wechat(title, push_body, sendkey)
+        push_wechat(title, push_body)
         print("[daily_perf] 微信推送成功")
     except Exception as e:
         print(f"[daily_perf] 微信推送失败: {e}")

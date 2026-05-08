@@ -930,7 +930,7 @@ def _tier_cap(tiers: dict[str, list], limit: int = 30, always_t12: bool = False)
 
 
 def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_date: str,
-                     sendkey: str, dry_run: bool, src_note: str = "",
+                     dry_run: bool, src_note: str = "",
                      always_t12: bool = False) -> None:
     """三段推送：cadm/cah/cad 三者 T1-T3 精华。"""
     date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
@@ -978,7 +978,8 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
     body  = "\n".join(sections) + "\n\n> ⚠️ 仅供参考，不构成投资建议" + (f"\n_{src_note}_" if src_note else "")
     title = f"筹码驱动 {date_fmt} 三筛:{cadm_top_total} cah独有:{cah_only_total} cad独有:{cad_only_total}"
     print(f"\n{title}\n")
-    send_wechat(title, body, sendkey, dry_run=dry_run)
+    from common import push_wechat as _pw
+    _pw(title, body, dry_run=dry_run)
     if not dry_run:
         try:
             from notify import push_feishu_card
@@ -1012,10 +1013,7 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
 def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool = False,
              always_t12: bool = False) -> None:
     """数据驱动多档扫描入口（原 chip_cad.py main）。"""
-    import json as _json
-    cfg     = _json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-    sendkey = cfg.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+    from common import push_wechat as _push_wechat
 
     if mods_list is None:
         mods_list = ["bekh", "bekhm"]
@@ -1045,7 +1043,7 @@ def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool =
         cah_saves,  _ = _cad_run_one(df_all, "h",     trade_date, pro)
         cadm_saves, _ = _cad_run_one(df_all, "bekhm", trade_date, pro)
         cad_saves,  _ = _cad_run_one(df_all, "bekh",  trade_date, pro)
-        _cad_merged_push(cah_saves, cadm_saves, cad_saves, trade_date, sendkey, dry_run,
+        _cad_merged_push(cah_saves, cadm_saves, cad_saves, trade_date, dry_run,
                          src_note=_src_note, always_t12=always_t12)
     else:
         for mods_str in mods_list:
@@ -1056,7 +1054,7 @@ def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool =
                 for t, _, _ in _TIER_ORDER[:3]
             ) + "\n\n> ⚠️ 仅供参考，不构成投资建议" + (f"\n_{_src_note}_" if _src_note else "")
             title = f"筹码驱动 {date_fmt} ({mods_str}) 共{total}只"
-            send_wechat(title, body, sendkey, dry_run=dry_run)
+            _push_wechat(title, body, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------
@@ -1114,9 +1112,7 @@ def main() -> None:
           f"max_today_pct={max_today_pct}  max_6m_ratio={max_6m_ratio}  "
           f"max_price={max_price}  exclude_kcb={exclude_kcb}")
 
-    cfg     = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-    sendkey = cfg.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+    from common import push_wechat as _push_wechat
 
     pro    = _get_pro()
     df     = fetch_chip_data(trade_date, pro)
@@ -1167,7 +1163,7 @@ def main() -> None:
     title, body = format_message(result, trade_date, args.min_win, max_win=max_win,
                                  max_today_pct=max_today_pct, max_6m_ratio=max_6m_ratio,
                                  max_price=max_price, exclude_kcb=exclude_kcb)
-    send_wechat(title, body, sendkey, dry_run=args.dry_run)
+    _push_wechat(title, body, dry_run=args.dry_run)
     if not args.dry_run:
         try:
             from notify import push_feishu_card

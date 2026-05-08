@@ -38,7 +38,7 @@ sys.path.insert(0, str(SCRIPTS))
 import cache as _cache
 import fetcher as _fetcher
 from chip_strategy import _get_pro, fetch_chip_data, screen, load_names, fetch_6m_high, _chip_cache_key
-from common import send_wechat, configure_pushplus
+from common import push_wechat
 
 # ---------------------------------------------------------------------------
 # Combos
@@ -106,10 +106,7 @@ def _fetch_chip_retry(date: str, pro, max_retries: int = 0) -> "pd.DataFrame":
 
 def _push_notify(title: str, body: str) -> None:
     """Send completion notification to WeChat + Discord webhook."""
-    cfg = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-    sendkey = cfg.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
-    send_wechat(title, body, sendkey)
+    push_wechat(title, body)
 
     webhook_url = cfg.get("discord", {}).get("webhook_url", "")
     if webhook_url:
