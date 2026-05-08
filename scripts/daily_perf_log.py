@@ -114,6 +114,14 @@ def _ar(s: dict) -> str:
 
 # ── 各策略数据加载 ─────────────────────────────────────────────────────────────
 
+def _norm_code(code: str) -> str:
+    """'sz002183' / 'sh600158' / '000001.SZ' → '000001'."""
+    s = str(code)
+    if len(s) > 2 and s[:2].lower() in ("sz", "sh", "bj"):
+        return s[2:]
+    return s.split(".")[0]
+
+
 def _load_main(today: str) -> tuple[list[dict], list[dict]]:
     """返回 (main_picks, sc_picks)，分别是主策略和小票策略的选股列表。"""
     from datetime import datetime, timedelta
@@ -185,7 +193,8 @@ def _load_gc(today: str) -> dict[str, list[dict]]:
     if not gc:
         return {t: [] for t in GC_TIERS}
     tiers = gc.get("tiers", {})
-    return {t: tiers.get(t, []) for t in GC_TIERS}
+    def _norm(p): return {**p, "code": _norm_code(p.get("code", ""))}
+    return {t: [_norm(p) for p in tiers.get(t, [])] for t in GC_TIERS}
 
 
 def _load_hot(today: str) -> dict[str, list[dict]]:
