@@ -169,7 +169,7 @@ def _load_hot(today: str) -> dict[str, list[dict]]:
     picks = [{"code": str(p["code"]).zfill(6), "name": p.get("name", p["code"]),
                "rank_pct": p.get("rank_pct", 100)}
               for p in raw.get("picks", []) if p.get("code")]
-    return {"H0": [p for p in picks if p.get("rank_pct", 100) <= 5], "H1": picks}
+    return {"H0": picks[:5], "H1": picks}
 
 
 # ── 推送格式 ──────────────────────────────────────────────────────────────────
