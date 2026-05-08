@@ -207,15 +207,19 @@ def _load_universe() -> list[str]:
 
 
 def _build_name_maps() -> tuple[dict[str, str], dict[str, str]]:
-    """从 load_names() 构建 6位代码 → (name, industry) 映射。"""
-    from chip_strategy import load_names
-    raw = load_names()
-    names = {}
-    inds  = {}
-    for ts_code, info in raw.items():
-        code6 = ts_code.split(".")[0]
-        names[code6] = info.get("name", code6) if isinstance(info, dict) else str(info)
-        inds[code6]  = info.get("industry", "")  if isinstance(info, dict) else ""
+    """直接读 stock_names.json 缓存，构建 6位代码 → (name, industry) 映射。"""
+    names_file = ROOT / "scripts" / "cache" / "stock_names.json"
+    names: dict[str, str] = {}
+    inds:  dict[str, str] = {}
+    try:
+        raw = json.loads(names_file.read_text(encoding="utf-8"))
+        for ts_code, info in raw.items():
+            code6 = ts_code.split(".")[0]
+            names[code6] = info.get("name", code6) if isinstance(info, dict) else str(info)
+            inds[code6]  = info.get("industry", "")  if isinstance(info, dict) else ""
+        print(f"[golden_cross] 名称缓存 {len(names)} 条", flush=True)
+    except Exception as e:
+        print(f"[golden_cross] 名称加载失败: {e}", flush=True)
     return names, inds
 
 
@@ -354,7 +358,7 @@ def _push_results(data: dict) -> None:
         stock_lines = []
         for p in picks:
             sig_s = "·".join(_SIG_SHORT.get(s, s) for s in p["signals"])
-            stock_lines.append(f"**{p['code']} {p['name']}** ¥{p['close']:.2f}  `{sig_s}`  ")
+            stock_lines.append(f"**{p['code']} {p['name']}** ¥{p['close']:.2f}<br>`{sig_s}`  ")
         blocks.append(f"**【{t} {label}  {len(picks)}只】**  \n" + "\n".join(stock_lines))
 
     blocks.append("⚠️ 仅供参考，不构成投资建议")
