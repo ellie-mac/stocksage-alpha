@@ -345,22 +345,21 @@ def _push_results(data: dict) -> None:
     }
 
     # 只推 G0（7信号全共振）和 G1（6信号），G2（5信号）数量过多不推送
-    items = []
+    lines = []
 
     for t, label in [("G0", "7信号"), ("G1", "6信号")]:
         picks = tiers.get(t, [])
         if not picks:
             continue
-        block = [f"**【{t} {label}  {len(picks)}只】**"]
+        lines.append(f"\n**【{t} {label}  {len(picks)}只】**  ")
         for p in picks:
             sig_s = "·".join(_SIG_SHORT.get(s, s) for s in p["signals"])
-            block.append(f"{p['code']} {p['name']} ¥{p['close']:.2f}  `{sig_s}`")
-        items.append("\n\n".join(block))
+            lines.append(f"{p['code']} {p['name']} ¥{p['close']:.2f}  `{sig_s}`  ")
 
-    items.append("⚠️ 仅供参考，不构成投资建议")
+    lines.append("\n⚠️ 仅供参考，不构成投资建议")
 
     title = f"金叉共振 {date_s}"
-    body  = "\n\n".join(items)
+    body  = "\n".join(lines)
     print(f"\n{title}\n{body}")
     send_wechat(title, body, sendkey)
     print("[notify] 推送成功")
