@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from report.utils import forward_return, load_json, save_json
 
 # ── 路径定义 ────────────────────────────────────────────────────────────────────
-_ROOT          = Path(__file__).parent.parent
+_ROOT          = Path(__file__).parent.parent.parent
 SIGNALS_LOG    = _ROOT / "data" / "signals_log.json"
 WATCHLIST_LOG  = _ROOT / "data" / "watchlist_log.json"
 PERF_LOG       = _ROOT / "data" / "signal_performance.json"

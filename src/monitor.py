@@ -1479,9 +1479,9 @@ def run_loop(
         os.path.getmtime(HOLDINGS_PATH) if os.path.exists(HOLDINGS_PATH) else 0.0
     )
 
-    _build_universe_script  = os.path.join(os.path.dirname(__file__), "build_universe.py")
-    _signal_tracker_script  = os.path.join(os.path.dirname(__file__), "signal_tracker.py")
-    _auto_tune_script       = os.path.join(os.path.dirname(__file__), "auto_tune.py")
+    _build_universe_script  = os.path.join(_ROOT, "src", "tools", "generate_full_universe.py")
+    _signal_tracker_script  = os.path.join(_ROOT, "src", "tools", "signal_tracker.py")
+    _auto_tune_script       = os.path.join(_ROOT, "src", "jobs", "auto_tune.py")
     _universe_refresh_done  = threading.Event()   # background thread sets this when finished
     _universe_running       = threading.Event()   # set while refresh is in progress (duplicate guard)
     _universe_proc: Optional[subprocess.Popen] = None   # track running subprocess
@@ -2031,7 +2031,7 @@ def _trigger_xhs_post(slot: str, dry_run: bool = False) -> None:
 def _register_scheduler_tasks(dry_run: bool = False) -> None:
     """Register Windows scheduled tasks for xhs/writer.py (wraps setup_scheduler.py logic)."""
     import subprocess as _sp
-    _setup = os.path.join(_ROOT, "xhs", "setup_scheduler.py")
+    _setup = os.path.join(_ROOT, "src", "setup_scheduler.py")
     if not os.path.exists(_setup):
         print("[WARN] xhs/setup_scheduler.py not found — skipping task registration")
         return

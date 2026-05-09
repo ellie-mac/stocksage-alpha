@@ -11,7 +11,7 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 
 # ── 路径定义 ────────────────────────────────────────────────────────────────────
-_ROOT            = Path(__file__).parent.parent
+_ROOT            = Path(__file__).parent.parent.parent
 PERF_LOG         = _ROOT / "data" / "signal_performance.json"
 WEIGHT_HISTORY   = _ROOT / "data" / "weight_history.json"
 WEIGHT_BASE_FILE = _ROOT / "data" / "weight_base.json"        # IC-derived base (frozen)
