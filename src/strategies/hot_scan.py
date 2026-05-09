@@ -136,7 +136,7 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
     # 快照名字缺失时用 stock_names.json 兜底
     if any(not v for v in name_map.values()):
         try:
-            from chip_strategy import load_names
+            from chip.strategy import load_names
             raw = load_names()
             fallback = {ts.split(".")[0]: info.get("name", "") if isinstance(info, dict) else str(info)
                         for ts, info in raw.items()}

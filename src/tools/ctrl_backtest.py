@@ -32,7 +32,7 @@ def _load_universe(n: int) -> list[str]:
 
 def _run_ic_variant(codes: list[str], fwd: int, periods: int, step: int,
                     winsorize: bool, label: str) -> dict:
-    from factor_analysis import run_analysis
+    from factors.analysis import run_analysis
     print(f"\n{'='*55}")
     print(f"  {label}  (winsorize={winsorize})")
     print(f"{'='*55}")

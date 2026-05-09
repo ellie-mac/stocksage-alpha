@@ -5,9 +5,9 @@ Orchestrate full backtest suite:
   Phase 2 (sequential): Portfolio backtests for main / smallcap / ETF strategies
 
 Usage:
-    python -X utf8 scripts/run_all_backtests.py
-    python -X utf8 scripts/run_all_backtests.py --ic-only
-    python -X utf8 scripts/run_all_backtests.py --portfolio-only
+    python -X utf8 src/backtest/run_all.py
+    python -X utf8 src/backtest/run_all.py --ic-only
+    python -X utf8 src/backtest/run_all.py --portfolio-only
 """
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def main() -> None:
     ic_jobs = [
         {
             "name": "IC-main",
-            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "factor_analysis.py"),
+            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "factors" / "analysis.py"),
                     "--rolling", "6", "--step", "20", "--group", "A",
                     "--universe", str(DATA / "main_universe.json"),
                     "--out", str(DATA / "factor_ic_main.json")],
@@ -101,7 +101,7 @@ def main() -> None:
         },
         {
             "name": "IC-smallcap",
-            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "factor_analysis.py"),
+            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "factors" / "analysis.py"),
                     "--rolling", "6", "--step", "20", "--group", "A",
                     "--universe", str(DATA / "smallcap_universe.json"),
                     "--out", str(DATA / "factor_ic_smallcap.json")],
@@ -109,7 +109,7 @@ def main() -> None:
         },
         {
             "name": "IC-etf",
-            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "factor_analysis.py"),
+            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "factors" / "analysis.py"),
                     "--rolling", "6", "--step", "20", "--group", "A",
                     "--universe", str(DATA / "etf_universe.json"),
                     "--out", str(DATA / "factor_ic_etf.json")],

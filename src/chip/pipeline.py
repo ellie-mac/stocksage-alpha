@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-scripts/run_cad_pipeline.py — 自愈筹码流水线
+src/chip/pipeline.py — 自愈筹码流水线
 
 流程：
   1. 检查今日 AK 筹码缓存是否完整（>= MIN_ROWS 条）
   2. 不完整 → 运行 chip_Night（daily_chip_scan.py --ak --no-push）
-  3. 运行 chip_CadScan（chip_strategy.py --cad --mods bekh bekhm --always-t12）
+  3. 运行 chip_CadScan（src/chip/strategy.py --cad --mods bekh bekhm --always-t12）
   4. 任一步失败 → 发详细微信通知（步骤/退出码/日志尾部/修复命令）
 
 chip_Night（18:00）作为独立预热任务保留，大多数情况 20:30 直接命中缓存。
@@ -25,7 +25,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 PYTHON     = sys.executable
 DAILY_SCAN = SCRIPTS / "daily_chip_scan.py"
-CHIP_STRATEGY = SCRIPTS / "chip_strategy.py"
+CHIP_STRATEGY = SCRIPTS / "strategy.py"
 
 MIN_ROWS = 4000   # AK 缓存低于此行数视为不完整（完整约 5000+）
 
@@ -63,7 +63,7 @@ def _ak_cache_rows(trade_date: str) -> int:
     """返回今日 AK 筹码缓存行数，0 表示不存在或为空。"""
     try:
         import cache as _cache
-        from chip_strategy import _chip_cache_key, _CHIP_TTL
+        from .strategy import _chip_cache_key, _CHIP_TTL
         raw = _cache.get(_chip_cache_key(trade_date, "ak"), _CHIP_TTL)
         if raw is None:
             return 0
@@ -98,7 +98,7 @@ def main() -> None:
     from prefetch import wait_for_fresh_prices
     wait_for_fresh_prices()
 
-    from chip_strategy import _latest_trade_date
+    from .strategy import _latest_trade_date
     trade_date = _latest_trade_date()
     print(f"[pipeline] 开始  trade_date={trade_date}  {datetime.now():%H:%M:%S}", flush=True)
 
@@ -154,7 +154,7 @@ def main() -> None:
             log_path= cad_log,
             fix_cmd = (
                 f"cd {ROOT}\n"
-                f"python -X utf8 scripts/chip_strategy.py --cad --mods bekh bekhm"
+                f"python -X utf8 src/chip/strategy.py --cad --mods bekh bekhm"
             ),
         )
         sys.exit(1)
