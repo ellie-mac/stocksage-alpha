@@ -122,6 +122,28 @@ def main() -> None:
     buys, sells, all_scores = scan(etf_list, thresholds, regime_score)
     print(f"[etf_strategy] buy={len(buys)} sell={len(sells)}")
 
+    # 无论有无信号，始终保存评分结果供 reporter 午间/收盘快报使用
+    _out_path = os.path.join(_ROOT, "data", "etf_scan_latest.json")
+    try:
+        _out_data = {
+            "date":      datetime.now().strftime("%Y%m%d"),
+            "timestamp": datetime.now().isoformat(),
+            "scores": [
+                {"code": s["code"], "name": s.get("name", s["code"]),
+                 "buy_score": round(s.get("buy_score") or 0, 1),
+                 "sell_score": round(s.get("sell_score") or 0, 1),
+                 "price": s.get("price"), "pnl_pct": s.get("pnl_pct", 0)}
+                for s in all_scores if not s.get("error")
+            ],
+        }
+        _tmp = _out_path + ".tmp"
+        with open(_tmp, "w", encoding="utf-8") as f:
+            json.dump(_out_data, f, ensure_ascii=False, indent=2)
+        os.replace(_tmp, _out_path)
+        print(f"[etf_strategy] 已保存 {len(_out_data['scores'])} 只评分 → etf_scan_latest.json")
+    except Exception as e:
+        print(f"[etf_strategy] 保存评分失败: {e}")
+
     if not buys and not sells:
         print("[etf_strategy] 无信号，跳过推送")
         return

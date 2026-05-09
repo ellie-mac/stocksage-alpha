@@ -1324,15 +1324,29 @@ def _load_all_strategy_data() -> tuple[list, list, list[dict], dict, dict]:
     main_picks  = picks_data.get("results", []) if picks_data else []
     small_picks = picks_data.get("smallcap", []) if picks_data else []
 
-    cfg     = _load_alert_config()
-    raw_etf = cfg.get("etf_watchlist", [])
+    cfg = _load_alert_config()
+
+    # 优先用 etf_strategy 的评分结果（已按 buy_score 降序），无则退回 config 列表顺序
     etf_picks: list[dict] = []
-    for e in (raw_etf or []):
-        if isinstance(e, dict):
-            etf_picks.append({"code": e["code"], "name": e.get("name", e["code"])})
-        else:
-            code = e[-6:] if len(e) > 6 else e
-            etf_picks.append({"code": code, "name": code})
+    etf_scan_path = REPO_ROOT / "data" / "etf_scan_latest.json"
+    if etf_scan_path.exists():
+        try:
+            etf_scan = json.loads(etf_scan_path.read_text(encoding="utf-8"))
+            etf_picks = [
+                {"code": s["code"], "name": s.get("name", s["code"]),
+                 "buy_score": s.get("buy_score", 0)}
+                for s in etf_scan.get("scores", [])
+            ]
+        except Exception:
+            pass
+    if not etf_picks:
+        raw_etf = cfg.get("etf_watchlist", [])
+        for e in (raw_etf or []):
+            if isinstance(e, dict):
+                etf_picks.append({"code": e["code"], "name": e.get("name", e["code"])})
+            else:
+                code = e[-6:] if len(e) > 6 else e
+                etf_picks.append({"code": code, "name": code})
 
     chip_data = load_chip_results()
     gc_data   = load_gc_results()
