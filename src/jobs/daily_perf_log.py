@@ -380,7 +380,8 @@ def _load_hot(today: str) -> dict[str, list[dict]]:
     if not raw:
         return {t: [] for t in HOT_TIERS}
     picks = [{"code": str(p["code"]).zfill(6), "name": p.get("name", p["code"]),
-               "rank_pct": p.get("rank_pct", 100)}
+               "rank_pct": p.get("rank_pct", 100),
+               "breakdown": p.get("breakdown", [])}
               for p in raw.get("picks", []) if p.get("code")]
     return {"H0": picks[:5], "H1": picks}
 
@@ -537,11 +538,15 @@ def main() -> None:
         if sh0["n"] > 0:
             rows.append(f"**H0** {sh0['n']}只  胜率{_owr(sh0)}  均{_oar(sh0)}")
             for r in sh0["top5"]:
-                rows.append(_stock_line(r))
+                bd = r.get("breakdown", [])
+                bd_tag = f"<br>`{'·'.join(bd)}`" if bd else ""
+                rows.append(_stock_line(r) + bd_tag)
         if sh1["n"] > 0:
             rows.append(f"**H1** {sh1['n']}只  胜率{_owr(sh1)}  均{_oar(sh1)}")
             for r in sh1["top5"]:
-                rows.append(_stock_line(r))
+                bd = r.get("breakdown", [])
+                bd_tag = f"<br>`{'·'.join(bd)}`" if bd else ""
+                rows.append(_stock_line(r) + bd_tag)
         sections.append("  \n".join(rows))
 
     # ETF 策略
