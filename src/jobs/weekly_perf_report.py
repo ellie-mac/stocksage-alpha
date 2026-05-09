@@ -112,29 +112,44 @@ def main() -> None:
 
     # 筹码策略
     if chip_recs:
-        avg_wr, avg_ret = _week_avg(chip_recs, "total_win_rate", "total_avg_ret")
+        def _chip_wr(r): return (r.get("total") or {}).get("win_rate")
+        def _chip_ar(r): return (r.get("total") or {}).get("avg_ret")
+        def _chip_n(r):  return (r.get("total") or {}).get("n", 0)
+        wrs = [_chip_wr(r) for r in chip_recs if _chip_wr(r) is not None]
+        ars = [_chip_ar(r) for r in chip_recs if _chip_ar(r) is not None]
+        avg_wr  = round(sum(wrs)/len(wrs), 1) if wrs else None
+        avg_ret = round(sum(ars)/len(ars), 2) if ars else None
         rows = [f"{_emoji(avg_wr)} **筹码策略** 周均胜率{_wr_str(avg_wr)}  均涨{_ar_str(avg_ret)}"]
         for r in sorted(chip_recs, key=lambda x: x["date"]):
-            e = _emoji(r.get("total_win_rate"))
-            rows.append(f"  {e} {_date_fmt(r['date'])} {r['total_n']}只  胜率{_wr_str(r.get('total_win_rate'))}  均{_ar_str(r.get('total_avg_ret'))}")
+            rows.append(f"  {_emoji(_chip_wr(r))} {_date_fmt(r['date'])} {_chip_n(r)}只  胜率{_wr_str(_chip_wr(r))}  均{_ar_str(_chip_ar(r))}")
         sections.append("  \n".join(rows))
 
     # 金叉共振
     if gc_recs:
-        avg_wr, avg_ret = _week_avg(gc_recs, "total_win_rate", "total_avg_ret")
+        def _gc_wr(r): return (r.get("total") or {}).get("win_rate")
+        def _gc_ar(r): return (r.get("total") or {}).get("avg_ret")
+        def _gc_n(r):  return (r.get("total") or {}).get("n", 0)
+        wrs = [_gc_wr(r) for r in gc_recs if _gc_wr(r) is not None]
+        ars = [_gc_ar(r) for r in gc_recs if _gc_ar(r) is not None]
+        avg_wr  = round(sum(wrs)/len(wrs), 1) if wrs else None
+        avg_ret = round(sum(ars)/len(ars), 2) if ars else None
         rows = [f"{_emoji(avg_wr)} **金叉共振** 周均胜率{_wr_str(avg_wr)}  均涨{_ar_str(avg_ret)}"]
         for r in sorted(gc_recs, key=lambda x: x["date"]):
-            e = _emoji(r.get("total_win_rate"))
-            rows.append(f"  {e} {_date_fmt(r['date'])} {r['total_n']}只  胜率{_wr_str(r.get('total_win_rate'))}  均{_ar_str(r.get('total_avg_ret'))}")
+            rows.append(f"  {_emoji(_gc_wr(r))} {_date_fmt(r['date'])} {_gc_n(r)}只  胜率{_wr_str(_gc_wr(r))}  均{_ar_str(_gc_ar(r))}")
         sections.append("  \n".join(rows))
 
-    # 热榜策略
+    # 热榜策略（用 H1 作代表性档位）
     if hot_recs:
-        avg_wr, avg_ret = _week_avg(hot_recs, "win_rate", "avg_ret")
+        def _hot_wr(r): return (r.get("H1") or {}).get("win_rate")
+        def _hot_ar(r): return (r.get("H1") or {}).get("avg_ret")
+        def _hot_n(r):  return (r.get("H1") or {}).get("n", 0)
+        wrs = [_hot_wr(r) for r in hot_recs if _hot_wr(r) is not None]
+        ars = [_hot_ar(r) for r in hot_recs if _hot_ar(r) is not None]
+        avg_wr  = round(sum(wrs)/len(wrs), 1) if wrs else None
+        avg_ret = round(sum(ars)/len(ars), 2) if ars else None
         rows = [f"{_emoji(avg_wr)} **热榜策略** 周均胜率{_wr_str(avg_wr)}  均涨{_ar_str(avg_ret)}"]
         for r in sorted(hot_recs, key=lambda x: x["date"]):
-            e = _emoji(r.get("win_rate"))
-            rows.append(f"  {e} {_date_fmt(r['date'])} {r['n']}只  胜率{_wr_str(r.get('win_rate'))}  均{_ar_str(r.get('avg_ret'))}")
+            rows.append(f"  {_emoji(_hot_wr(r))} {_date_fmt(r['date'])} {_hot_n(r)}只  胜率{_wr_str(_hot_wr(r))}  均{_ar_str(_hot_ar(r))}")
         sections.append("  \n".join(rows))
 
     sections.append("⚠️ 仅供参考，不构成投资建议")
