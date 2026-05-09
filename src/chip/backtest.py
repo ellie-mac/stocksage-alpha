@@ -31,9 +31,8 @@ from pathlib import Path
 import pandas as pd
 
 ROOT    = Path(__file__).resolve().parent.parent
-SCRIPTS = Path(__file__).resolve().parent
 DATA    = ROOT / "data"
-sys.path.insert(0, str(SCRIPTS))
+sys.path.insert(0, str(ROOT))
 
 import cache as _cache
 import fetcher as _fetcher
