@@ -44,7 +44,8 @@ for _, row in df.iterrows():
             "price": float(pd.to_numeric(row["最新价"], errors="coerce") or 0),
             "change_pct": float(pd.to_numeric(row["涨跌幅"], errors="coerce") or 0),
         })
-print(f"Mapped candidates: {len(candidates)}", flush=True)
+print(f"Mapped candidates: {len(candidates)}, using first 300", flush=True)
+candidates = candidates[:300]
 
 # Batch query via BaoStock (single connection, sequential)
 bs.login()
