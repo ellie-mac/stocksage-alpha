@@ -22,7 +22,7 @@ from functools import partial
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from factors import weights_from_config_dict
-from factor_config import REGIME_WEIGHTS
+from factors.config import REGIME_WEIGHTS
 from factors_extended import score_market_regime
 import fetcher
 from common import configure_pushplus, send_wechat

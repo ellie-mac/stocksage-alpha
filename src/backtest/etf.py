@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fetcher
 from factor_analysis import compute_stock_scores
-from factor_config import (
+from factors.config import (
     FACTOR_WEIGHTS_ETF,
     REGIME_MA_SHORT, REGIME_MA_LONG,
     REGIME_EXPOSURE, REGIME_WEIGHTS,
