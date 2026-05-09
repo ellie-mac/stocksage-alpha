@@ -45,11 +45,14 @@ HOT_TIERS  = ["H0", "H1"]
 
 # ── 行情 ──────────────────────────────────────────────────────────────────────
 
-def _fetch_market_data(codes: list[str]) -> tuple[dict[str, float], dict[str, float]]:
+def _fetch_market_data(
+    codes: list[str],
+) -> tuple[dict[str, float], dict[str, float], dict[str, dict]]:
     """
-    Returns (close_pct, open_pct):
-      close_pct  {code: pct}  涨跌幅 vs 昨收
-      open_pct   {code: pct}  (今收 - 今开) / 今开 * 100  — 实际可买入的收益
+    Returns (close_pct, open_pct, raw_prices):
+      close_pct   {code: pct}   涨跌幅 vs 昨收
+      open_pct    {code: pct}   (今收 - 今开) / 今开 * 100
+      raw_prices  {code: {"pc": prev_close, "o": open, "c": close}}
     """
     import sys
     import pandas as pd
@@ -59,8 +62,7 @@ def _fetch_market_data(codes: list[str]) -> tuple[dict[str, float], dict[str, fl
     if not df.empty:
         df["_code"] = df["代码"].astype(str).str.zfill(6)
         df = df[df["_code"].isin(codes)].copy()
-        df["_pct"]   = pd.to_numeric(df["涨跌幅"], errors="coerce")
-        # open column: EM uses 今开, Sina fallback may use open
+        df["_pct"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
         for _col in ("今开", "open"):
             if _col in df.columns:
                 df["_open"] = pd.to_numeric(df[_col], errors="coerce")
@@ -73,14 +75,28 @@ def _fetch_market_data(codes: list[str]) -> tuple[dict[str, float], dict[str, fl
                 break
         else:
             df["_close"] = float("nan")
+        for _col in ("昨收", "pre_close"):
+            if _col in df.columns:
+                df["_pc"] = pd.to_numeric(df[_col], errors="coerce")
+                break
+        else:
+            df["_pc"] = float("nan")
         mask = df["_open"].notna() & (df["_open"] > 0) & df["_close"].notna()
         df.loc[mask, "_open_pct"] = (
             (df.loc[mask, "_close"] - df.loc[mask, "_open"]) / df.loc[mask, "_open"] * 100
         ).round(2)
         close_pct = dict(zip(df["_code"], df["_pct"].dropna()))
         open_pct  = dict(zip(df.loc[mask, "_code"], df.loc[mask, "_open_pct"]))
+        raw_prices: dict[str, dict] = {}
+        for _, row in df.iterrows():
+            code = str(row["_code"])
+            pc = float(row["_pc"])   if pd.notna(row.get("_pc"))    and float(row["_pc"])    > 0 else None
+            o  = float(row["_open"]) if pd.notna(row.get("_open"))  and float(row["_open"])  > 0 else None
+            c  = float(row["_close"]) if pd.notna(row.get("_close")) and float(row["_close"]) > 0 else None
+            if o and c:
+                raw_prices[code] = {"pc": pc, "o": o, "c": c}
         if close_pct or open_pct:
-            return close_pct, open_pct
+            return close_pct, open_pct, raw_prices
 
     # fallback：tushare daily
     print("[daily_perf] spot_em 不可用，改用 tushare daily fallback", flush=True)
@@ -93,24 +109,32 @@ def _fetch_market_data(codes: list[str]) -> tuple[dict[str, float], dict[str, fl
         _pro = _ts.pro_api()
         for _delta in range(3):
             _d = (_date.today() - _td(days=_delta)).strftime("%Y%m%d")
-            _df = _pro.daily(trade_date=_d, fields="ts_code,pct_chg,open,close")
+            _df = _pro.daily(trade_date=_d, fields="ts_code,pct_chg,open,close,pre_close")
             if _df is not None and not _df.empty:
                 _df["_code"] = _df["ts_code"].str.split(".").str[0]
                 _df = _df[_df["_code"].isin(codes)]
                 close_pct = dict(zip(_df["_code"], _df["pct_chg"].astype(float)))
                 import pandas as _pd
                 open_pct: dict[str, float] = {}
+                raw_prices = {}
                 for _, row in _df.iterrows():
-                    op = _pd.to_numeric(row.get("open"),  errors="coerce")
-                    cl = _pd.to_numeric(row.get("close"), errors="coerce")
+                    code = str(row["_code"])
+                    op = _pd.to_numeric(row.get("open"),      errors="coerce")
+                    cl = _pd.to_numeric(row.get("close"),     errors="coerce")
+                    pc = _pd.to_numeric(row.get("pre_close"), errors="coerce")
                     if _pd.notna(op) and float(op) > 0 and _pd.notna(cl):
-                        open_pct[str(row["_code"])] = round((float(cl) - float(op)) / float(op) * 100, 2)
+                        open_pct[code] = round((float(cl) - float(op)) / float(op) * 100, 2)
+                        raw_prices[code] = {
+                            "pc": float(pc) if _pd.notna(pc) and float(pc) > 0 else None,
+                            "o":  float(op),
+                            "c":  float(cl),
+                        }
                 if close_pct:
                     print(f"[daily_perf] tushare daily {_d} 拿到 {len(close_pct)} 只", flush=True)
-                    return close_pct, open_pct
+                    return close_pct, open_pct, raw_prices
     except Exception as e:
         print(f"[daily_perf] tushare daily 失败: {e}", flush=True)
-    return {}, {}
+    return {}, {}, {}
 
 
 # ── 统计工具 ──────────────────────────────────────────────────────────────────
@@ -123,7 +147,8 @@ _SIG_SHORT = {
 
 
 def _stats(items: list[dict], prices: dict[str, float],
-           open_prices: dict[str, float] | None = None) -> dict:
+           open_prices: dict[str, float] | None = None,
+           raw_prices: dict[str, dict] | None = None) -> dict:
     results = []
     for p in items:
         code = p["code"]
@@ -133,6 +158,8 @@ def _stats(items: list[dict], prices: dict[str, float],
              "pct": prices[code], "signals": p.get("signals", [])}
         if open_prices and code in open_prices:
             r["open_pct"] = open_prices[code]
+        if raw_prices and code in raw_prices:
+            r["prices"] = raw_prices[code]
         for xk in ("winner_rate", "spread_pct"):
             if xk in p:
                 r[xk] = p[xk]
@@ -181,9 +208,14 @@ def _open_suffix(s: dict) -> str:
     return f"  今开{_owr(s)} 均{_oar(s)}"
 
 def _stock_open(r: dict) -> str:
-    if "open_pct" not in r:
-        return ""
-    return f"  今开{r['open_pct']:+.2f}%"
+    parts = []
+    if "open_pct" in r:
+        parts.append(f"今开{r['open_pct']:+.2f}%")
+    px = r.get("prices")
+    if px:
+        pc_s = f"{px['pc']:.2f}" if px.get("pc") else "?"
+        parts.append(f"`昨{pc_s} 开{px['o']:.2f} 收{px['c']:.2f}`")
+    return ("  " + "  ".join(parts)) if parts else ""
 
 
 # ── 各策略数据加载 ─────────────────────────────────────────────────────────────
@@ -369,7 +401,9 @@ def _append(path: Path, record: dict, today: str, force: bool) -> bool:
         else:
             return False
     existing.append(record)
-    path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
     return True
 
 
@@ -412,20 +446,20 @@ def main() -> None:
     # ── 一次性拉取所有行情 ────────────────────────────────────────────────────
     all_codes = list({p["code"] for p in main_picks + sc_picks + chip_flat + gc_flat + hot_flat + wl_mon_picks + etf_picks})
     print(f"[daily_perf] 获取 {len(all_codes)} 只行情 ...")
-    prices, open_prices = _fetch_market_data(all_codes)
+    prices, open_prices, raw_prices = _fetch_market_data(all_codes)
     print(f"[daily_perf] 获取到 {len(prices)} 只（今开 {len(open_prices)} 只）")
     if not prices:
         print("[daily_perf] spot_em 返回空，跳过写入历史")
         return
 
     # ── 统计 ──────────────────────────────────────────────────────────────────
-    ms  = _stats(main_picks, prices, open_prices)
-    scs = _stats(sc_picks,   prices, open_prices)
-    chip_tier_stats = {t: _stats(chip_by_tier[t], prices, open_prices) for t in CHIP_TIERS}
-    gc_tier_stats   = {t: _stats(gc_by_tier[t],   prices, open_prices) for t in GC_TIERS}
-    hot_tier_stats  = {t: _stats(hot_by_tier[t],  prices, open_prices) for t in HOT_TIERS}
-    wl_mon_stats    = _stats(wl_mon_picks, prices, open_prices)
-    etf_stats       = _stats(etf_picks,   prices, open_prices)
+    ms  = _stats(main_picks, prices, open_prices, raw_prices)
+    scs = _stats(sc_picks,   prices, open_prices, raw_prices)
+    chip_tier_stats = {t: _stats(chip_by_tier[t], prices, open_prices, raw_prices) for t in CHIP_TIERS}
+    gc_tier_stats   = {t: _stats(gc_by_tier[t],   prices, open_prices, raw_prices) for t in GC_TIERS}
+    hot_tier_stats  = {t: _stats(hot_by_tier[t],  prices, open_prices, raw_prices) for t in HOT_TIERS}
+    wl_mon_stats    = _stats(wl_mon_picks, prices, open_prices, raw_prices)
+    etf_stats       = _stats(etf_picks,   prices, open_prices, raw_prices)
     cs = _stats(chip_flat, prices)
     gs = _stats(gc_flat,   prices)
     hs = hot_tier_stats["H1"]
@@ -539,7 +573,8 @@ def main() -> None:
     def _tier_rec(s):
         rec = {"n": s["n"], "win_rate": s["win_rate"], "avg_ret": s["avg_ret"],
                "picks": [{"code": r["code"], "name": r["name"], "pct": r["pct"],
-                          **({"open_pct": r["open_pct"]} if "open_pct" in r else {})}
+                          **({"open_pct": r["open_pct"]} if "open_pct" in r else {}),
+                          **({"prices": r["prices"]}     if "prices"   in r else {})}
                          for r in s["results"]]}
         if s.get("open_win_rate") is not None:
             rec["open_win_rate"] = s["open_win_rate"]
