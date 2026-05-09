@@ -2,7 +2,6 @@
 data/*.json
 data/*.db
 data/*.txt
-!data/fund_watchlist.json
 
 __pycache__/
 *.pyc
