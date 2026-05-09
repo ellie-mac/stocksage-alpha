@@ -44,6 +44,7 @@ def _load_failures() -> dict:
 
 
 def _save_failures(d: dict) -> None:
+    _FAILURES_PATH.parent.mkdir(parents=True, exist_ok=True)
     _FAILURES_PATH.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
 
 

@@ -1317,8 +1317,8 @@ def _fmt_gc_section(gc_data: dict, prices: dict[str, dict]) -> list[str]:
 
 def _load_all_strategy_data() -> tuple[list, list, list[dict], dict, dict]:
     """Load all strategy data sources. Returns (main, smallcap, etf_picks, chip, gc)."""
-    from daily_chip_scan import load_chip_results
-    from golden_cross_scan import load_gc_results
+    from chip.daily_scan import load_chip_results
+    from strategies.golden_cross_scan import load_gc_results
 
     picks_data  = _load_latest_picks(top_n=10)
     main_picks  = picks_data.get("results", []) if picks_data else []
