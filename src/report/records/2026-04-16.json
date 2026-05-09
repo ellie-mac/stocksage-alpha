@@ -1,0 +1,235 @@
+{
+  "date": "2026-04-16",
+  "day": 1,
+  "preauction": {
+    "timestamp": "09:50:40"
+  },
+  "midday": {
+    "timestamp": "12:35:33"
+  },
+  "morning": {
+    "timestamp": "17:25:02",
+    "query": "综合",
+    "regime": "monitor",
+    "picks": [
+      {
+        "code": "000533",
+        "name": "顺钠股份",
+        "score": 84.7,
+        "change_pct": -2.48,
+        "buy_score": 84.7,
+        "sell_score": 15.2,
+        "bullish": [
+          {
+            "factor": "momentum",
+            "score": 25.0,
+            "signal": ""
+          },
+          {
+            "factor": "growth",
+            "score": 18.5,
+            "signal": ""
+          },
+          {
+            "factor": "ma_alignment",
+            "score": 11.0,
+            "signal": ""
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "idiosyncratic_vol",
+            "sell_score": 10.0,
+            "signal": "高特质波动率=0.86 — 投机溢价，预期跑输"
+          },
+          {
+            "factor": "atr_normalized",
+            "sell_score": 10.0,
+            "signal": "高ATR=0.052 — 盘中大幅震荡，操纵/炒作风险高"
+          },
+          {
+            "factor": "cash_flow_quality",
+            "sell_score": 10.0,
+            "signal": "weak cash backing: CF/NI=0%"
+          }
+        ]
+      },
+      {
+        "code": "002498",
+        "name": "汉缆股份",
+        "score": 84.7,
+        "change_pct": 5.76,
+        "buy_score": 84.7,
+        "sell_score": 12.8,
+        "bullish": [
+          {
+            "factor": "momentum",
+            "score": 25.0,
+            "signal": ""
+          },
+          {
+            "factor": "reversal",
+            "score": 10.0,
+            "signal": "oversold + volume drying up (bottom formation) + weak fundamentals (falling knife risk) (bull market — pullback more buyable) (hot concept +41.3% — rotation catalyst boosts reversal)"
+          },
+          {
+            "factor": "institutional_visits",
+            "score": 10.0,
+            "signal": "high attention"
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "idiosyncratic_vol",
+            "sell_score": 10.0,
+            "signal": "高特质波动率=0.93 — 投机溢价，预期跑输"
+          },
+          {
+            "factor": "atr_normalized",
+            "sell_score": 10.0,
+            "signal": "高ATR=0.054 — 盘中大幅震荡，操纵/炒作风险高"
+          },
+          {
+            "factor": "cash_flow_quality",
+            "sell_score": 10.0,
+            "signal": "weak cash backing: CF/NI=0%"
+          }
+        ]
+      },
+      {
+        "code": "688717",
+        "name": "艾罗能源",
+        "score": 84.6,
+        "change_pct": -0.24,
+        "buy_score": 84.6,
+        "sell_score": 6.9,
+        "bullish": [
+          {
+            "factor": "growth",
+            "score": 25.0,
+            "signal": ""
+          },
+          {
+            "factor": "momentum",
+            "score": 25.0,
+            "signal": ""
+          },
+          {
+            "factor": "asset_growth",
+            "score": 10.0,
+            "signal": "disciplined"
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "idiosyncratic_vol",
+            "sell_score": 10.0,
+            "signal": "高特质波动率=0.81 — 投机溢价，预期跑输"
+          },
+          {
+            "factor": "atr_normalized",
+            "sell_score": 10.0,
+            "signal": "高ATR=0.083 — 盘中大幅震荡，操纵/炒作风险高"
+          },
+          {
+            "factor": "divergence",
+            "sell_score": 10.0,
+            "signal": "strong bearish divergence (4/4 signals)"
+          }
+        ]
+      },
+      {
+        "code": "688170",
+        "name": "德龙激光",
+        "score": 84.4,
+        "change_pct": 0.21,
+        "buy_score": 84.4,
+        "sell_score": 10.3,
+        "bullish": [
+          {
+            "factor": "momentum",
+            "score": 25.0,
+            "signal": ""
+          },
+          {
+            "factor": "growth",
+            "score": 22.4,
+            "signal": ""
+          },
+          {
+            "factor": "ma_alignment",
+            "score": 15.0,
+            "signal": ""
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "chip_distribution",
+            "sell_score": 10.0,
+            "signal": ""
+          },
+          {
+            "factor": "atr_normalized",
+            "sell_score": 10.0,
+            "signal": "高ATR=0.054 — 盘中大幅震荡，操纵/炒作风险高"
+          },
+          {
+            "factor": "cash_flow_quality",
+            "sell_score": 10.0,
+            "signal": "negative cash ratio (earnings not backed by cash): CF/NI=-0%"
+          }
+        ]
+      },
+      {
+        "code": "001309",
+        "name": "德明利",
+        "score": 83.4,
+        "change_pct": 3.55,
+        "buy_score": 83.4,
+        "sell_score": 9.7,
+        "bullish": [
+          {
+            "factor": "momentum",
+            "score": 25.0,
+            "signal": ""
+          },
+          {
+            "factor": "growth",
+            "score": 21.2,
+            "signal": ""
+          },
+          {
+            "factor": "ma_alignment",
+            "score": 15.0,
+            "signal": ""
+          }
+        ],
+        "bearish": [
+          {
+            "factor": "idiosyncratic_vol",
+            "sell_score": 10.0,
+            "signal": "高特质波动率=0.65 — 投机溢价，预期跑输"
+          },
+          {
+            "factor": "atr_normalized",
+            "sell_score": 10.0,
+            "signal": "高ATR=0.060 — 盘中大幅震荡，操纵/炒作风险高"
+          },
+          {
+            "factor": "ma60_deviation",
+            "sell_score": 10.0,
+            "signal": "大幅高于MA60 +62.7% — 均值回归风险高"
+          }
+        ]
+      }
+    ],
+    "night_confirmed": 0,
+    "night_total": 0
+  },
+  "evening": {
+    "timestamp": "23:37:10",
+    "avg_change_pct": null,
+    "benchmark_change_pct": 1.096,
+    "verdict": "数据不足"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "date": "2026-04-10",
+  "day": 6,
+  "morning": {
+    "timestamp": "17:25:28",
+    "query": "综合",
+    "regime": "NORMAL",
+    "picks": [],
+    "night_confirmed": 0,
+    "night_total": 0
+  }
+}

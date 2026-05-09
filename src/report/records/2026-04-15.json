@@ -1,0 +1,16 @@
+{
+  "date": "2026-04-15",
+  "day": 9,
+  "preauction": {
+    "timestamp": "09:56:30"
+  },
+  "midday": {
+    "timestamp": "13:06:39"
+  },
+  "evening": {
+    "timestamp": "23:35:08",
+    "avg_change_pct": null,
+    "benchmark_change_pct": -0.341,
+    "verdict": "数据不足"
+  }
+}

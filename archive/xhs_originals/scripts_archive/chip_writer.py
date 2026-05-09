@@ -1,0 +1,547 @@
+#!/usr/bin/env python3
+"""
+筹码策略小红书三段式推送
+  morning : 早报 — 全部筹码选股按档位列出
+  midday  : 午间快报 — 涨跌幅 Top5、胜率、收益率、下午重点
+  evening : 收盘总结 — 最终胜率、收益率、Top5、总结
+
+用法：
+  python -X utf8 xhs/chip_writer.py morning
+  python -X utf8 xhs/chip_writer.py midday
+  python -X utf8 xhs/chip_writer.py evening [--dry-run]
+
+每个命令内置最大延迟检查，超出窗口自动跳过（防 Task Scheduler 补跑）。
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import datetime, time as dtime, timedelta
+from pathlib import Path
+
+ROOT    = Path(__file__).resolve().parent.parent
+XHS_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT / "scripts"))
+
+SCAN_PATH       = ROOT / "data" / "chip_scan_latest.json"
+CAH_PATH        = ROOT / "data" / "chip_cah_latest.json"
+CAD_PATH        = ROOT / "data" / "chip_cad_latest.json"
+CADM_PATH       = ROOT / "data" / "chip_cadm_latest.json"
+MAIN_PICKS_PATH = ROOT / "data" / "latest_picks.json"
+GC_PATH         = ROOT / "data" / "golden_cross_latest.json"
+
+# 超出计划时间多少分钟后跳过（防止补跑）
+MAX_DELAY = {"morning": 60, "midday": 40, "evening": 90}
+SCHED_TIME = {"morning": dtime(9, 25), "midday": dtime(11, 35), "evening": dtime(15, 30)}
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _push(title: str, body: str) -> None:
+    try:
+        from common import push_wechat
+        push_wechat(title, body)
+        print("[notify] 推送成功")
+    except Exception as e:
+        print(f"[notify] 推送失败: {e}")
+
+
+def _in_window(slot: str) -> bool:
+    sched = SCHED_TIME.get(slot)
+    if not sched:
+        return True
+    now_dt   = datetime.now()
+    sched_dt = datetime.combine(now_dt.date(), sched)
+    delay    = (now_dt - sched_dt).total_seconds() / 60
+    if delay < 0:
+        print(f"[{slot}] 计划时间未到（还有 {-delay:.0f}min），跳过")
+        return False
+    if delay > MAX_DELAY.get(slot, 60):
+        print(f"[{slot}] 超出执行窗口（延迟 {delay:.0f}min），跳过")
+        return False
+    return True
+
+
+def _cascade_filter(tier_order: tuple, tiers: dict, picks: list,
+                    threshold: int = 30) -> tuple[dict, list]:
+    """Include tiers one at a time until cumulative count >= threshold."""
+    keep: list[str] = []
+    total = 0
+    for t in tier_order:
+        cnt = len(tiers.get(t, []))
+        if cnt == 0:
+            continue
+        keep.append(t)
+        total += cnt
+        if total >= threshold:
+            break
+    keep_set = set(keep)
+    return ({k: v for k, v in tiers.items() if k in keep_set},
+            [p for p in picks if p.get("tier") in keep_set])
+
+
+def _load_scan() -> dict:
+    """取 CAH ∩ CAD ∩ CADM 三者交集；从 T1 开始级联到满 30 只；三者缺任一则 fallback 到仅 CAD。"""
+    cah_data  = json.loads(CAH_PATH.read_text(encoding="utf-8"))  if CAH_PATH.exists()  else None
+    cad_data  = json.loads(CAD_PATH.read_text(encoding="utf-8"))  if CAD_PATH.exists()  else None
+    cadm_data = json.loads(CADM_PATH.read_text(encoding="utf-8")) if CADM_PATH.exists() else None
+
+    if cah_data and cad_data and cadm_data:
+        date = cad_data.get("date", datetime.now().strftime("%Y%m%d"))
+        tiers_out: dict[str, list] = {}
+        for tier_key in ("T1", "T2", "T3", "T4"):
+            cah_codes  = {p["code"] for p in cah_data.get("tiers",  {}).get(tier_key, [])}
+            cad_codes  = {p["code"] for p in cad_data.get("tiers",  {}).get(tier_key, [])}
+            cadm_codes = {p["code"] for p in cadm_data.get("tiers", {}).get(tier_key, [])}
+            common     = cah_codes & cad_codes & cadm_codes
+            cad_lookup = {p["code"]: p for p in cad_data.get("tiers", {}).get(tier_key, [])}
+            tiers_out[tier_key] = [cad_lookup[c] for c in common if c in cad_lookup]
+            print(f"[load_scan] {tier_key}: CAH={len(cah_codes)} CAD={len(cad_codes)} "
+                  f"CADM={len(cadm_codes)} 交集={len(tiers_out[tier_key])}")
+
+        all_picks = []
+        for tier_key, picks in tiers_out.items():
+            for p in picks:
+                p2 = dict(p)
+                p2["tier"] = tier_key
+                all_picks.append(p2)
+
+        tiers_out, all_picks = _cascade_filter(("T1","T2","T3","T4"), tiers_out, all_picks)
+        if all_picks:
+            return {"date": date, "all_picks": all_picks,
+                    "tiers": tiers_out, "filter": "CAH∩CAD∩CADM"}
+        print("[load_scan] 三者交集为空，fallback 到仅 CAD")
+
+    # fallback: cad only
+    if cad_data:
+        tiers_cad = cad_data.get("tiers", {})
+        all_picks = []
+        for tier_key, picks in tiers_cad.items():
+            for p in picks:
+                p2 = dict(p); p2["tier"] = tier_key
+                all_picks.append(p2)
+        tiers_cad, all_picks = _cascade_filter(("T1","T2","T3","T4"), tiers_cad, all_picks)
+        if all_picks:
+            return {"date": cad_data.get("date", datetime.now().strftime("%Y%m%d")),
+                    "all_picks": all_picks, "tiers": tiers_cad,
+                    "filter": cad_data.get("mods", "")}
+
+    if not SCAN_PATH.exists():
+        print(f"[chip_writer] 找不到任何筹码数据文件")
+        return {}
+    return json.loads(SCAN_PATH.read_text(encoding="utf-8"))
+
+
+def _load_main_picks() -> list[dict]:
+    if not MAIN_PICKS_PATH.exists():
+        return []
+    data = json.loads(MAIN_PICKS_PATH.read_text(encoding="utf-8"))
+    # latest_picks.json: {timestamp, results:[{code, name, score, change_pct, ...}]}
+    ts = data.get("timestamp", "")
+    if ts[:10] != datetime.now().strftime("%Y-%m-%d"):
+        return []
+    return [
+        {"code": r["code"], "name": r["name"],
+         "score": r.get("buy_score", r.get("score", 0)),
+         "change_pct": r.get("change_pct", 0)}
+        for r in data.get("results", [])
+    ]
+
+
+def _load_gc_picks() -> dict:
+    if not GC_PATH.exists():
+        return {}
+    data = json.loads(GC_PATH.read_text(encoding="utf-8"))
+    from datetime import timedelta
+    cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y%m%d")
+    if data.get("date", "") < cutoff:
+        return {}
+    return data
+
+
+_GC_ALL_LABELS = {"G0": "7信号", "G1": "6信号", "G2": "5信号", "G3": "4信号"}
+_GC_TIER_ORDER = ("G0", "G1", "G2", "G3")
+
+
+def _fmt_gc_section(gc_data: dict, prices: dict[str, dict] | None = None) -> list[str]:
+    """金叉共振区块：从最高档级联推送直到累计满30只。"""
+    if not gc_data:
+        return []
+    tiers = gc_data.get("tiers", {})
+    # cascade: include tiers until cumulative count >= 30
+    keep: list[str] = []
+    total = 0
+    for t in _GC_TIER_ORDER:
+        cnt = len(tiers.get(t, []))
+        if cnt == 0:
+            continue
+        keep.append(t)
+        total += cnt
+        if total >= 30:
+            break
+    _LABELS = {t: _GC_ALL_LABELS[t] for t in keep if t in _GC_ALL_LABELS}
+    if total == 0:
+        return []
+
+    prices = prices or {}
+    all_picks = [dict(p, tier=t) for t in _LABELS for p in tiers.get(t, [])]
+    overall = _calc_stats(all_picks, prices)
+    overall_s = (f"  胜率{overall['win_rate']:.0f}%  均{overall['avg_ret']:+.2f}%"
+                 if overall["results"] else "")
+
+    gc_date = gc_data.get("date", "")
+    gc_date_s = f" {gc_date[4:6]}/{gc_date[6:]}" if len(gc_date) == 8 else ""
+    out = ["", f"**【金叉共振{gc_date_s} {total}只】{overall_s}**  "]
+    for t, label in _LABELS.items():
+        picks = tiers.get(t, [])
+        if not picks:
+            continue
+        tier_picks = [dict(p, tier=t) for p in picks]
+        ts = _calc_stats(tier_picks, prices)
+        stat_s = (f"  胜率{ts['win_rate']:.0f}%  均{ts['avg_ret']:+.2f}%"
+                  if ts["results"] else "")
+        out.append(f"**{t} {label}（{len(picks)}只）{stat_s}**  ")
+        for p in picks[:3]:
+            pr = prices.get(p["code"])
+            if pr:
+                pct_s = f" ¥{pr['price']:.2f} **{pr['change_pct']:+.2f}%**"
+            else:
+                pct_s = ""
+            out.append(f"{p['code']} {p['name']}{pct_s}  ")
+        if len(picks) > 3:
+            out.append(f"  ……共{len(picks)}只  ")
+        out.append("")
+    return out
+
+
+def _fmt_main_section(main_picks: list[dict], chip_win: float, chip_avg: float,
+                      prices: dict[str, dict]) -> list[str]:
+    """主策略 vs 筹码对比区块。"""
+    mp_list = [{"code": p["code"], "name": p["name"],
+                "industry": p.get("industry", ""), "tier": "main"}
+               for p in main_picks]
+    ms = _calc_stats(mp_list, prices)
+    out = ["", "**【主策略 5只对比】**  "]
+    if ms["results"]:
+        out.append(f"主策略 胜率{ms['win_rate']:.0f}%  均{ms['avg_ret']:+.2f}%"
+                   f"  |  筹码 胜率{chip_win:.0f}%  均{chip_avg:+.2f}%  ")
+        for r in ms["results"]:
+            price_s = f" ¥{r['price']:.2f}" if r.get("price") else ""
+            out.append(f"{r['code']} {r['name']}{price_s} {r['change_pct']:+.2f}%  ")
+    else:
+        for p in main_picks:
+            out.append(f"{p['code']} {p['name']} {p.get('industry', '')}  ")
+    return out
+
+
+def _fetch_prices(codes: list[str]) -> dict[str, dict]:
+    """通过共享缓存拉取实时行情，返回 {code: {price, change_pct}}。"""
+    if not codes:
+        return {}
+    import pandas as pd
+    from common import get_spot_em
+    df = get_spot_em()
+    if df.empty:
+        return {}
+    df["_code"] = df["代码"].astype(str).str.zfill(6)
+    df = df[df["_code"].isin(codes)].copy()
+    df["_price"] = pd.to_numeric(df["最新价"], errors="coerce")
+    df["_pct"]   = pd.to_numeric(df["涨跌幅"], errors="coerce")
+    df = df.dropna(subset=["_price", "_pct"])
+    return dict(zip(df["_code"], [{"price": p, "change_pct": c}
+                                   for p, c in zip(df["_price"], df["_pct"])]))
+
+
+def _fetch_with_retry(codes: list[str], picks: list[dict], slot: str,
+                      retry_interval: int = 600, max_retries: int = 4) -> dict:
+    """行情获取失败时，在窗口期内每隔 retry_interval 秒重试，直到拿到数据或超时。"""
+    import time as _time
+    for attempt in range(max_retries):
+        prices = _fetch_prices(codes)
+        s = _calc_stats(picks, prices)
+        if s["results"]:
+            return s
+        if attempt < max_retries - 1 and _in_window(slot):
+            print(f"[{slot}] 行情未就绪，{retry_interval//60}分钟后重试（第{attempt+1}次）")
+            _time.sleep(retry_interval)
+        else:
+            break
+    return _calc_stats(picks, {})
+
+
+def _calc_stats(picks: list[dict], prices: dict[str, dict]) -> dict:
+    results = []
+    for p in picks:
+        code = p["code"]
+        pr   = prices.get(code)
+        if not pr:
+            continue
+        results.append({
+            "code":       code,
+            "name":       p.get("name", code),
+            "industry":   p.get("industry", ""),
+            "price":      pr.get("price"),
+            "change_pct": pr["change_pct"],
+            "tier":       p.get("tier", ""),
+        })
+    if not results:
+        return {"results": [], "n_total": 0, "n_win": 0,
+                "win_rate": 0.0, "avg_ret": 0.0, "top5": [],
+                "watch_up": [], "watch_dn": []}
+    import math
+    nan_stocks = [r for r in results if math.isnan(r["change_pct"])]
+    valid    = [r["change_pct"] for r in results if not math.isnan(r["change_pct"])]
+    n_win    = sum(1 for v in valid if v > 0)
+    win_rate = n_win / len(valid) * 100 if valid else 0.0
+    avg_ret  = sum(valid) / len(valid) if valid else 0.0
+    by_chg   = sorted([r for r in results if not math.isnan(r["change_pct"])],
+                      key=lambda r: r["change_pct"], reverse=True)
+    return {
+        "results":    results,
+        "n_total":    len(results),
+        "n_win":      n_win,
+        "win_rate":   win_rate,
+        "avg_ret":    avg_ret,
+        "top5":       by_chg[:5],
+        "watch_up":   [r for r in by_chg if 0 < r["change_pct"] <= 3.0],
+        "watch_dn":   [r for r in by_chg if r["change_pct"] < 0][:3],
+        "nan_stocks": nan_stocks,
+    }
+
+
+def _fmt_date(date: str) -> str:
+    return f"{date[4:6]}/{date[6:]}" if len(date) == 8 else date
+
+
+# ── 三段式命令 ────────────────────────────────────────────────────────────────
+
+def cmd_morning(dry_run: bool = False, force: bool = False) -> None:
+    """早报：全部筹码选股按档位列出"""
+    if not force and not _in_window("morning"):
+        return
+    data = _load_scan()
+    if not data:
+        return
+
+    date      = datetime.now().strftime("%Y%m%d")
+    all_tiers = data.get("tiers", {})
+    total     = sum(len(v) for v in all_tiers.values())
+
+    _TIER_LABEL = {
+        "T1": "极强 ≥95%",
+        "T2": "强势 90-95%",
+        "T3": "稳健 85-90%",
+        "T4": "潜力 75-85%",
+    }
+
+    main_picks = _load_main_picks()
+    chip_total = sum(len(all_tiers.get(k, [])) for k in _TIER_LABEL)
+
+    lines: list[str] = []
+
+    if main_picks:
+        lines.append(f"**【主策略精选 {len(main_picks)}只】**  ")
+        for p in main_picks:
+            score_s = f"评分{p['score']:.1f}" if p.get("score") else ""
+            lines.append(f"{p['code']} {p['name']} {score_s}  ")
+        lines.append("")
+
+    _fallback_s = "" if data.get("filter") == "CAH∩CAD∩CADM" else "  ⚡仅CAD"
+    lines.append(f"**【筹码策略 {chip_total}只{_fallback_s}】**  ")
+    for tier_key, tier_label in _TIER_LABEL.items():
+        picks = all_tiers.get(tier_key, [])
+        if not picks:
+            continue
+        lines.append(f"**{tier_key} {tier_label}（{len(picks)}只）**  ")
+        for p in picks:
+            _price_raw = p.get("close") or p.get("price")
+            try:
+                close_s = f"¥{float(_price_raw):.2f}" if _price_raw and not __import__("math").isnan(float(_price_raw)) else ""
+            except (TypeError, ValueError):
+                close_s = ""
+            sp = p.get("spread_pct")
+            try:
+                sp_f = float(sp)
+                shape_tag = " 锥" if sp_f < 15 else (" 散" if sp_f > 30 else "")
+            except (TypeError, ValueError):
+                shape_tag = ""
+            lines.append(f"{p['code']} {p['name']} {p.get('industry', '')} {close_s}{shape_tag}  ")
+        lines.append("")
+
+    gc_data = _load_gc_picks()
+    lines += _fmt_gc_section(gc_data)
+
+    lines.append("⚠️ 仅供参考，不构成投资建议")
+    lines.append("#量化记录 #筹码分布 #数据实验 #记录帖")
+
+    title = f"量化早报 {_fmt_date(date)}"
+    body  = "\n".join(lines)
+    print(f"\n{title}\n{body}")
+    if not dry_run:
+        _push(title, body)
+
+
+def cmd_midday(dry_run: bool = False, force: bool = False) -> None:
+    """午间快报：主策略 + 筹码涨跌 Top5 + 下午关注"""
+    if not force and not _in_window("midday"):
+        return
+    data = _load_scan()
+    if not data:
+        return
+
+    date  = datetime.now().strftime("%Y%m%d")
+    picks = data.get("all_picks", [])
+    if not picks:
+        print("[midday] 无选股")
+        return
+
+    codes = [p["code"] for p in picks]
+    s     = _fetch_with_retry(codes, picks, slot="midday")
+
+    main_picks = _load_main_picks()
+    mp_list = [{"code": p["code"], "name": p["name"],
+                "industry": p.get("industry", ""), "tier": "main"}
+               for p in main_picks]
+    ms = _calc_stats(mp_list, _fetch_prices([p["code"] for p in main_picks])) if main_picks else None
+
+    lines: list[str] = []
+
+    # ── 主策略精选 ─────────────────────────────────────────────────────────────
+    if ms and ms["results"]:
+        lines.append(f"**【主策略精选 {len(main_picks)}只】  胜率 {ms['win_rate']:.0f}%  均 {ms['avg_ret']:+.2f}%**  ")
+        for r in sorted(ms["results"], key=lambda x: x["change_pct"], reverse=True):
+            lines.append(f"{r['code']} {r['name']} **{r['change_pct']:+.2f}%**  ")
+        lines.append("")
+    elif main_picks:
+        lines.append(f"**【主策略精选 {len(main_picks)}只】**  ")
+        for p in main_picks:
+            price_s = f"¥{float(p['price']):.2f}" if p.get("price") else ""
+            lines.append(f"{p['code']} {p['name']} {price_s}  ")
+        lines.append("")
+
+    # ── 筹码策略 ───────────────────────────────────────────────────────────────
+    _fallback_s = "" if data.get("filter") == "CAH∩CAD∩CADM" else "  ⚡仅CAD"
+    if s["results"]:
+        lines.append(f"**【筹码策略 {s['n_total']}只{_fallback_s}】  胜率 {s['win_rate']:.0f}%  均 {s['avg_ret']:+.2f}%**  ")
+        lines.append("\n涨幅前五：  ")
+        for i, r in enumerate(s["top5"], 1):
+            lines.append(f"{i}. {r['code']} {r['name']} **{r['change_pct']:+.2f}%**  ")
+        if s["watch_up"] or s["watch_dn"]:
+            lines.append("\n下午关注：  ")
+            for r in s["watch_up"][:3]:
+                lines.append(f"📈 {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
+            for r in s["watch_dn"][:2]:
+                lines.append(f"📉 {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
+    else:
+        _fallback_s = "" if data.get("filter") == "CAH∩CAD∩CADM" else "  ⚡仅CAD"
+        lines.append(f"**【筹码策略 {len(picks)}只{_fallback_s}】**  （行情暂不可用）  ")
+
+    gc_data = _load_gc_picks()
+    gc_codes = [p["code"] for t in ("G0","G1") for p in gc_data.get("tiers", {}).get(t, [])]
+    gc_prices = _fetch_prices(gc_codes) if gc_codes else {}
+    lines += _fmt_gc_section(gc_data, gc_prices)
+
+    lines.append("\n⚠️ 仅供参考，不构成投资建议")
+    lines.append("#量化记录 #筹码分布 #数据实验")
+
+    title = f"午间快报 {_fmt_date(date)}"
+    body  = "\n".join(lines)
+    print(f"\n{title}\n{body}")
+    if not dry_run:
+        _push(title, body)
+
+
+def cmd_evening(dry_run: bool = False, force: bool = False) -> None:
+    """收盘总结：最终胜率、收益率、Top5、总结"""
+    if not force and not _in_window("evening"):
+        return
+    data = _load_scan()
+    if not data:
+        return
+
+    date  = datetime.now().strftime("%Y%m%d")
+    picks = data.get("all_picks", [])
+    if not picks:
+        print("[evening] 无选股")
+        return
+
+    codes  = [p["code"] for p in picks]
+    s      = _fetch_with_retry(codes, picks, slot="evening")
+    if not s["results"]:
+        print("[evening] 行情获取失败，发送无数据版本")
+        title = f"收盘总结 {_fmt_date(date)}"
+        fb_lines = [f"📊 收盘总结 {_fmt_date(date)}（行情延迟，数据已锁定）\n"]
+        all_tiers = data.get("tiers", {})
+        for tier_key in ("T1", "T2", "T3", "T4"):
+            tier_picks = all_tiers.get(tier_key, [])
+            if not tier_picks:
+                continue
+            stock_list = "、".join(f"{p['code']}{p.get('name', '')}" for p in tier_picks[:8])
+            suffix = "等" if len(tier_picks) > 8 else ""
+            fb_lines.append(f"**{tier_key}**（{len(tier_picks)}只）: {stock_list}{suffix}")
+        fb_lines.append("\n⚠️ 仅供参考，不构成投资建议\n#量化记录 #筹码分布 #数据实验 #记录帖")
+        body = "\n".join(fb_lines)
+        if not dry_run:
+            _push(title, body)
+        return
+
+    if s["win_rate"] >= 70 and s["avg_ret"] >= 0.5:
+        summary = f"今天整体不错，胜率{s['win_rate']:.0f}%，均涨{s['avg_ret']:+.2f}%，筹码策略跑出来了。"
+    elif s["win_rate"] >= 50:
+        summary = f"今天中规中矩，胜率{s['win_rate']:.0f}%，均涨{s['avg_ret']:+.2f}%。"
+    else:
+        summary = f"今天偏弱，胜率{s['win_rate']:.0f}%，均涨{s['avg_ret']:+.2f}%，市场整体承压。"
+
+    lines = [f"📊 收盘总结 {_fmt_date(date)}"]
+
+    lines.append("**收益前五：**")
+    for i, r in enumerate(s["top5"], 1):
+        price_s = f" ¥{r['price']:.2f}" if r.get("price") else ""
+        lines.append(f"{i}. {r['code']} {r['name']}{price_s} **{r['change_pct']:+.2f}%**  ")
+
+    _fallback_s = "" if data.get("filter") == "CAH∩CAD∩CADM" else "  ⚡仅CAD"
+    lines.append(f"\n筹码选股 {s['n_total']} 只（{len(s['results'])} 只已更新行情）{_fallback_s}")
+    lines.append(f"**最终胜率 {s['win_rate']:.0f}%**（{s['n_win']}/{s['n_total']}只盈利）")
+    lines.append(f"**综合收益率 {s['avg_ret']:+.2f}%**\n")
+
+    lines.append(summary)
+
+    if s["nan_stocks"]:
+        codes = " ".join(f"{r['code']}{r['name']}" for r in s["nan_stocks"])
+        lines.append(f"\n⚠️ 行情缺失（停牌/数据异常）：{codes}")
+
+    main_picks = _load_main_picks()
+    if main_picks:
+        mp_prices = _fetch_prices([p["code"] for p in main_picks])
+        lines += _fmt_main_section(main_picks, s["win_rate"], s["avg_ret"], mp_prices)
+
+    gc_data = _load_gc_picks()
+    gc_codes = [p["code"] for t in ("G0","G1") for p in gc_data.get("tiers", {}).get(t, [])]
+    gc_prices = _fetch_prices(gc_codes) if gc_codes else {}
+    lines += _fmt_gc_section(gc_data, gc_prices)
+
+    lines.append("\n⚠️ 仅供参考，不构成投资建议")
+    lines.append("#量化记录 #筹码分布 #数据实验 #记录帖")
+
+    title = f"收盘总结 {_fmt_date(date)}"
+    body  = "\n".join(lines)
+    print(f"\n{title}\n{body}")
+    if not dry_run:
+        _push(title, body)
+
+
+# ── entry point ───────────────────────────────────────────────────────────────
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("slot", choices=["morning", "midday", "evening"])
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true", help="跳过时间窗口检查")
+    args = parser.parse_args()
+    fn = {"morning": cmd_morning, "midday": cmd_midday, "evening": cmd_evening}[args.slot]
+    fn(args.dry_run, args.force)
+
+
+if __name__ == "__main__":
+    main()
