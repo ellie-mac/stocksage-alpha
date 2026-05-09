@@ -307,6 +307,8 @@ _TASK_DESC = {
     "chip_Night":        "筹码缓存",
     "main_Night":        "夜间预热",
     "integrity_Check":   "数据完整性",
+    "institution_Scan":  "机构扫盘 📱",
+    "weekly_PerfReport": "周度绩效报告 📱",
 }
 
 _HOT_RANK_NAMES = [
