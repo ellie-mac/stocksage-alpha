@@ -300,7 +300,7 @@ _TASK_DESC = {
     "report_Midday":     "午间报告 📱",
     "report_Evening":    "收盘报告 📱",
     "daily_PerfLog":     "胜率统计 📱",
-    "main_Scan":         "主策略扫盘 📱",
+    "main_Scan":         "主/ETF/小盘扫盘 📱",
     "gc_Scan":           "金叉扫描 📱",
     "hot_Scan":          "热榜扫描 📱",
     "chip_CadScan":      "筹码扫描 📱",
