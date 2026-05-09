@@ -1241,7 +1241,7 @@ def _fmt_chip_section(chip_data: dict, prices: dict[str, dict], slot: str = "mid
     if not picks:
         return []
     s = calc_pick_stats(picks, prices)
-    fallback_s = "" if chip_data.get("filter") == "CAH∩CAD∩CADM" else "  仅CAD"
+    fallback_s = "（交集）" if chip_data.get("filter") == "CAH∩CAD∩CADM" else "（CAD）"
     lines = []
     if s["results"]:
         lines.append(f"**【筹码策略 {s['n_total']}只{fallback_s}】"
