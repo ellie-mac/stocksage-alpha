@@ -326,6 +326,11 @@ _TASK_LIST = [
     ("main_Night",             "22:30", "夜间预热"),
 ]
 
+_TASK_DISPLAY = {
+    "StockSage_WL_Monitor": "watchlist_monitor",
+    "StockSage_WL_Updater": "watchlist_updater",
+}
+
 _HOT_RANK_NAMES = [
     "hot_Rank_0935", "hot_Rank_1000", "hot_Rank_1100",
     "hot_Rank_1330", "hot_Rank_1430",
@@ -666,7 +671,7 @@ def h_tasks() -> str:
         for name, sched_time, desc in _TASK_LIST:
             status, _, next_run = by_name.get(name, ("--", "--", "--"))
             t = sched_time if sched_time else "--:--"
-            display = name.replace("StockSage_", "")
+            display = _TASK_DISPLAY.get(name, name.replace("StockSage_", "").replace("lark_", ""))
             lines.append(f"{_tick(status, next_run)} {t} {display} / {desc}")
 
         hot_ok  = sum(1 for n in _HOT_RANK_NAMES if by_name.get(n, ("--",))[0] == "OK")
