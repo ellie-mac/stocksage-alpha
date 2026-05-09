@@ -1320,7 +1320,14 @@ def _fmt_gc_section(gc_data: dict, prices: dict[str, dict]) -> list[str]:
             break
     if total == 0:
         return []
-    all_gc_picks = [dict(p, tier=t) for t in keep for p in tiers.get(t, [])]
+    def _norm(p, t):
+        code6 = p["code"][-6:]
+        name  = p.get("name", "")
+        if not name or name == p["code"]:
+            name = code6
+        return dict(p, code=code6, name=name, tier=t)
+
+    all_gc_picks = [_norm(p, t) for t in keep for p in tiers.get(t, [])]
     overall = calc_pick_stats(all_gc_picks, prices)
     overall_s = (f"  胜率{overall['win_rate']:.0f}%  均{overall['avg_ret']:+.2f}%"
                  if overall["results"] else "")
@@ -1329,10 +1336,10 @@ def _fmt_gc_section(gc_data: dict, prices: dict[str, dict]) -> list[str]:
     out = ["", f"**[金叉共振{date_s} {total}只]{overall_s}**  "]
     for t in keep:
         label = _LABELS.get(t, t)
-        picks = tiers.get(t, [])
+        picks = [_norm(p, t) for p in tiers.get(t, [])]
         if not picks:
             continue
-        ts = calc_pick_stats([dict(p, tier=t) for p in picks], prices)
+        ts = calc_pick_stats(picks, prices)
         stat_s = (f"  胜率{ts['win_rate']:.0f}%  均{ts['avg_ret']:+.2f}%"
                   if ts["results"] else "")
         out.append(f"**{t} {label}({len(picks)}只){stat_s}**  ")
@@ -1401,7 +1408,7 @@ def run_midday(args):
     main_picks, small_picks, etf_picks, chip_data, gc_data = _load_all_strategy_data()
 
     chip_picks   = chip_data.get("all_picks", [])
-    gc_codes     = [p["code"] for t in ("G0", "G1") for p in gc_data.get("tiers", {}).get(t, [])]
+    gc_codes     = [p["code"][-6:] for t in ("G0", "G1") for p in gc_data.get("tiers", {}).get(t, [])]
     etf_shown    = etf_picks[:30]
     all_codes    = list(dict.fromkeys(
         [p["code"] for p in main_picks + small_picks]
@@ -1448,7 +1455,7 @@ def run_evening(args):
     main_picks, small_picks, etf_picks, chip_data, gc_data = _load_all_strategy_data()
 
     chip_picks = chip_data.get("all_picks", [])
-    gc_codes   = [p["code"] for t in ("G0", "G1") for p in gc_data.get("tiers", {}).get(t, [])]
+    gc_codes   = [p["code"][-6:] for t in ("G0", "G1") for p in gc_data.get("tiers", {}).get(t, [])]
     etf_shown  = etf_picks[:30]
     all_codes  = list(dict.fromkeys(
         [p["code"] for p in main_picks + small_picks]

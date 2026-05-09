@@ -246,7 +246,7 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
             score, signals, freshness = _score_stock(df)
             if score < 3:
                 return None
-            name = name_map.get(code, code)
+            name = name_map.get(code[-6:], name_map.get(code, code))
             if "ST" in name.upper():
                 return None
             close = float(df["close"].iloc[-1])
