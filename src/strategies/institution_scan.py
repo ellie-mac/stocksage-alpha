@@ -19,8 +19,8 @@ from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 
-ROOT    = Path(__file__).resolve().parent.parent
-SCRIPTS = Path(__file__).resolve().parent
+ROOT    = Path(__file__).resolve().parent.parent.parent
+SCRIPTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS))
 
 WATCHLIST_PATH = ROOT / "data" / "fund_watchlist.json"

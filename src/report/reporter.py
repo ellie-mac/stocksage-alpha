@@ -39,7 +39,7 @@ from records import (  # noqa: E402
     load_today, load_yesterday, save_today, get_day_number,
     load_recent_history, save_post_file,
 )
-from report_utils import load_json as _load_json_safe  # noqa: E402
+from report.utils import load_json as _load_json_safe  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Templates  (delegated to templates.py)
@@ -1236,7 +1236,7 @@ def _fmt_picks_section(title: str, picks: list[dict], prices: dict[str, dict]) -
 
 def _fmt_chip_section(chip_data: dict, prices: dict[str, dict], slot: str = "midday") -> list[str]:
     """Format chip strategy section using calc_pick_stats."""
-    from report_utils import calc_pick_stats
+    from report.utils import calc_pick_stats
     picks = chip_data.get("all_picks", [])
     if not picks:
         return []
@@ -1272,7 +1272,7 @@ def _fmt_chip_section(chip_data: dict, prices: dict[str, dict], slot: str = "mid
 
 def _fmt_gc_section(gc_data: dict, prices: dict[str, dict]) -> list[str]:
     """Format golden cross section (cascade from G0 down until >= 30 stocks)."""
-    from report_utils import calc_pick_stats
+    from report.utils import calc_pick_stats
     if not gc_data:
         return []
     tiers = gc_data.get("tiers", {})
@@ -1406,7 +1406,7 @@ def run_evening(args):
     prices    = fetch_current_prices(all_codes) if all_codes else {}
     benchmark = fetch_benchmark_change()
 
-    from report_utils import calc_pick_stats
+    from report.utils import calc_pick_stats
     main_stats  = calc_pick_stats(main_picks,  prices)
     small_stats = calc_pick_stats(small_picks, prices)
 

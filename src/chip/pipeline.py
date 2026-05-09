@@ -18,13 +18,13 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT    = Path(__file__).resolve().parent.parent
+ROOT    = Path(__file__).resolve().parent.parent.parent
 SCRIPTS = Path(__file__).resolve().parent
 LOGS    = SCRIPTS / "logs"
-sys.path.insert(0, str(SCRIPTS))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 PYTHON     = sys.executable
-DAILY_SCAN = SCRIPTS / "daily_chip_scan.py"
+DAILY_SCAN = SCRIPTS / "daily_scan.py"
 CHIP_STRATEGY = SCRIPTS / "strategy.py"
 
 MIN_ROWS = 4000   # AK 缓存低于此行数视为不完整（完整约 5000+）
@@ -95,7 +95,7 @@ def _run(cmd: list[str], log_path: Path) -> int:
 def main() -> None:
     LOGS.mkdir(parents=True, exist_ok=True)
 
-    from prefetch import wait_for_fresh_prices
+    from jobs.prefetch import wait_for_fresh_prices
     wait_for_fresh_prices()
 
     from .strategy import _latest_trade_date

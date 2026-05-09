@@ -12,8 +12,8 @@ import sys
 import time
 from pathlib import Path
 
-ROOT    = Path(__file__).resolve().parent.parent
-SCRIPTS = Path(__file__).resolve().parent
+ROOT    = Path(__file__).resolve().parent.parent.parent
+SCRIPTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS))
 
 from .strategy import fetch_chip_data, fetch_chip_data_ak, fetch_6m_high, screen, add_indicators, load_names, _get_pro, _latest_trade_date

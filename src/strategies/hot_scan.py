@@ -21,8 +21,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-ROOT    = Path(__file__).resolve().parent.parent
-SCRIPTS = Path(__file__).resolve().parent
+ROOT    = Path(__file__).resolve().parent.parent.parent
+SCRIPTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS))
 
 OUT_LATEST = ROOT / "data" / "hot_scan_latest.json"

@@ -9,7 +9,7 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from report_utils import forward_return, load_json, save_json
+from report.utils import forward_return, load_json, save_json
 
 # ── 路径定义 ────────────────────────────────────────────────────────────────────
 _ROOT          = Path(__file__).parent.parent

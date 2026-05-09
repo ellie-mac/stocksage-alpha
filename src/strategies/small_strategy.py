@@ -25,7 +25,7 @@ from factors import score_market_regime
 import fetcher
 import pandas as pd
 from common import configure_pushplus, send_wechat
-from report_utils import (
+from report.utils import (
     regime_key as _regime_key,
     compact_factor_scores as _compact_factor_scores,
     score_one_buy as _score_one_buy,

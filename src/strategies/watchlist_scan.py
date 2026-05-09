@@ -26,7 +26,7 @@ from factors.config import REGIME_WEIGHTS
 from factors import score_market_regime
 import fetcher
 from common import configure_pushplus, send_wechat
-from report_utils import regime_key as _regime_key, score_one_buy as _score_watchlist
+from report.utils import regime_key as _regime_key, score_one_buy as _score_watchlist
 
 _ROOT           = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCAN_CACHE_PATH = os.path.join(_ROOT, "data", "watchlist_scan_latest.json")

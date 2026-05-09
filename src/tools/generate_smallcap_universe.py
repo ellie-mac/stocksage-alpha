@@ -15,7 +15,7 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
 def generate(max_cap_yi: float = 50.0, max_n: int = 200, exclude_st: bool = True) -> list[str]:

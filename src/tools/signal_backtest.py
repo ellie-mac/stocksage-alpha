@@ -82,7 +82,7 @@ def _get_forward_return(
     fetcher calls when the same code appears multiple times in the log.
     Returns None if we lack sufficient history.
 
-    Note: uses the same concept as `forward_return` in scripts/report_utils.py,
+    Note: uses the same concept as `forward_return` in report/utils.py,
     but fetches its own price history via fetcher rather than accepting a
     pre-built closes dict.
     """
