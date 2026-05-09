@@ -295,12 +295,16 @@ _CHIP_TIERS = {
     "3": (85, 90),
 }
 
-# (name, sched_time, desc)  —  sched_time="" 表示无固定调度时间，显示为 "--:--"
+# (name, sched_time, desc) — 按调度时间排序
 _TASK_LIST = [
+    ("weekly_PerfReport", "00:00", "周度绩效报告 📱"),
+    ("factor_Analysis",   "03:00", "因子IC分析"),
     ("chip_Premarket",    "07:00", "盘前筹码兜底"),
     ("integrity_Check",   "08:00", "数据完整性"),
     ("concept_Warm",      "08:30", "概念map预热"),
+    ("institution_Scan",  "08:30", "机构扫盘 📱"),
     ("report_Morning",    "09:25", "盘前报告 📱"),
+    ("watchlist_Scan",    "09:30", "自选股扫描 📱"),
     ("report_Midday",     "11:35", "午间报告 📱"),
     ("report_Evening",    "15:30", "收盘报告 📱"),
     ("market_Warm",       "15:35", "市场数据预热"),
@@ -312,12 +316,8 @@ _TASK_LIST = [
     ("hot_Scan",          "19:00", "热榜扫描 📱"),
     ("gc_Scan",           "19:30", "金叉扫描 📱"),
     ("chip_CadScan",      "21:00", "筹码扫描 📱"),
+    ("nightly_Scan",      "22:10", "夜间选股 📱"),
     ("main_Night",        "22:30", "夜间预热"),
-    ("institution_Scan",  "",      "机构扫盘 📱"),
-    ("weekly_PerfReport", "",      "周度绩效报告 📱"),
-    ("watchlist_Scan",    "",      "自选股扫描 📱"),
-    ("nightly_Scan",      "",      "夜间选股 📱"),
-    ("factor_Analysis",   "",      "因子IC分析"),
 ]
 
 _HOT_RANK_NAMES = [
