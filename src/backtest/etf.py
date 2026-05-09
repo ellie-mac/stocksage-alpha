@@ -52,7 +52,7 @@ from factors.config import (
     REGIME_BULL_THRESHOLD, REGIME_EXTREME_BULL_THRESHOLD,
 )
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIG_PATH = os.path.join(_ROOT, "alert_config.json")
 
 

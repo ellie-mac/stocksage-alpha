@@ -19,7 +19,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-ROOT    = Path(__file__).resolve().parent.parent
+ROOT    = Path(__file__).resolve().parent.parent.parent
 SCRIPTS = ROOT / "src"
 DATA    = ROOT / "data"
 PYTHON  = sys.executable
@@ -121,7 +121,7 @@ def main() -> None:
     portfolio_jobs = [
         {
             "name": "BT-main",
-            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "backtest.py"),
+            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "backtest" / "main.py"),
                     "--periods", "16", "--fwd", "10", "--workers", "6",
                     "--universe", str(DATA / "main_universe.json"),
                     "--out", str(DATA / "backtest_main_16p.json")],
@@ -129,7 +129,7 @@ def main() -> None:
         },
         {
             "name": "BT-smallcap",
-            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "backtest.py"),
+            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "backtest" / "main.py"),
                     "--periods", "16", "--fwd", "10", "--workers", "6",
                     "--universe", str(DATA / "smallcap_universe.json"),
                     "--smallcap",
@@ -138,7 +138,7 @@ def main() -> None:
         },
         {
             "name": "BT-etf",
-            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "etf_backtest.py"),
+            "cmd": [PYTHON, "-X", "utf8", str(SCRIPTS / "backtest" / "etf.py"),
                     "--periods", "12", "--fwd", "10", "--workers", "4",
                     "--out", str(DATA / "backtest_etf_12p.json")],
             "log": str(SCRIPTS / "backtest_etf_12p.log"),
