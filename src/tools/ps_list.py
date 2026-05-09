@@ -45,8 +45,8 @@ OURS_PATHS = {"stocksage-alpha", "lark_agent"}
 OURS_SCRIPTS = {
     "main_scan.py", "main_night.py", "institution_scan.py",
     "hot_scan.py", "chip_cad.py", "monitor.py",
-    "prefetch.py", "factor_analysis.py", "backtest.py",
-    "chip_strategy.py", "screener.py", "fetcher.py",
+    "prefetch.py", "analysis.py", "main.py",
+    "strategy.py", "screener.py", "fetcher.py",
     "setup_scheduler.py", "lark_agent.py",
 }
 
