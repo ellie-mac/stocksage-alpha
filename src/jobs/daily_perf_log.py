@@ -22,7 +22,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-ROOT     = Path(__file__).resolve().parent.parent
+ROOT     = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = ROOT / "data"
 
 MAIN_PICKS_PATH = DATA_DIR / "latest_picks.json"
