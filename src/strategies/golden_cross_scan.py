@@ -208,7 +208,7 @@ def _load_universe() -> list[str]:
 
 def _build_name_maps() -> tuple[dict[str, str], dict[str, str]]:
     """直接读 stock_names.json 缓存，构建 6位代码 → (name, industry) 映射。"""
-    names_file = ROOT / "src" / "cache" / "stock_names.json"
+    names_file = ROOT / "data" / "stock_names.json"
     names: dict[str, str] = {}
     inds:  dict[str, str] = {}
     try:
