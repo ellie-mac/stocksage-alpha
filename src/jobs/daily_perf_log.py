@@ -218,7 +218,7 @@ def _stock_line(r: dict) -> str:
         price_s = f"  `昨{pc_s} 开{px['o']:.2f} 收{px['c']:.2f}`"
     else:
         price_s = ""
-    return f"  {r['code']} {r['name']} {pct_s}{price_s}"
+    return f"  {r['name']} {pct_s}{price_s}"
 
 
 # ── 各策略数据加载 ─────────────────────────────────────────────────────────────
