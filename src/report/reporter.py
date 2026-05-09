@@ -1244,7 +1244,7 @@ def _fmt_chip_section(chip_data: dict, prices: dict[str, dict], slot: str = "mid
     fallback_s = "(交集)" if chip_data.get("filter") == "CAH∩CAD∩CADM" else "(CAD)"
     lines = []
     if s["results"]:
-        lines.append(f"**【筹码策略 {s['n_total']}只{fallback_s}】"
+        lines.append(f"**[筹码策略 {s['n_total']}只{fallback_s}]"
                      f"  胜率 {s['win_rate']:.0f}%  均 {s['avg_ret']:+.2f}%**  ")
         if slot == "midday":
             lines.append("涨幅前五：  ")
@@ -1265,20 +1265,20 @@ def _fmt_chip_section(chip_data: dict, prices: dict[str, dict], slot: str = "mid
                 codes_s = " ".join(f"{r['code']}{r['name']}" for r in s["nan_stocks"])
                 lines.append(f"⚠️ 行情缺失：{codes_s}  ")
     else:
-        lines.append(f"**【筹码策略 {len(picks)}只{fallback_s}】**  (行情暂不可用)  ")
+        lines.append(f"**[筹码策略 {len(picks)}只{fallback_s}]**  (行情暂不可用)  ")
     lines.append("")
     return lines
 
 
 def _fmt_etf_section(etf_picks: list[dict], prices: dict[str, dict], slot: str = "midday") -> list[str]:
-    """Format ETF section matching chip style: 【ETF策略 N只】胜率X% 均Y%"""
+    """Format ETF section matching chip style: [ETF策略 N只]胜率X% 均Y%"""
     from report.utils import calc_pick_stats
     if not etf_picks:
         return []
     s = calc_pick_stats(etf_picks, prices)
     lines = []
     if s["results"]:
-        lines.append(f"**【ETF策略 {s['n_total']}只】"
+        lines.append(f"**[ETF策略 {s['n_total']}只]"
                      f"  胜率 {s['win_rate']:.0f}%  均 {s['avg_ret']:+.2f}%**<br>")
         if slot == "midday":
             lines.append("涨幅前五：  ")
@@ -1296,7 +1296,7 @@ def _fmt_etf_section(etf_picks: list[dict], prices: dict[str, dict], slot: str =
                 price_s = f" ¥{r['price']:.2f}" if r.get("price") else ""
                 lines.append(f"{i}. {r['code']} {r['name']}{price_s} **{r['change_pct']:+.2f}%**  ")
     else:
-        lines.append(f"**【ETF策略 {len(etf_picks)}只】**  (行情暂不可用)  ")
+        lines.append(f"**[ETF策略 {len(etf_picks)}只]**  (行情暂不可用)  ")
     lines.append("")
     return lines
 
@@ -1326,7 +1326,7 @@ def _fmt_gc_section(gc_data: dict, prices: dict[str, dict]) -> list[str]:
                  if overall["results"] else "")
     gc_date = gc_data.get("date", "")
     date_s  = f" {gc_date[4:6]}/{gc_date[6:]}" if len(gc_date) == 8 else ""
-    out = ["", f"**【金叉共振{date_s} {total}只】{overall_s}**  "]
+    out = ["", f"**[金叉共振{date_s} {total}只]{overall_s}**  "]
     for t in keep:
         label = _LABELS.get(t, t)
         picks = tiers.get(t, [])
