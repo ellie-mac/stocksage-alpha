@@ -146,7 +146,9 @@ def main() -> None:
         rows.append(f"**{ba['name']} ({ba['code']})**<br>"
                     f"买入分 **{ba['buy_score']:.0f}** | 现价 **{p}**")
         if ba.get("bullish"):
-            rows.append("+ " + " / ".join(ba["bullish"]))
+            signals = [b.get("signal") or b.get("factor", "") for b in ba["bullish"] if isinstance(b, dict)]
+            if signals:
+                rows.append("+ " + " / ".join(signals))
     rows.append("<br>> 仅供参考")
     desp = "<br>".join(rows)
 
