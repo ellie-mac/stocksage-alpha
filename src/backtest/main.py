@@ -52,7 +52,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fetcher
-from factor_analysis import compute_stock_scores, TEST_UNIVERSE
+from factors.analysis import compute_stock_scores, TEST_UNIVERSE
 from industry import build_industry_map
 from factors.config import (FACTOR_WEIGHTS,
                            REGIME_MA_LONG,

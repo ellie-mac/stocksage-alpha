@@ -1,14 +1,14 @@
 ﻿#!/usr/bin/env python3
 """
-xhs/reporter.py — 小红书文案生成器
+src/report/reporter.py — 小红书文案生成器
 
 用法（从仓库根目录运行）:
-    python xhs/reporter.py morning  [--query "低估值高成长"] [--top 5] [--style 1|2|3|all|auto]
-    python xhs/reporter.py midday   [--style ...]
-    python xhs/reporter.py evening  [--style ...] [--no-tomorrow]
-    python xhs/reporter.py milestone [--force]   # Day 7/14/30 周期性复盘
-    python xhs/reporter.py status
-    python xhs/reporter.py history
+    python src/report/reporter.py morning  [--query "低估值高成长"] [--top 5] [--style 1|2|3|all|auto]
+    python src/report/reporter.py midday   [--style ...]
+    python src/report/reporter.py evening  [--style ...] [--no-tomorrow]
+    python src/report/reporter.py milestone [--force]   # Day 7/14/30 周期性复盘
+    python src/report/reporter.py status
+    python src/report/reporter.py history
 """
 
 import argparse

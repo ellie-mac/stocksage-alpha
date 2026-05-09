@@ -37,7 +37,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import cache as _cache
 import fetcher as _fetcher
-from chip_strategy import _get_pro, fetch_chip_data, screen, load_names, fetch_6m_high, _chip_cache_key
+from .strategy import _get_pro, fetch_chip_data, screen, load_names, fetch_6m_high, _chip_cache_key
 from common import push_wechat
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ ROOT    = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
-from chip_strategy import fetch_chip_data, fetch_chip_data_ak, fetch_6m_high, screen, add_indicators, load_names, _get_pro, _latest_trade_date
+from .strategy import fetch_chip_data, fetch_chip_data_ak, fetch_6m_high, screen, add_indicators, load_names, _get_pro, _latest_trade_date
 from common import push_wechat
 
 TIERS = [

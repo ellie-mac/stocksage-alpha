@@ -30,7 +30,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import cache as _cache
 import fetcher as _fetcher
-from chip_strategy import fetch_chip_data, _chip_cache_key, _get_pro
+from chip.strategy import fetch_chip_data, _chip_cache_key, _get_pro
 from common import send_wechat, configure_pushplus
 
 _PREFETCH_TTL = 30 * 24 * 3600   # 30 天：历史数据不变，长期有效
