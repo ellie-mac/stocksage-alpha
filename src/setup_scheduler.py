@@ -128,7 +128,7 @@ TASKS = [
     ("price_Prefetch",   "17:00", "price_prefetch",  "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
     ("fundflow_Prefetch","17:30", "fundflow_prefetch","预热全市场资金流向缓存（~20min），不推送",       False),
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
-    ("daily_PerfLog",   "16:05", "daily_perf_log",  "四策略收盘胜率（主策略/筹码/金叉/热榜）📱",       True),
+    ("daily_PerfLog",   "16:05", "daily_perf_log",  "多策略收盘胜率统计 📱",                           True),
     ("chip_Night",      "18:00", "chip_night",      "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
     ("main_Scan",       "18:30", "monitor_scan",    "主策略扫盘，更新 latest_picks.json，推送 📱",    True),
     ("gc_Scan",         "19:30", "gc_scan",         "金叉策略扫描（全A股7项指标共振）推送 📱",         True),

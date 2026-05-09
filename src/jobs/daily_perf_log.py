@@ -3,11 +3,13 @@
 每日统一胜率记录 — 收盘后一条微信
 运行时间：16:00（市场收盘后）
 
-包含四个策略：
+包含策略：
   主策略    — latest_picks.json（前日 18:30 扫盘）
+  小票策略  — latest_picks.json smallcap（同上）
   筹码策略  — CAH∩CAD∩CADM 三者共有 C0-C3（前日 20:30 扫描）
   金叉共振  — golden_cross_YYYYMMDD.json G0-G2（前日 19:30 扫描）
   热榜策略  — hot_scan_YYYYMMDD.json picks（前日 19:00 扫描）
+  监控强买  — wl_strong_buy_log.json（watchlist 信号触发）
 
 用法：
     python -X utf8 src/jobs/daily_perf_log.py [--dry-run] [--force]
