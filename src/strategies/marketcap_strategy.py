@@ -103,8 +103,93 @@ def get_spot_with_marketcap() -> tuple[pd.DataFrame, bool]:
         print("[marketcap] 行情数据不可用")
         return pd.DataFrame(), False
 
-    print("[marketcap] 无市值数据（既无 EM 实时，也无磁盘缓存）")
+    # EM 和磁盘缓存都没有，尝试 BaoStock 计算流通市值作为代理
+    print("[marketcap] 尝试 BaoStock 获取流通市值（非交易时段备用，约需 1-2 分钟）")
+    bs_mv = _get_marketcap_from_baostock(spot)
+    if bs_mv:
+        spot = spot.copy()
+        # 规一化代码后再 map
+        norm_codes = spot["代码"].astype(str).apply(
+            lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
+        )
+        spot["总市值"] = norm_codes.map(bs_mv)
+        _save_marketcap_cache(bs_mv)
+        print(f"[marketcap] BaoStock 流通市值已获取 ({len(bs_mv)} 只)")
+        return spot, False
+    print("[marketcap] 无市值数据（EM/磁盘缓存/BaoStock 均不可用）")
     return spot, False
+
+
+def _get_marketcap_from_baostock(spot: pd.DataFrame) -> dict[str, float]:
+    """
+    用 BaoStock 查上一交易日流通市值，返回 {6位代码: 市值(元)}。
+    限制查询数量以控制运行时间（约 2-3 分钟）。
+    """
+    try:
+        import baostock as bs
+        from datetime import timedelta
+    except ImportError:
+        print("[marketcap] baostock 未安装，跳过")
+        return {}
+
+    # 筛选候选（和 scan() 相同过滤）
+    df = spot.copy()
+    df["_code6"] = df["代码"].astype(str).apply(
+        lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
+    )
+    df = df[~df["名称"].str.contains("ST|退", na=False)]
+    df = df[~df["_code6"].str.startswith("688")]
+    df = df[~(df["_code6"].str.startswith("8") | df["_code6"].str.startswith("43") | df["_code6"].str.startswith("9"))]
+    price_col = pd.to_numeric(df["最新价"], errors="coerce")
+    df = df[price_col > MIN_PRICE]
+
+    # 构建 BaoStock 格式代码列表（最多 500 只）
+    def _to_bs(c6):
+        if c6.startswith("6") and not c6.startswith("688"):
+            return f"sh.{c6}"
+        if c6.startswith("0") or c6.startswith("3"):
+            return f"sz.{c6}"
+        return None
+
+    cands = [(row["_code6"], _to_bs(row["_code6"])) for _, row in df.iterrows() if _to_bs(row["_code6"])]
+    cands = cands[:500]
+    if not cands:
+        return {}
+
+    # 最近交易日
+    from datetime import datetime, timedelta as td
+    d = datetime.now() - td(days=1)
+    while d.weekday() >= 5:
+        d -= td(days=1)
+    last_td = d.strftime("%Y-%m-%d")
+    print(f"[marketcap] BaoStock 查询 {len(cands)} 只，日期 {last_td}...")
+
+    result: dict[str, float] = {}
+    try:
+        login_resp = bs.login()
+        if login_resp.error_code != "0":
+            print(f"[marketcap] BaoStock 登录失败: {login_resp.error_msg}")
+            return {}
+        for i, (code6, bs_code) in enumerate(cands, 1):
+            try:
+                rs = bs.query_history_k_data_plus(
+                    bs_code, "turn,amount",
+                    start_date=last_td, end_date=last_td,
+                    frequency="d", adjustflag="3",
+                )
+                if rs.data:
+                    d_row = dict(zip(rs.fields, rs.data[0]))
+                    t = float(d_row.get("turn") or 0)
+                    a = float(d_row.get("amount") or 0)
+                    if t > 0 and a > 0:
+                        result[code6] = a / (t / 100)
+            except Exception:
+                pass
+            if i % 100 == 0:
+                print(f"[marketcap] BaoStock 进度 {i}/{len(cands)}")
+    finally:
+        bs.logout()
+    return result
 
 
 # ── 核心筛选 ──────────────────────────────────────────────────────────────────
