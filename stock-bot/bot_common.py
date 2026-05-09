@@ -300,6 +300,7 @@ _TASK_LIST = [
     ("weekly_PerfReport", "00:00", "周度绩效报告 📱"),
     ("factor_Analysis",   "03:00", "因子IC分析"),
     ("chip_Premarket",    "07:00", "盘前筹码兜底"),
+    ("main_Morning",      "07:10", "主策略盘前兜底"),
     ("integrity_Check",   "08:00", "数据完整性"),
     ("concept_Warm",      "08:30", "概念map预热"),
     ("institution_Scan",  "08:30", "机构扫盘 📱"),
