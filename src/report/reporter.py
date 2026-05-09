@@ -1241,7 +1241,7 @@ def _fmt_chip_section(chip_data: dict, prices: dict[str, dict], slot: str = "mid
     if not picks:
         return []
     s = calc_pick_stats(picks, prices)
-    fallback_s = "" if chip_data.get("filter") == "CAH∩CAD∩CADM" else "  ⚡仅CAD"
+    fallback_s = "" if chip_data.get("filter") == "CAH∩CAD∩CADM" else "  仅CAD"
     lines = []
     if s["results"]:
         lines.append(f"**【筹码策略 {s['n_total']}只{fallback_s}】"
@@ -1266,6 +1266,26 @@ def _fmt_chip_section(chip_data: dict, prices: dict[str, dict], slot: str = "mid
                 lines.append(f"⚠️ 行情缺失：{codes_s}  ")
     else:
         lines.append(f"**【筹码策略 {len(picks)}只{fallback_s}】**  （行情暂不可用）  ")
+    lines.append("")
+    return lines
+
+
+def _fmt_etf_section(etf_picks: list[dict], prices: dict[str, dict], slot: str = "midday") -> list[str]:
+    """Format ETF section matching chip/gc style: 【ETF策略 N只】胜率X% 均Y%"""
+    from report.utils import calc_pick_stats
+    if not etf_picks:
+        return []
+    s = calc_pick_stats(etf_picks, prices)
+    lines = []
+    if s["results"]:
+        lines.append(f"**【ETF策略 {s['n_total']}只】"
+                     f"  胜率 {s['win_rate']:.0f}%  均 {s['avg_ret']:+.2f}%**  ")
+        label = "涨幅前五：  " if slot == "midday" else "收益前五：  "
+        lines.append(label)
+        for i, r in enumerate(s["top5"], 1):
+            lines.append(f"{i}. {r['code']} {r['name']} **{r['change_pct']:+.2f}%**  ")
+    else:
+        lines.append(f"**【ETF策略 {len(etf_picks)}只】**  （行情暂不可用）  ")
     lines.append("")
     return lines
 
@@ -1386,7 +1406,7 @@ def run_midday(args):
     lines += _fmt_picks_section(f"主策略精选 {len(main_picks)}只", main_picks, prices)
     lines += _fmt_picks_section(f"小盘策略 {len(small_picks)}只",  small_picks, prices)
     if etf_shown:
-        lines += _fmt_picks_section(f"ETF自选 {len(etf_shown)}只", etf_shown, prices)
+        lines += _fmt_etf_section(etf_shown, prices, slot="midday")
     lines += _fmt_chip_section(chip_data, prices, slot="midday")
     lines += _fmt_gc_section(gc_data, prices)
     lines += ["⚠️ 仅供参考，不构成投资建议", "#量化记录 #A股 #选股", ""]
@@ -1455,7 +1475,7 @@ def run_evening(args):
         lines.append("")
 
     if etf_shown:
-        lines += _fmt_picks_section(f"ETF自选 {len(etf_shown)}只", etf_shown, prices)
+        lines += _fmt_etf_section(etf_shown, prices, slot="evening")
 
     lines += _fmt_chip_section(chip_data, prices, slot="evening")
     lines += _fmt_gc_section(gc_data, prices)
