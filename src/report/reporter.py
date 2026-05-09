@@ -1274,7 +1274,7 @@ def _fmt_etf_section(etf_picks: list[dict], prices: dict[str, dict], slot: str =
     """Format ETF section matching chip style: [ETF策略 N只]胜率X% 均Y%"""
     from report.utils import calc_pick_stats
     if not etf_picks:
-        return []
+        return ["**[ETF策略]**  今日暂无评分数据  ", ""]
     s = calc_pick_stats(etf_picks, prices)
     lines = []
     if s["results"]:
@@ -1364,7 +1364,7 @@ def _load_all_strategy_data() -> tuple[list, list, list[dict], dict, dict]:
 
     cfg = _load_alert_config()
 
-    # 优先用 etf_strategy 的评分结果(已按 buy_score 降序)，无则退回 config 列表顺序
+    # 只用 etf_strategy 的评分结果(已按 buy_score 降序)；无文件则保持空列表
     etf_picks: list[dict] = []
     etf_scan_path = REPO_ROOT / "data" / "etf_scan_latest.json"
     if etf_scan_path.exists():
@@ -1377,14 +1377,6 @@ def _load_all_strategy_data() -> tuple[list, list, list[dict], dict, dict]:
             ]
         except Exception:
             pass
-    if not etf_picks:
-        raw_etf = cfg.get("etf_watchlist", [])
-        for e in (raw_etf or []):
-            if isinstance(e, dict):
-                etf_picks.append({"code": e["code"], "name": e.get("name", e["code"])})
-            else:
-                code = e[-6:] if len(e) > 6 else e
-                etf_picks.append({"code": code, "name": code})
 
     chip_data = load_chip_results()
     gc_data   = load_gc_results()
