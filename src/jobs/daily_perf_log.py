@@ -404,14 +404,15 @@ def main() -> None:
                 sp = r.get("spread_pct")
                 try:
                     sp_f = float(sp) if sp is not None else float("nan")
-                    shape = "锥" if sp_f < 15 else ("散" if sp_f > 30 else "")
+                    sp_s = f"{sp_f:.1f}%" if not math.isnan(sp_f) else ""
                 except Exception:
-                    sp_f, shape = float("nan"), ""
+                    sp_s = ""
                 try:
                     wr_s = f"{wr:.0f}%" if wr is not None and not math.isnan(float(wr)) else ""
                 except Exception:
                     wr_s = ""
-                chip_tag = f"<br>`获利{wr_s}{' '+shape if shape else ''}`" if wr_s else ""
+                parts = [x for x in [f"获利{wr_s}" if wr_s else "", f"散度{sp_s}" if sp_s else ""] if x]
+                chip_tag = f"<br>`{'·'.join(parts)}`" if parts else ""
                 rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{chip_tag}")
         sections.append("  \n".join(rows))
 
