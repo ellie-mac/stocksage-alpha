@@ -281,7 +281,7 @@ def _hot_rank_pit(code: str, asof_date: str) -> Optional[dict]:
     try:
         import json
         from pathlib import Path as _Path
-        log_dir = _Path(__file__).resolve().parent.parent / "data" / "hot_rank_log"
+        log_dir = _Path(__file__).resolve().parent.parent.parent / "data" / "hot_rank_log"
         if not log_dir.exists():
             return None
         target = asof_date.replace("-", "")[:8]  # YYYYMMDD
@@ -1238,7 +1238,7 @@ def _run_rolling(
 
     if "B" in group.upper():
         from pathlib import Path as _P
-        _hr_dir = _P(__file__).resolve().parent.parent / "data" / "hot_rank_log"
+        _hr_dir = _P(__file__).resolve().parent.parent.parent / "data" / "hot_rank_log"
         _hr_snaps = len(list(_hr_dir.glob("????????_????.json"))) if _hr_dir.exists() else 0
         print("[warn] Rolling mode with group B: fundamental/flow factors (ROE, revenue growth,\n"
               "       fund flow, margins, etc.) always use TODAY's data for ALL periods.\n"

@@ -45,7 +45,7 @@ import fetcher
 from common import is_trading_hours, next_session_seconds, send_wechat
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-_ROOT            = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT            = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIG_PATH      = os.path.join(_ROOT, "alert_config.json")
 SIGNALS_LOG_PATH = os.path.join(_ROOT, "signals_log.json")
 

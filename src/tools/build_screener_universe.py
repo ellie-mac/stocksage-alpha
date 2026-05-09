@@ -26,7 +26,7 @@ socket.setdefaulttimeout(40)
 
 import akshare as ak
 
-_ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT   = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIG_PATH = os.path.join(_ROOT, "alert_config.json")
 MD_PATH     = os.path.join(_ROOT, "docs", "screener_universe.md")
 

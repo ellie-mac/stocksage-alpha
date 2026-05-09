@@ -49,7 +49,7 @@ import fetcher
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-_ROOT        = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT        = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SIGNALS_PATH = os.path.join(_ROOT, "data", "signals_log.json")
 
 HORIZONS = [1, 5, 10, 20]   # trading-day forward windows to evaluate

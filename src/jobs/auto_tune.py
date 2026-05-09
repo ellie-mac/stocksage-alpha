@@ -297,7 +297,7 @@ def apply_suggestions(
 
 # ── IC-based tuning ─────────────────────────────────────────────────────────────
 
-IC_FILE_DEFAULT = Path(__file__).parent.parent / "data" / "factor_ic_main.json"
+IC_FILE_DEFAULT = Path(__file__).parent.parent.parent / "data" / "factor_ic_main.json"
 
 # ICIR magnitude → weight magnitude tiers
 _ICIR_TIERS = [(1.0, 1.5), (0.5, 1.0), (0.3, 0.5)]

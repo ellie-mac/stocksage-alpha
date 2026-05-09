@@ -11,7 +11,7 @@ import json
 import os
 from datetime import datetime
 
-PERF_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "strategy_perf.json")
+PERF_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "data", "strategy_perf.json")
 _MAX_DAYS = 30
 
 _LABELS: dict[str, str] = {
