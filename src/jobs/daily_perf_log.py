@@ -45,20 +45,44 @@ HOT_TIERS  = ["H0", "H1"]
 
 # ── 行情 ──────────────────────────────────────────────────────────────────────
 
-def _fetch_prices(codes: list[str]) -> dict[str, float]:
-    import sys, pandas as pd
+def _fetch_market_data(codes: list[str]) -> tuple[dict[str, float], dict[str, float]]:
+    """
+    Returns (close_pct, open_pct):
+      close_pct  {code: pct}  涨跌幅 vs 昨收
+      open_pct   {code: pct}  (今收 - 今开) / 今开 * 100  — 实际可买入的收益
+    """
+    import sys
+    import pandas as pd
     sys.path.insert(0, str(ROOT / "src"))
     from common import get_spot_em
     df = get_spot_em()
     if not df.empty:
         df["_code"] = df["代码"].astype(str).str.zfill(6)
         df = df[df["_code"].isin(codes)].copy()
-        df["_pct"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
-        result = dict(zip(df["_code"], df.dropna(subset=["_pct"])["_pct"]))
-        if result:
-            return result
+        df["_pct"]   = pd.to_numeric(df["涨跌幅"], errors="coerce")
+        # open column: EM uses 今开, Sina fallback may use open
+        for _col in ("今开", "open"):
+            if _col in df.columns:
+                df["_open"] = pd.to_numeric(df[_col], errors="coerce")
+                break
+        else:
+            df["_open"] = float("nan")
+        for _col in ("最新价", "现价", "close"):
+            if _col in df.columns:
+                df["_close"] = pd.to_numeric(df[_col], errors="coerce")
+                break
+        else:
+            df["_close"] = float("nan")
+        mask = df["_open"].notna() & (df["_open"] > 0) & df["_close"].notna()
+        df.loc[mask, "_open_pct"] = (
+            (df.loc[mask, "_close"] - df.loc[mask, "_open"]) / df.loc[mask, "_open"] * 100
+        ).round(2)
+        close_pct = dict(zip(df["_code"], df["_pct"].dropna()))
+        open_pct  = dict(zip(df.loc[mask, "_code"], df.loc[mask, "_open_pct"]))
+        if close_pct or open_pct:
+            return close_pct, open_pct
 
-    # fallback：tushare daily 一次拉全市场今日涨跌幅
+    # fallback：tushare daily
     print("[daily_perf] spot_em 不可用，改用 tushare daily fallback", flush=True)
     try:
         import json as _json, tushare as _ts
@@ -69,17 +93,24 @@ def _fetch_prices(codes: list[str]) -> dict[str, float]:
         _pro = _ts.pro_api()
         for _delta in range(3):
             _d = (_date.today() - _td(days=_delta)).strftime("%Y%m%d")
-            _df = _pro.daily(trade_date=_d, fields="ts_code,pct_chg")
+            _df = _pro.daily(trade_date=_d, fields="ts_code,pct_chg,open,close")
             if _df is not None and not _df.empty:
                 _df["_code"] = _df["ts_code"].str.split(".").str[0]
                 _df = _df[_df["_code"].isin(codes)]
-                result = dict(zip(_df["_code"], _df["pct_chg"].astype(float)))
-                if result:
-                    print(f"[daily_perf] tushare daily {_d} 拿到 {len(result)} 只", flush=True)
-                    return result
+                close_pct = dict(zip(_df["_code"], _df["pct_chg"].astype(float)))
+                import pandas as _pd
+                open_pct: dict[str, float] = {}
+                for _, row in _df.iterrows():
+                    op = _pd.to_numeric(row.get("open"),  errors="coerce")
+                    cl = _pd.to_numeric(row.get("close"), errors="coerce")
+                    if _pd.notna(op) and float(op) > 0 and _pd.notna(cl):
+                        open_pct[str(row["_code"])] = round((float(cl) - float(op)) / float(op) * 100, 2)
+                if close_pct:
+                    print(f"[daily_perf] tushare daily {_d} 拿到 {len(close_pct)} 只", flush=True)
+                    return close_pct, open_pct
     except Exception as e:
         print(f"[daily_perf] tushare daily 失败: {e}", flush=True)
-    return {}
+    return {}, {}
 
 
 # ── 统计工具 ──────────────────────────────────────────────────────────────────
@@ -91,24 +122,37 @@ _SIG_SHORT = {
 }
 
 
-def _stats(items: list[dict], prices: dict[str, float]) -> dict:
+def _stats(items: list[dict], prices: dict[str, float],
+           open_prices: dict[str, float] | None = None) -> dict:
     results = []
     for p in items:
-        if p["code"] not in prices:
+        code = p["code"]
+        if code not in prices:
             continue
-        r = {"code": p["code"], "name": p.get("name", p["code"]),
-             "pct": prices[p["code"]], "signals": p.get("signals", [])}
+        r = {"code": code, "name": p.get("name", code),
+             "pct": prices[code], "signals": p.get("signals", [])}
+        if open_prices and code in open_prices:
+            r["open_pct"] = open_prices[code]
         for xk in ("winner_rate", "spread_pct"):
             if xk in p:
                 r[xk] = p[xk]
         results.append(r)
     if not results:
-        return {"n": 0, "win_rate": None, "avg_ret": None, "top5": [], "results": []}
+        return {"n": 0, "win_rate": None, "avg_ret": None,
+                "open_win_rate": None, "open_avg_ret": None, "top5": [], "results": []}
     vals = [r["pct"] for r in results]
     win_rate = round(sum(1 for v in vals if v > 0) / len(vals) * 100, 1)
     avg_ret  = round(sum(vals) / len(vals), 2)
-    top5 = sorted(results, key=lambda r: r["pct"], reverse=True)[:5]
+    top5     = sorted(results, key=lambda r: r["pct"], reverse=True)[:5]
+    open_vals = [r["open_pct"] for r in results if "open_pct" in r]
+    if open_vals:
+        open_win_rate = round(sum(1 for v in open_vals if v > 0) / len(open_vals) * 100, 1)
+        open_avg_ret  = round(sum(open_vals) / len(open_vals), 2)
+    else:
+        open_win_rate = None
+        open_avg_ret  = None
     return {"n": len(results), "win_rate": win_rate, "avg_ret": avg_ret,
+            "open_win_rate": open_win_rate, "open_avg_ret": open_avg_ret,
             "top5": top5, "results": results}
 
 
@@ -124,6 +168,22 @@ def _wr(s: dict) -> str:
 
 def _ar(s: dict) -> str:
     return f"{s['avg_ret']:+.2f}%" if s["avg_ret"] is not None else "-"
+
+def _owr(s: dict) -> str:
+    return f"{s['open_win_rate']}%" if s.get("open_win_rate") is not None else "-"
+
+def _oar(s: dict) -> str:
+    return f"{s['open_avg_ret']:+.2f}%" if s.get("open_avg_ret") is not None else "-"
+
+def _open_suffix(s: dict) -> str:
+    if s.get("open_win_rate") is None:
+        return ""
+    return f"  今开{_owr(s)} 均{_oar(s)}"
+
+def _stock_open(r: dict) -> str:
+    if "open_pct" not in r:
+        return ""
+    return f"  今开{r['open_pct']:+.2f}%"
 
 
 # ── 各策略数据加载 ─────────────────────────────────────────────────────────────
@@ -352,20 +412,20 @@ def main() -> None:
     # ── 一次性拉取所有行情 ────────────────────────────────────────────────────
     all_codes = list({p["code"] for p in main_picks + sc_picks + chip_flat + gc_flat + hot_flat + wl_mon_picks + etf_picks})
     print(f"[daily_perf] 获取 {len(all_codes)} 只行情 ...")
-    prices = _fetch_prices(all_codes)
-    print(f"[daily_perf] 获取到 {len(prices)} 只")
+    prices, open_prices = _fetch_market_data(all_codes)
+    print(f"[daily_perf] 获取到 {len(prices)} 只（今开 {len(open_prices)} 只）")
     if not prices:
         print("[daily_perf] spot_em 返回空，跳过写入历史")
         return
 
     # ── 统计 ──────────────────────────────────────────────────────────────────
-    ms  = _stats(main_picks, prices)
-    scs = _stats(sc_picks,   prices)
-    chip_tier_stats = {t: _stats(chip_by_tier[t], prices) for t in CHIP_TIERS}
-    gc_tier_stats   = {t: _stats(gc_by_tier[t],   prices) for t in GC_TIERS}
-    hot_tier_stats  = {t: _stats(hot_by_tier[t],  prices) for t in HOT_TIERS}
-    wl_mon_stats    = _stats(wl_mon_picks, prices)
-    etf_stats       = _stats(etf_picks,   prices)
+    ms  = _stats(main_picks, prices, open_prices)
+    scs = _stats(sc_picks,   prices, open_prices)
+    chip_tier_stats = {t: _stats(chip_by_tier[t], prices, open_prices) for t in CHIP_TIERS}
+    gc_tier_stats   = {t: _stats(gc_by_tier[t],   prices, open_prices) for t in GC_TIERS}
+    hot_tier_stats  = {t: _stats(hot_by_tier[t],  prices, open_prices) for t in HOT_TIERS}
+    wl_mon_stats    = _stats(wl_mon_picks, prices, open_prices)
+    etf_stats       = _stats(etf_picks,   prices, open_prices)
     cs = _stats(chip_flat, prices)
     gs = _stats(gc_flat,   prices)
     hs = hot_tier_stats["H1"]
@@ -379,26 +439,26 @@ def main() -> None:
 
     # 主策略
     if ms["results"]:
-        rows = [f"{_emoji(ms['win_rate'])} **主策略 {ms['n']}只  胜率{_wr(ms)}  均{_ar(ms)}**"]
+        rows = [f"{_emoji(ms['win_rate'])} **主策略 {ms['n']}只  胜率{_wr(ms)}  均{_ar(ms)}{_open_suffix(ms)}**"]
         for r in sorted(ms["results"], key=lambda r: r["pct"], reverse=True):
-            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
+            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}")
         sections.append("  \n".join(rows))
 
     # 小票策略
     if scs["results"]:
-        rows = [f"{_emoji(scs['win_rate'])} **小票策略 {scs['n']}只  胜率{_wr(scs)}  均{_ar(scs)}**"]
+        rows = [f"{_emoji(scs['win_rate'])} **小票策略 {scs['n']}只  胜率{_wr(scs)}  均{_ar(scs)}{_open_suffix(scs)}**"]
         for r in sorted(scs["results"], key=lambda r: r["pct"], reverse=True):
-            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
+            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}")
         sections.append("  \n".join(rows))
 
     # 筹码策略：各档胜率 + 前五（带编号和筹码峰）
     if cs["results"]:
-        rows = [f"{_emoji(cs['win_rate'])} **筹码策略 {cs['n']}只  胜率{_wr(cs)}  均{_ar(cs)}**"]
+        rows = [f"{_emoji(cs['win_rate'])} **筹码策略 {cs['n']}只  胜率{_wr(cs)}  均{_ar(cs)}{_open_suffix(cs)}**"]
         for t in CHIP_TIERS:
             s = chip_tier_stats[t]
             if s["n"] == 0:
                 continue
-            rows.append(f"**{t}** {s['n']}只  胜率{_wr(s)}  均{_ar(s)}")
+            rows.append(f"**{t}** {s['n']}只  胜率{_wr(s)}  均{_ar(s)}{_open_suffix(s)}")
             for r in s["top5"]:
                 wr = r.get("winner_rate")
                 sp = r.get("spread_pct")
@@ -417,53 +477,53 @@ def main() -> None:
                     wr_s = ""
                 parts = [x for x in [f"获利{wr_s}" if wr_s else "", f"散度{sp_s}" if sp_s else ""] if x]
                 chip_tag = f"<br>`{'·'.join(parts)}`" if parts else ""
-                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{chip_tag}")
+                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}{chip_tag}")
         sections.append("  \n".join(rows))
 
     # 金叉共振：各档胜率 + 前五（带编号和信号缩写）
     if gs["results"]:
-        rows = [f"{_emoji(gs['win_rate'])} **金叉共振 {gs['n']}只  胜率{_wr(gs)}  均{_ar(gs)}**"]
+        rows = [f"{_emoji(gs['win_rate'])} **金叉共振 {gs['n']}只  胜率{_wr(gs)}  均{_ar(gs)}{_open_suffix(gs)}**"]
         for t in GC_TIERS:
             s = gc_tier_stats[t]
             if s["n"] == 0:
                 continue
-            rows.append(f"**{t}** {s['n']}只  胜率{_wr(s)}  均{_ar(s)}")
+            rows.append(f"**{t}** {s['n']}只  胜率{_wr(s)}  均{_ar(s)}{_open_suffix(s)}")
             for r in s["top5"]:
                 sig_s = "·".join(_SIG_SHORT.get(sg, sg) for sg in r.get("signals", []))
                 sig_tag = f"<br>`{sig_s}`" if sig_s else ""
-                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{sig_tag}")
+                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}{sig_tag}")
         sections.append("  \n".join(rows))
 
     # 热榜策略：H0（top5%）+ H1（全部）
     sh0 = hot_tier_stats["H0"]
     sh1 = hot_tier_stats["H1"]
     if sh0["results"] or sh1["results"]:
-        rows = [f"{_emoji(sh1['win_rate'])} **热榜策略 {sh1['n']}只  胜率{_wr(sh1)}  均{_ar(sh1)}**"]
+        rows = [f"{_emoji(sh1['win_rate'])} **热榜策略 {sh1['n']}只  胜率{_wr(sh1)}  均{_ar(sh1)}{_open_suffix(sh1)}**"]
         if sh0["n"] > 0:
-            rows.append(f"**H0** {sh0['n']}只  胜率{_wr(sh0)}  均{_ar(sh0)}")
+            rows.append(f"**H0** {sh0['n']}只  胜率{_wr(sh0)}  均{_ar(sh0)}{_open_suffix(sh0)}")
             for r in sh0["top5"]:
-                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
+                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}")
         if sh1["n"] > 0:
-            rows.append(f"**H1** {sh1['n']}只  胜率{_wr(sh1)}  均{_ar(sh1)}")
+            rows.append(f"**H1** {sh1['n']}只  胜率{_wr(sh1)}  均{_ar(sh1)}{_open_suffix(sh1)}")
             for r in sh1["top5"]:
-                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
+                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}")
         sections.append("  \n".join(rows))
 
     # ETF 策略
     if etf_stats["results"]:
-        rows = [f"{_emoji(etf_stats['win_rate'])} **ETF策略 {etf_stats['n']}只  胜率{_wr(etf_stats)}  均{_ar(etf_stats)}**"]
+        rows = [f"{_emoji(etf_stats['win_rate'])} **ETF策略 {etf_stats['n']}只  胜率{_wr(etf_stats)}  均{_ar(etf_stats)}{_open_suffix(etf_stats)}**"]
         for r in sorted(etf_stats["results"], key=lambda r: r["pct"], reverse=True):
-            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
+            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}")
         sections.append("  \n".join(rows))
 
     # 自选池监控强买
     if wl_mon_stats["results"]:
         src_label = {"main_scan": "主策略", "gc_scan": "金叉", "hot_scan": "热榜", "manual": "手动"}
-        rows = [f"{_emoji(wl_mon_stats['win_rate'])} **监控强买 {wl_mon_stats['n']}只  胜率{_wr(wl_mon_stats)}  均{_ar(wl_mon_stats)}**"]
+        rows = [f"{_emoji(wl_mon_stats['win_rate'])} **监控强买 {wl_mon_stats['n']}只  胜率{_wr(wl_mon_stats)}  均{_ar(wl_mon_stats)}{_open_suffix(wl_mon_stats)}**"]
         for r in sorted(wl_mon_stats["results"], key=lambda r: r["pct"], reverse=True):
             sig = next((p.get("source", "") for p in wl_mon_picks if p["code"] == r["code"]), "")
             tag = f"[{src_label.get(sig, sig)}]" if sig else ""
-            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}% {tag}")
+            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)} {tag}")
         sections.append("  \n".join(rows))
 
     sections.append("⚠️ 仅供参考，不构成投资建议")
@@ -476,8 +536,15 @@ def main() -> None:
 
     # ── 各自保存历史 ──────────────────────────────────────────────────────────
     ts = now.isoformat(timespec="seconds")
-    def _tier_rec(s): return {"n": s["n"], "win_rate": s["win_rate"], "avg_ret": s["avg_ret"],
-                               "picks": [{"code": r["code"], "name": r["name"], "pct": r["pct"]} for r in s["results"]]}
+    def _tier_rec(s):
+        rec = {"n": s["n"], "win_rate": s["win_rate"], "avg_ret": s["avg_ret"],
+               "picks": [{"code": r["code"], "name": r["name"], "pct": r["pct"],
+                          **({"open_pct": r["open_pct"]} if "open_pct" in r else {})}
+                         for r in s["results"]]}
+        if s.get("open_win_rate") is not None:
+            rec["open_win_rate"] = s["open_win_rate"]
+            rec["open_avg_ret"]  = s["open_avg_ret"]
+        return rec
     _append(MAIN_PERF_PATH,
             {"date": today, "logged": ts, **_tier_rec(ms)},
             today, args.force)
