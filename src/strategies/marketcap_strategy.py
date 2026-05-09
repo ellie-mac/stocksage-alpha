@@ -117,13 +117,17 @@ def scan() -> list[dict]:
         return []
 
     df = spot.copy()
+    # 规一化代码：Sina 数据带 sh/sz/bj 前缀，EM 数据是纯 6 位
+    df["代码"] = df["代码"].astype(str).apply(
+        lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
+    )
 
     # 过滤 ST / 退市
     df = df[~df["名称"].str.contains("ST|退", na=False)]
     # 过滤科创板 (688xxx)
     df = df[~df["代码"].str.startswith("688")]
-    # 过滤北证 (8xxxxx / 43xxxx)
-    df = df[~(df["代码"].str.startswith("8") | df["代码"].str.startswith("43"))]
+    # 过滤北证 (8xxxxx / 43xxxx / 9xxxxx for 920xxx)
+    df = df[~(df["代码"].str.startswith("8") | df["代码"].str.startswith("43") | df["代码"].str.startswith("9"))]
     # 过滤股价 ≤ 2 元
     price_col = pd.to_numeric(df["最新价"], errors="coerce")
     df = df[price_col > MIN_PRICE]
