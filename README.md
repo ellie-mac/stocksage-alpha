@@ -28,6 +28,31 @@ python -X utf8 src/strategies/institution_scan.py --push-if-changed
 
 基金列表：`data/fund_watchlist.json`（53 只，含量化多因子 + 明星主动基金）
 
+### 金叉策略（golden_cross_scan）
+7 项技术指标金叉共振筛选，前置条件：价格 > MA60 或 MA60 斜率为正（震荡市自动过滤）。信号数量分 G0（7个）/ G1（6个）/ G2（5个）三档推送。
+
+信号：MACD金叉 · KDJ金叉 · RSI金叉 · MA10/20金叉 · 量能金叉 · OBV金叉 · 布林中轨金叉
+
+```bash
+python -X utf8 src/strategies/golden_cross_scan.py --push
+```
+
+### 小盘策略（small_strategy）
+从全市场小市值股（市值上限可配置）中用独立权重配置评分选股，与主策略共享因子体系但权重针对小盘调优。每晚夜间扫描推送。
+
+```bash
+python -X utf8 src/strategies/small_strategy.py
+python -X utf8 src/strategies/small_strategy.py --dry-run
+```
+
+### ETF 策略（etf_strategy）
+对 ETF 自选池打分，输出买卖信号。使用独立的 `FACTOR_WEIGHTS_ETF` 权重配置，买入/卖出阈值随市场制度动态调整。
+
+```bash
+python -X utf8 src/strategies/etf_strategy.py
+python -X utf8 src/strategies/etf_strategy.py --dry-run
+```
+
 ### 主策略（nightly_scan）
 50 因子多空评分，每晚夜间扫描全市场，选出综合得分最高的买入候选。
 
