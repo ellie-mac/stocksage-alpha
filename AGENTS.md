@@ -24,7 +24,7 @@ If the user writes in English, reply in English.
 - 区分"系统信号"和"主观判断"
 
 ## 代码/系统类：
-- 先定位到具体文件（如 scripts/factor_config.py）再分析
+- 先定位到具体文件（如 src/factors/config.py）再分析
 - 改参数前先说清楚影响范围
 - 不要在未明确指示时修改任何文件
 

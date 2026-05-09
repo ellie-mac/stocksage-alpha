@@ -61,18 +61,18 @@ Activate this skill when the user expresses any of the following intents (Chines
 
 用户选择编号后（如 "1,3,9"），运行菜单模式：
 ```
-python {baseDir}/scripts/screener.py --menu "1,3,9"
+python {baseDir}/src/screener.py --menu "1,3,9"
 ```
 
 如果用户直接输入自然语言条件，运行查询模式：
 ```
-python {baseDir}/scripts/screener.py "低估值高成长"
-python {baseDir}/scripts/screener.py "high quality low debt focus on growth"
+python {baseDir}/src/screener.py "低估值高成长"
+python {baseDir}/src/screener.py "high quality low debt focus on growth"
 ```
 
 打印因子菜单（无参数）：
 ```
-python {baseDir}/scripts/screener.py --list
+python {baseDir}/src/screener.py --list
 ```
 
 ### Step 3 — 展示结果
@@ -85,9 +85,9 @@ python {baseDir}/scripts/screener.py --list
 1. 识别股票代码（6位数字，如 600519）或名称（如 贵州茅台）
 2. 运行研究脚本（支持可选权重参数）：
    ```
-   python {baseDir}/scripts/research.py <股票代码>
-   python {baseDir}/scripts/research.py <股票代码> --weights "focus on growth"
-   python {baseDir}/scripts/research.py <股票代码> --weights "重视质量 低波动"
+   python {baseDir}/src/research.py <股票代码>
+   python {baseDir}/src/research.py <股票代码> --weights "focus on growth"
+   python {baseDir}/src/research.py <股票代码> --weights "重视质量 低波动"
    ```
 3. 基于 JSON 输出，用中文撰写研究报告：
 
@@ -221,10 +221,10 @@ python {baseDir}/scripts/screener.py --list
 
 ```bash
 # 全量运行（~5000只，约1小时，支持断点续跑）
-python {baseDir}/scripts/batch_financials.py
+python {baseDir}/src/tools/batch_financials.py
 
 # 测试运行
-python {baseDir}/scripts/batch_financials.py --max 200
+python {baseDir}/src/tools/batch_financials.py --max 200
 ```
 
 **推荐设置每日 02:00 定时执行**（cron 或 Windows Task Scheduler）。
@@ -248,7 +248,7 @@ build_industry_map()
 
 | 现象 | 原因 | 解决 |
 |------|------|------|
-| `unapplied_conditions` 出现在结果中 | 财务类筛选条件（ROE、负债率、毛利率等）未预热 | 运行 `python scripts/batch_financials.py`，支持断点续跑 |
+| `unapplied_conditions` 出现在结果中 | 财务类筛选条件（ROE、负债率、毛利率等）未预热 | 运行 `python src/tools/batch_financials.py`，支持断点续跑 |
 | 股票代码无结果 | 代码输入错误、退市或停牌 | 核对6位代码，沪市以6开头，深市以0/3开头，北交所以8开头 |
 | 网络超时 / BaoStock 无响应 | API 限速或服务器抖动 | 稍后重试；若持续失败检查网络，BaoStock 有每日调用限额 |
 | 52周位置显示为空 | 股票上市不足252个交易日（约1年） | 正常，新股/次新股无法计算52周指标 |
