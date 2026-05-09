@@ -140,7 +140,7 @@ def fetch_prices_with_retry(
             return stats
         if attempt < max_retries - 1:
             print(f"[{slot}] 行情未就绪，{retry_interval // 60}分钟后重试"
-                  f"（第{attempt + 1}次）")
+                  f"(第{attempt + 1}次)")
             time.sleep(retry_interval)
         else:
             break
