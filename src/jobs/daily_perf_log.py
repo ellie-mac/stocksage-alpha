@@ -10,7 +10,7 @@
   热榜策略  — hot_scan_YYYYMMDD.json picks（前日 19:00 扫描）
 
 用法：
-    python -X utf8 scripts/daily_perf_log.py [--dry-run] [--force]
+    python -X utf8 src/jobs/daily_perf_log.py [--dry-run] [--force]
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ HOT_TIERS     = ["H0", "H1"]
 
 def _fetch_prices(codes: list[str]) -> dict[str, float]:
     import sys, pandas as pd
-    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.path.insert(0, str(ROOT / "src"))
     from common import get_spot_em
     df = get_spot_em()
     if not df.empty:
@@ -427,7 +427,7 @@ def main() -> None:
     # ── 推送 ──────────────────────────────────────────────────────────────────
     try:
         import sys
-        sys.path.insert(0, str(ROOT / "scripts"))
+        sys.path.insert(0, str(ROOT / "src"))
         from common import push_wechat
         parts = []
         if ms["win_rate"] is not None: parts.append(f"主{ms['win_rate']}%")

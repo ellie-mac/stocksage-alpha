@@ -126,8 +126,8 @@ def main() -> None:
                 log_path= night_log,
                 fix_cmd = (
                     f"cd {ROOT}\n"
-                    f"python -X utf8 scripts/daily_chip_scan.py --ak --no-push\n"
-                    f"python -X utf8 scripts/run_cad_pipeline.py"
+                    f"python -X utf8 src/chip/daily_scan.py --ak --no-push\n"
+                    f"python -X utf8 src/chip/pipeline.py"
                 ),
             )
             sys.exit(1)

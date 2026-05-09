@@ -3,8 +3,8 @@
 小盘策略夜间选股 — 从全市场小市值股中选明日候选
 
 用法：
-    python -X utf8 scripts/small_strategy.py
-    python -X utf8 scripts/small_strategy.py --dry-run
+    python -X utf8 src/strategies/small_strategy.py
+    python -X utf8 src/strategies/small_strategy.py --dry-run
 """
 from __future__ import annotations
 

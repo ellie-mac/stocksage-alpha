@@ -4,7 +4,7 @@
 每隔约20交易日取一个截面，第一次跑完后后续均为缓存命中，速度极快。
 
 用法：
-    python -X utf8 scripts/chip_backfill.py
+    python -X utf8 src/chip/backfill.py
 """
 from __future__ import annotations
 

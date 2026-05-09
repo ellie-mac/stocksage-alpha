@@ -3,7 +3,7 @@
 列出 VM 上的 Python 进程，区分「我们的进程」和「其他进程」。
 
 用法：
-    python -X utf8 scripts/tools/ps_list.py
+    python -X utf8 src/tools/ps_list.py
 """
 import csv, io, re, subprocess, sys
 

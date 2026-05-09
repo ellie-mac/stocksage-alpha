@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-scripts/integrity_check.py — 每小时数据完整性检查
+src/jobs/integrity_check.py — 每小时数据完整性检查
 
 设计：
   - 由 Windows 定时任务每小时触发（08:00 起，每小时一次到 23:00）
@@ -11,9 +11,9 @@ scripts/integrity_check.py — 每小时数据完整性检查
   - 通知去重：同一项目当日只通知一次
 
 用法:
-    python -X utf8 scripts/integrity_check.py
-    python -X utf8 scripts/integrity_check.py --force    # 忽略已验证状态，强制重检所有项
-    python -X utf8 scripts/integrity_check.py --dry-run  # 只检查，不修复，不发通知
+    python -X utf8 src/jobs/integrity_check.py
+    python -X utf8 src/jobs/integrity_check.py --force    # 忽略已验证状态，强制重检所有项
+    python -X utf8 src/jobs/integrity_check.py --dry-run  # 只检查，不修复，不发通知
 """
 from __future__ import annotations
 

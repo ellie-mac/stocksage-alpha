@@ -16,7 +16,7 @@
 档位（共振数量）：G0=7 · G1=6 · G2=5
 
 用法：
-    python -X utf8 scripts/golden_cross_scan.py [--push] [--dry-run]
+    python -X utf8 src/strategies/golden_cross_scan.py [--push] [--dry-run]
 """
 from __future__ import annotations
 

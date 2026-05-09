@@ -15,9 +15,9 @@ For each sampled trade date:
 Output: summary table (stdout) + data/chip_backtest_result.json
 
 Usage:
-    python -X utf8 scripts/chip_backtest.py              # last 6 months, weekly
-    python -X utf8 scripts/chip_backtest.py --months 3
-    python -X utf8 scripts/chip_backtest.py --step 10   # every 10 trading days
+    python -X utf8 src/chip/backtest.py              # last 6 months, weekly
+    python -X utf8 src/chip/backtest.py --months 3
+    python -X utf8 src/chip/backtest.py --step 10   # every 10 trading days
 """
 from __future__ import annotations
 

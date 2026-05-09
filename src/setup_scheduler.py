@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-scripts/setup_scheduler.py — 一次性运行，注册 Windows 定时任务
+src/setup_scheduler.py — 一次性运行，注册 Windows 定时任务
 
 用法（从仓库根目录，管理员权限运行）:
-    python scripts/setup_scheduler.py           # 注册所有定时任务
-    python scripts/setup_scheduler.py --remove  # 删除任务
-    python scripts/setup_scheduler.py --status  # 查看任务状态
+    python src/setup_scheduler.py           # 注册所有定时任务
+    python src/setup_scheduler.py --remove  # 删除任务
+    python src/setup_scheduler.py --status  # 查看任务状态
 """
 
 import argparse

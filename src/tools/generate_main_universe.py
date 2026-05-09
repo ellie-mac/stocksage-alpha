@@ -4,8 +4,8 @@ Generate main_universe.json — CSI 300 + CSI 500 components (~500 stocks)
 suitable for factor_analysis.py --universe, replacing the hardcoded TEST_UNIVERSE.
 
 Usage:
-    python scripts/generate_main_universe.py
-    python scripts/generate_main_universe.py --out scripts/main_universe.json
+    python src/tools/generate_main_universe.py
+    python src/tools/generate_main_universe.py --out scripts/main_universe.json
 
 Output: scripts/main_universe.json  (list of 6-digit codes)
 """

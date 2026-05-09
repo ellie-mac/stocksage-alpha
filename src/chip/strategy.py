@@ -9,18 +9,18 @@
 股票名称 / 行业：独立持久文件 data/stock_names.json（自动更新，超 7 天则刷新）
   优先 Tushare stock_basic（含行业），受限时 akshare spot 兜底（仅名称）
 
-每日 chip 数据缓存：scripts/.cache/chip_data_YYYYMMDD.json
+每日 chip 数据缓存：src/.cache/chip_data_YYYYMMDD.json
   当天第二次运行直接读缓存，不重复拉 Tushare
 
 用法：
-    python -X utf8 scripts/chip_strategy.py               # 自动取最近交易日
-    python -X utf8 scripts/chip_strategy.py --date 20260416
-    python -X utf8 scripts/chip_strategy.py --min-win 90  # 放宽至 90%
-    python -X utf8 scripts/chip_strategy.py --dry-run     # 仅打印，不推送
-    python -X utf8 scripts/chip_strategy.py --refresh-names  # 强制刷新名称缓存
-    python -X utf8 scripts/chip_strategy.py --cad                       # 数据驱动多档扫描
-    python -X utf8 scripts/chip_strategy.py --cad --mods bekh bekhm    # 指定 mods
-    python -X utf8 scripts/chip_strategy.py --cad --always-t12         # 量化早报模式：T1+T2永远显示，T3只在<30时加
+    python -X utf8 src/chip/strategy.py               # 自动取最近交易日
+    python -X utf8 src/chip/strategy.py --date 20260416
+    python -X utf8 src/chip/strategy.py --min-win 90  # 放宽至 90%
+    python -X utf8 src/chip/strategy.py --dry-run     # 仅打印，不推送
+    python -X utf8 src/chip/strategy.py --refresh-names  # 强制刷新名称缓存
+    python -X utf8 src/chip/strategy.py --cad                       # 数据驱动多档扫描
+    python -X utf8 src/chip/strategy.py --cad --mods bekh bekhm    # 指定 mods
+    python -X utf8 src/chip/strategy.py --cad --always-t12         # 量化早报模式：T1+T2永远显示，T3只在<30时加
 """
 from __future__ import annotations
 

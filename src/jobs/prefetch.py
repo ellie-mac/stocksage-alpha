@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-scripts/prefetch.py — 定时数据预热
+src/jobs/prefetch.py — 定时数据预热
 
   --price    收盘后预热全市场价格历史缓存（17:00 触发，~1-1.5h）
   --market   收盘后预热市场数据：CSI300、市值PE、申万PE、行业map、停牌表、交易日历（15:35 触发，<1min）
@@ -8,11 +8,11 @@ scripts/prefetch.py — 定时数据预热
   --fundflow 收盘后预热全市场资金流向缓存（16:00 触发，~20min）
 
 用法:
-  python -X utf8 scripts/prefetch.py --price
-  python -X utf8 scripts/prefetch.py --market
-  python -X utf8 scripts/prefetch.py --concept
-  python -X utf8 scripts/prefetch.py --fundflow
-  python -X utf8 scripts/prefetch.py --price --market  # 组合
+  python -X utf8 src/jobs/prefetch.py --price
+  python -X utf8 src/jobs/prefetch.py --market
+  python -X utf8 src/jobs/prefetch.py --concept
+  python -X utf8 src/jobs/prefetch.py --fundflow
+  python -X utf8 src/jobs/prefetch.py --price --market  # 组合
 """
 from __future__ import annotations
 

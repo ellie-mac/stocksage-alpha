@@ -7,7 +7,7 @@
 中当周（周一至当天）的记录，推送周报微信。
 
 用法：
-    python -X utf8 scripts/weekly_perf_report.py [--dry-run] [--force]
+    python -X utf8 src/jobs/weekly_perf_report.py [--dry-run] [--force]
     --force  不限制周几，强制生成当周数据
 """
 from __future__ import annotations

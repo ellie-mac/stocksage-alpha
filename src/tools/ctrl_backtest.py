@@ -9,7 +9,7 @@
 输出：控制台表格 + data/ctrl_backtest_result.json
 
 用法：
-    python -X utf8 scripts/tools/ctrl_backtest.py [--n 200] [--fwd 20] [--periods 6]
+    python -X utf8 src/tools/ctrl_backtest.py [--n 200] [--fwd 20] [--periods 6]
 """
 from __future__ import annotations
 

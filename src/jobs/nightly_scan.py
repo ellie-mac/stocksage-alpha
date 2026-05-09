@@ -3,14 +3,14 @@
 夜间扫描编排器 — 依次运行主策略、小盘策略、ETF策略
 
 用法：
-    python -X utf8 scripts/nightly_scan.py
-    python -X utf8 scripts/nightly_scan.py --dry-run
-    python -X utf8 scripts/nightly_scan.py --only main
-    python -X utf8 scripts/nightly_scan.py --only small
-    python -X utf8 scripts/nightly_scan.py --only etf
+    python -X utf8 src/jobs/nightly_scan.py
+    python -X utf8 src/jobs/nightly_scan.py --dry-run
+    python -X utf8 src/jobs/nightly_scan.py --only main
+    python -X utf8 src/jobs/nightly_scan.py --only small
+    python -X utf8 src/jobs/nightly_scan.py --only etf
 
 Windows 任务计划示例（每日 22:00）：
-    pythonw -X utf8 C:/path/to/scripts/nightly_scan.py
+    pythonw -X utf8 C:/path/to/src/jobs/nightly_scan.py
 """
 from __future__ import annotations
 

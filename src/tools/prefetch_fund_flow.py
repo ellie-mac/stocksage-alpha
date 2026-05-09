@@ -3,9 +3,9 @@
 每日资金流向批量预取 — 通过 tushare moneyflow_ths 一次拉全市场当日数据。
 
 用法：
-    python -X utf8 scripts/tools/prefetch_fund_flow.py           # 拉今日
-    python -X utf8 scripts/tools/prefetch_fund_flow.py --days 2  # 拉今日+昨日
-    python -X utf8 scripts/tools/prefetch_fund_flow.py --date 20260507
+    python -X utf8 src/tools/prefetch_fund_flow.py           # 拉今日
+    python -X utf8 src/tools/prefetch_fund_flow.py --days 2  # 拉今日+昨日
+    python -X utf8 src/tools/prefetch_fund_flow.py --date 20260507
 
 tushare moneyflow_ths 限速 2次/小时，每次拉全市场一天（约5000只），
 拆分后写入各股票 fundflow 缓存，供 get_fund_flow() 直接命中。

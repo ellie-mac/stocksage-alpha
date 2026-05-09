@@ -3,8 +3,8 @@
 主策略夜间选股 — 每日收盘后运行，从 universe 里选明日买入候选
 
 用法：
-    python -X utf8 scripts/main_strategy.py
-    python -X utf8 scripts/main_strategy.py --dry-run
+    python -X utf8 src/strategies/main_strategy.py
+    python -X utf8 src/strategies/main_strategy.py --dry-run
 """
 from __future__ import annotations
 

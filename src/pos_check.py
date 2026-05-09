@@ -3,8 +3,8 @@
 位置分析 — 快速判断股票当前处于高位/低位
 
 用法:
-    python -X utf8 scripts/pos_check.py 000001
-    python -X utf8 scripts/pos_check.py 600519
+    python -X utf8 src/pos_check.py 000001
+    python -X utf8 src/pos_check.py 600519
 """
 from __future__ import annotations
 import re
@@ -103,6 +103,6 @@ def pos_report(code: str) -> str:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("用法: python -X utf8 scripts/pos_check.py 000001")
+        print("用法: python -X utf8 src/pos_check.py 000001")
         sys.exit(1)
     print(pos_report(sys.argv[1]))

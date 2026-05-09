@@ -3,7 +3,7 @@
 notify_failure.py — 发送定时任务失败通知（微信）
 
 用法：
-    python -X utf8 scripts/notify_failure.py "任务名" ["详情"]
+    python -X utf8 src/notify/notify_failure.py "任务名" ["详情"]
 """
 from __future__ import annotations
 

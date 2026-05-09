@@ -14,8 +14,8 @@ Filters applied:
   - Exclude Beijing exchange stocks (BJ: 8xxxxx / 4xxxxx) — lower liquidity
 
 Usage:
-    python scripts/tools/generate_full_universe.py
-    python scripts/tools/generate_full_universe.py --min-cap 10 --min-price 1.5
+    python src/tools/generate_full_universe.py
+    python src/tools/generate_full_universe.py --min-cap 10 --min-price 1.5
 """
 
 from __future__ import annotations

@@ -6,8 +6,8 @@
 - 同一股票有冷却窗口（默认 90 分钟），避免盘中重复推送
 
 用法：
-    python -X utf8 scripts/watchlist_scan.py
-    python -X utf8 scripts/watchlist_scan.py --dry-run
+    python -X utf8 src/strategies/watchlist_scan.py
+    python -X utf8 src/strategies/watchlist_scan.py --dry-run
 """
 from __future__ import annotations
 

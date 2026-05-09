@@ -3,8 +3,8 @@
 ETF 策略 — 对 etf_watchlist 打分，推送买卖信号
 
 用法：
-    python -X utf8 scripts/etf_strategy.py
-    python -X utf8 scripts/etf_strategy.py --dry-run
+    python -X utf8 src/strategies/etf_strategy.py
+    python -X utf8 src/strategies/etf_strategy.py --dry-run
 """
 from __future__ import annotations
 

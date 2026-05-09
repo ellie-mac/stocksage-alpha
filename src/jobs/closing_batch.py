@@ -7,8 +7,8 @@
 4. auto_tune.py --apply（仅周一：因子权重自动调优）
 
 用法：
-    python -X utf8 scripts/closing_batch.py
-    python -X utf8 scripts/closing_batch.py --dry-run
+    python -X utf8 src/jobs/closing_batch.py
+    python -X utf8 src/jobs/closing_batch.py --dry-run
 """
 from __future__ import annotations
 

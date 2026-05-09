@@ -4,8 +4,8 @@ Generate smallcap_universe.json — a list of small-cap A-share stock codes
 (market cap <= max_cap_yi 亿元) suitable for factor_analysis.py --universe.
 
 Usage:
-    python scripts/generate_smallcap_universe.py
-    python scripts/generate_smallcap_universe.py --max-cap 30 --n 150
+    python src/tools/generate_smallcap_universe.py
+    python src/tools/generate_smallcap_universe.py --max-cap 30 --n 150
 
 Output: scripts/smallcap_universe.json  (list of 6-digit codes)
 """

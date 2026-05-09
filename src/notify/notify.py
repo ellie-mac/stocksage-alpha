@@ -3,7 +3,7 @@
 notify.py — 飞书定时任务通知
 
 用法：
-    python -X utf8 scripts/notify.py "任务名" "描述" [status]
+    python -X utf8 src/notify/notify.py "任务名" "描述" [status]
     status: "" = 完成, "started" = 开始, "failed" = 失败
 """
 from __future__ import annotations

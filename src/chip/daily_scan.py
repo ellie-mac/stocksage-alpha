@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 每日筹码全档扫描：T1-T5 全部档位，默认带 BOLL中轨±8% + 绿柱离零轴>1% 过滤。
-用法：python -X utf8 scripts/daily_chip_scan.py [--date YYYYMMDD] [--dry-run] [--ak]
+用法：python -X utf8 src/chip/daily_scan.py [--date YYYYMMDD] [--dry-run] [--ak]
   --ak  跳过 Tushare，直接用 akshare 自算筹码分布（无额度限制，约5-10分钟）
 """
 from __future__ import annotations
