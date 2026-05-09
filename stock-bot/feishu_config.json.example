@@ -1,6 +1,6 @@
 {
   "feishu": {
-    "app_id": "cli_a965cf8dc8789cd5",
+    "app_id": "cli_xxxxxxxxxxxxxxxx",
     "app_secret": "your_app_secret_here",
     "allowed_open_ids": [],
     "notify_chat_id": ""
