@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -91,9 +92,16 @@ _SIG_SHORT = {
 
 
 def _stats(items: list[dict], prices: dict[str, float]) -> dict:
-    results = [{"code": p["code"], "name": p.get("name", p["code"]),
-                "pct": prices[p["code"]], "signals": p.get("signals", [])}
-               for p in items if p["code"] in prices]
+    results = []
+    for p in items:
+        if p["code"] not in prices:
+            continue
+        r = {"code": p["code"], "name": p.get("name", p["code"]),
+             "pct": prices[p["code"]], "signals": p.get("signals", [])}
+        for xk in ("winner_rate", "spread_pct"):
+            if xk in p:
+                r[xk] = p[xk]
+        results.append(r)
     if not results:
         return {"n": 0, "win_rate": None, "avg_ret": None, "top5": [], "results": []}
     vals = [r["pct"] for r in results]
@@ -383,7 +391,7 @@ def main() -> None:
             rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
         sections.append("  \n".join(rows))
 
-    # 筹码策略：各档胜率 + 前五
+    # 筹码策略：各档胜率 + 前五（带编号和筹码峰）
     if cs["results"]:
         rows = [f"{_emoji(cs['win_rate'])} **筹码策略 {cs['n']}只  胜率{_wr(cs)}  均{_ar(cs)}**"]
         for t in CHIP_TIERS:
@@ -392,10 +400,22 @@ def main() -> None:
                 continue
             rows.append(f"**{t}** {s['n']}只  胜率{_wr(s)}  均{_ar(s)}")
             for r in s["top5"]:
-                rows.append(f"  {r['name']} {r['pct']:+.2f}%")
+                wr = r.get("winner_rate")
+                sp = r.get("spread_pct")
+                try:
+                    sp_f = float(sp) if sp is not None else float("nan")
+                    shape = "锥" if sp_f < 15 else ("散" if sp_f > 30 else "")
+                except Exception:
+                    sp_f, shape = float("nan"), ""
+                try:
+                    wr_s = f"{wr:.0f}%" if wr is not None and not math.isnan(float(wr)) else ""
+                except Exception:
+                    wr_s = ""
+                chip_tag = f"<br>`获利{wr_s}{' '+shape if shape else ''}`" if wr_s else ""
+                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{chip_tag}")
         sections.append("  \n".join(rows))
 
-    # 金叉共振：各档胜率 + 前五（带信号缩写）
+    # 金叉共振：各档胜率 + 前五（带编号和信号缩写）
     if gs["results"]:
         rows = [f"{_emoji(gs['win_rate'])} **金叉共振 {gs['n']}只  胜率{_wr(gs)}  均{_ar(gs)}**"]
         for t in GC_TIERS:
@@ -406,7 +426,7 @@ def main() -> None:
             for r in s["top5"]:
                 sig_s = "·".join(_SIG_SHORT.get(sg, sg) for sg in r.get("signals", []))
                 sig_tag = f"<br>`{sig_s}`" if sig_s else ""
-                rows.append(f"  {r['name']} {r['pct']:+.2f}%{sig_tag}")
+                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{sig_tag}")
         sections.append("  \n".join(rows))
 
     # 热榜策略：H0（top5%）+ H1（全部）
@@ -417,11 +437,11 @@ def main() -> None:
         if sh0["n"] > 0:
             rows.append(f"**H0** {sh0['n']}只  胜率{_wr(sh0)}  均{_ar(sh0)}")
             for r in sh0["top5"]:
-                rows.append(f"  {r['name']} {r['pct']:+.2f}%")
+                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
         if sh1["n"] > 0:
             rows.append(f"**H1** {sh1['n']}只  胜率{_wr(sh1)}  均{_ar(sh1)}")
             for r in sh1["top5"]:
-                rows.append(f"  {r['name']} {r['pct']:+.2f}%")
+                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%")
         sections.append("  \n".join(rows))
 
     # ETF 策略
@@ -438,7 +458,7 @@ def main() -> None:
         for r in sorted(wl_mon_stats["results"], key=lambda r: r["pct"], reverse=True):
             sig = next((p.get("source", "") for p in wl_mon_picks if p["code"] == r["code"]), "")
             tag = f"[{src_label.get(sig, sig)}]" if sig else ""
-            rows.append(f"  {r['name']} {r['pct']:+.2f}% {tag}")
+            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}% {tag}")
         sections.append("  \n".join(rows))
 
     sections.append("⚠️ 仅供参考，不构成投资建议")
