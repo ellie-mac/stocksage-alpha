@@ -30,10 +30,12 @@ SC_PERF_PATH    = DATA_DIR / "sc_daily_perf.json"
 CHIP_PERF_PATH  = DATA_DIR / "chip_daily_perf.json"
 GC_PERF_PATH    = DATA_DIR / "gc_daily_perf.json"
 HOT_PERF_PATH   = DATA_DIR / "hot_daily_perf.json"
+WL_MON_PERF_PATH = DATA_DIR / "wl_monitor_perf.json"
+WL_MON_LOG_PATH  = DATA_DIR / "wl_strong_buy_log.json"
 
 CHIP_TIERS = ["C0", "C1", "C2", "C3"]
-GC_TIERS      = ["G0", "G1", "G2"]
-HOT_TIERS     = ["H0", "H1"]
+GC_TIERS   = ["G0", "G1", "G2"]
+HOT_TIERS  = ["H0", "H1"]
 
 
 # ── 行情 ──────────────────────────────────────────────────────────────────────
@@ -240,6 +242,23 @@ def _load_gc(today: str) -> dict[str, list[dict]]:
     return {t: [_norm(p) for p in tiers.get(t, [])] for t in GC_TIERS}
 
 
+def _load_wl_monitor(today: str) -> list[dict]:
+    """读取今日 watchlist_monitor 强买信号（去重，同一只取最高分那条）。"""
+    if not WL_MON_LOG_PATH.exists():
+        return []
+    try:
+        records = json.loads(WL_MON_LOG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    today_recs = [r for r in records if r.get("date") == today]
+    best: dict[str, dict] = {}
+    for r in today_recs:
+        code = str(r.get("code", "")).zfill(6)
+        if code not in best or r.get("buy_score", 0) > best[code].get("buy_score", 0):
+            best[code] = {**r, "code": code}
+    return list(best.values())
+
+
 def _load_hot(today: str) -> dict[str, list[dict]]:
     """热榜策略：H0=热度top5%，H1=全部picks"""
     raw = _find_prev("hot_scan_????????.json", today, days=3)
@@ -297,19 +316,20 @@ def main() -> None:
     chip_by_tier  = _load_chip(today)
     gc_by_tier    = _load_gc(today)
     hot_by_tier   = _load_hot(today)
+    wl_mon_picks  = _load_wl_monitor(today)
 
     chip_flat = [p for picks in chip_by_tier.values() for p in picks]
     gc_flat   = [p for picks in gc_by_tier.values()   for p in picks]
     hot_flat  = hot_by_tier["H1"]
 
-    print(f"[daily_perf] 主策略 {len(main_picks)}只 / 小票 {len(sc_picks)}只 / 筹码 {len(chip_flat)}只 / 金叉 {len(gc_flat)}只 / 热榜H0:{len(hot_by_tier['H0'])}只/H1:{len(hot_flat)}只")
+    print(f"[daily_perf] 主策略 {len(main_picks)}只 / 小票 {len(sc_picks)}只 / 筹码 {len(chip_flat)}只 / 金叉 {len(gc_flat)}只 / 热榜H0:{len(hot_by_tier['H0'])}只/H1:{len(hot_flat)}只 / 监控强买:{len(wl_mon_picks)}只")
 
-    if not main_picks and not sc_picks and not chip_flat and not gc_flat and not hot_flat:
+    if not main_picks and not sc_picks and not chip_flat and not gc_flat and not hot_flat and not wl_mon_picks:
         print("[daily_perf] 所有策略均无数据，退出")
         return
 
     # ── 一次性拉取所有行情 ────────────────────────────────────────────────────
-    all_codes = list({p["code"] for p in main_picks + sc_picks + chip_flat + gc_flat + hot_flat})
+    all_codes = list({p["code"] for p in main_picks + sc_picks + chip_flat + gc_flat + hot_flat + wl_mon_picks})
     print(f"[daily_perf] 获取 {len(all_codes)} 只行情 ...")
     prices = _fetch_prices(all_codes)
     print(f"[daily_perf] 获取到 {len(prices)} 只")
@@ -323,11 +343,12 @@ def main() -> None:
     chip_tier_stats = {t: _stats(chip_by_tier[t], prices) for t in CHIP_TIERS}
     gc_tier_stats   = {t: _stats(gc_by_tier[t],   prices) for t in GC_TIERS}
     hot_tier_stats  = {t: _stats(hot_by_tier[t],  prices) for t in HOT_TIERS}
+    wl_mon_stats    = _stats(wl_mon_picks, prices)
     cs = _stats(chip_flat, prices)
     gs = _stats(gc_flat,   prices)
     hs = hot_tier_stats["H1"]
 
-    for label, s in [("主策略", ms), ("小票", scs), ("筹码", cs), ("金叉", gs), ("热榜H1", hs)]:
+    for label, s in [("主策略", ms), ("小票", scs), ("筹码", cs), ("金叉", gs), ("热榜H1", hs), ("监控强买", wl_mon_stats)]:
         if s["n"] > 0:
             print(f"  [{label}] {s['n']}只  胜率{_wr(s)}  均涨{_ar(s)}")
 
@@ -389,6 +410,16 @@ def main() -> None:
                 rows.append(f"  {r['name']} {r['pct']:+.2f}%")
         sections.append("  \n".join(rows))
 
+    # 自选池监控强买
+    if wl_mon_stats["results"]:
+        src_label = {"main_scan": "主策略", "gc_scan": "金叉", "hot_scan": "热榜", "manual": "手动"}
+        rows = [f"{_emoji(wl_mon_stats['win_rate'])} **监控强买 {wl_mon_stats['n']}只  胜率{_wr(wl_mon_stats)}  均{_ar(wl_mon_stats)}**"]
+        for r in sorted(wl_mon_stats["results"], key=lambda r: r["pct"], reverse=True):
+            sig = next((p.get("source", "") for p in wl_mon_picks if p["code"] == r["code"]), "")
+            tag = f"[{src_label.get(sig, sig)}]" if sig else ""
+            rows.append(f"  {r['name']} {r['pct']:+.2f}% {tag}")
+        sections.append("  \n".join(rows))
+
     sections.append("⚠️ 仅供参考，不构成投资建议")
     push_body = "\n\n".join(sections)
     print(f"\n{push_body}\n")
@@ -422,6 +453,9 @@ def main() -> None:
              "H0": _tier_rec(hot_tier_stats["H0"]),
              "H1": _tier_rec(hot_tier_stats["H1"])},
             today, args.force)
+    _append(WL_MON_PERF_PATH,
+            {"date": today, "logged": ts, **_tier_rec(wl_mon_stats)},
+            today, args.force)
     print("[daily_perf] 历史记录已写入")
 
     # ── 推送 ──────────────────────────────────────────────────────────────────
@@ -434,6 +468,7 @@ def main() -> None:
         if cs["win_rate"] is not None: parts.append(f"筹{cs['win_rate']}%")
         if gs["win_rate"] is not None: parts.append(f"叉{gs['win_rate']}%")
         if hs["win_rate"] is not None: parts.append(f"热{hs['win_rate']}%")
+        if wl_mon_stats["win_rate"] is not None: parts.append(f"监{wl_mon_stats['win_rate']}%")
         title = f"收盘胜率 {date_fmt} | {' / '.join(parts)}"
         push_wechat(title, push_body)
         print("[daily_perf] 微信推送成功")
