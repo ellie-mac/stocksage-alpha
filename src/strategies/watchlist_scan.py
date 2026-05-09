@@ -99,10 +99,21 @@ def main() -> None:
     else:
         watchlist_codes = [c[-6:] if len(c) > 6 else c for c in raw_wl]
 
+    # Merge dynamic watchlist
+    dynamic_path = os.path.join(_ROOT, "data", "watchlist_dynamic.json")
+    if os.path.exists(dynamic_path):
+        try:
+            dynamic = json.load(open(dynamic_path, encoding="utf-8"))
+            dynamic_codes = [e["code"] for e in dynamic if isinstance(e, dict) and e.get("code")]
+            seen = set(watchlist_codes)
+            watchlist_codes += [c for c in dynamic_codes if c not in seen]
+        except Exception:
+            pass
+
     if not watchlist_codes:
         print("[watchlist_scan] 自选池为空，退出")
         return
-    print(f"[watchlist_scan] watchlist={len(watchlist_codes)}")
+    print(f"[watchlist_scan] watchlist={len(watchlist_codes)} (手动+动态)")
 
     regime_score  = 5.0
     regime_signal = "unknown"
