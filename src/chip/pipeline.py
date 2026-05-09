@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT    = Path(__file__).resolve().parent.parent.parent
 SCRIPTS = Path(__file__).resolve().parent
-LOGS    = SCRIPTS / "logs"
+LOGS    = ROOT / "src" / "logs"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 PYTHON     = sys.executable

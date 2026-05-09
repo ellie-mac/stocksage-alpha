@@ -1,5 +1,5 @@
 """
-xhs/records.py — XHS 日记录管理
+src/report/records.py — XHS 日记录管理
 
 负责管理小红书连续记录实验的日记文件、元数据和发帖历史。
 所有 I/O 函数都在这里，reporter.py 只做计算和格式化。
