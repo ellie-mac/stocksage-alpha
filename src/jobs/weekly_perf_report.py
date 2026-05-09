@@ -17,7 +17,7 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
-ROOT     = Path(__file__).resolve().parent.parent
+ROOT     = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = ROOT / "data"
 
 MAIN_PERF_PATH = DATA_DIR / "main_daily_perf.json"

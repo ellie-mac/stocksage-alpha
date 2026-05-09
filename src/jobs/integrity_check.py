@@ -26,8 +26,8 @@ import time
 from datetime import datetime, date
 from pathlib import Path
 
-ROOT        = Path(__file__).resolve().parent.parent
-SCRIPTS     = Path(__file__).resolve().parent
+ROOT        = Path(__file__).resolve().parent.parent.parent
+SCRIPTS     = Path(__file__).resolve().parent.parent
 DATA        = ROOT / "data"
 CACHE       = SCRIPTS / "cache"
 TOOLS_CACHE = SCRIPTS / "tools" / ".cache"
@@ -193,7 +193,7 @@ def check_market_data() -> tuple[bool, str]:
 def fix_market_data() -> bool:
     print("  [fix] 预热市场数据 ...", flush=True)
     return _run_fix(
-        [PYTHON, "-X", "utf8", str(SCRIPTS / "prefetch.py"), "--market"],
+        [PYTHON, "-X", "utf8", str(SCRIPTS / "jobs" / "prefetch.py"), "--market"],
         "market_data",
     )
 
@@ -214,7 +214,7 @@ def check_concept_map() -> tuple[bool, str]:
 def fix_concept_map() -> bool:
     print("  [fix] 预热概念 map ...", flush=True)
     return _run_fix(
-        [PYTHON, "-X", "utf8", str(SCRIPTS / "prefetch.py"), "--concept"],
+        [PYTHON, "-X", "utf8", str(SCRIPTS / "jobs" / "prefetch.py"), "--concept"],
         "concept_map",
     )
 

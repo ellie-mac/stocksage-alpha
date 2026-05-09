@@ -26,7 +26,7 @@ import fetcher
 from common import configure_pushplus, send_wechat
 from report.utils import score_one_buy as _score_one
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def scan(

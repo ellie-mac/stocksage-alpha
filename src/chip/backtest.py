@@ -30,9 +30,9 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT    = Path(__file__).resolve().parent.parent
+ROOT    = Path(__file__).resolve().parent.parent.parent
 DATA    = ROOT / "data"
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 import cache as _cache
 import fetcher as _fetcher

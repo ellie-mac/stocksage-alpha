@@ -12,10 +12,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT    = Path(__file__).resolve().parent.parent
+ROOT    = Path(__file__).resolve().parent.parent.parent
 SCRIPTS = ROOT / "src"
 PYTHON  = sys.executable
-SCAN    = SCRIPTS / "daily_chip_scan.py"
+SCAN    = SCRIPTS / "chip" / "daily_scan.py"
 
 # 约每20交易日一个截面，覆盖过去约6个月
 # 避开：国庆(10.1-7)、春节2026(2.17-23)

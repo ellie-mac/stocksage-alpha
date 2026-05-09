@@ -14,7 +14,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 _FAILURES_PATH = ROOT / "data" / "task_failures.json"
 
 _SCHEDULE = [
