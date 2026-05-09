@@ -18,7 +18,7 @@ import subprocess
 import sys
 from datetime import datetime
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _PY   = sys.executable
 
 
@@ -53,7 +53,7 @@ def main() -> None:
     print(f"[closing_batch] 开始 {now:%Y-%m-%d %H:%M}")
 
     # 1. XHS evening post
-    writer = os.path.join(_ROOT, "xhs", "reporter.py")
+    writer = os.path.join(_ROOT, "src", "report", "reporter.py")
     if os.path.exists(writer):
         if args.dry_run:
             print("[closing_batch] dry-run: XHS evening 跳过")
