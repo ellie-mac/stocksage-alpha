@@ -160,7 +160,7 @@ def _stats(items: list[dict], prices: dict[str, float],
             r["open_pct"] = open_prices[code]
         if raw_prices and code in raw_prices:
             r["prices"] = raw_prices[code]
-        for xk in ("winner_rate", "spread_pct"):
+        for xk in ("winner_rate", "spread_pct", "breakdown"):
             if xk in p:
                 r[xk] = p[xk]
         results.append(r)
