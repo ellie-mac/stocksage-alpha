@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from factors import weights_from_config_dict
 from factors.config import REGIME_WEIGHTS
-from factors_extended import score_market_regime
+from factors import score_market_regime
 import fetcher
 from common import configure_pushplus, send_wechat
 from report_utils import regime_key as _regime_key, score_one_buy as _score_watchlist

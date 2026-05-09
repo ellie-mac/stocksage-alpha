@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from factors import weights_from_config_dict
 from factors.config import REGIME_WEIGHTS_SMALLCAP, SMALLCAP_CONFIG
-from factors_extended import score_market_regime
+from factors import score_market_regime
 import fetcher
 import pandas as pd
 from common import configure_pushplus, send_wechat

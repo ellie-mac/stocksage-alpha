@@ -40,7 +40,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 sys.path.insert(0, os.path.dirname(__file__))
 
 from research import research
-from factors_extended import score_market_regime
+from factors import score_market_regime
 import fetcher
 from common import is_trading_hours, next_session_seconds, send_wechat
 

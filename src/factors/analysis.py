@@ -49,7 +49,7 @@ from factors import (
     score_dividend_yield, score_volume_ratio, score_ma_alignment,
     score_low_volatility,
 )
-from factors_extended import (
+from factors import (
     score_reversal, score_accruals, score_asset_growth, score_piotroski,
     score_short_interest, score_rsi_signal, score_macd_signal,
     score_turnover_percentile, score_chip_distribution,

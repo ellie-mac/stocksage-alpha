@@ -59,7 +59,7 @@ from factors import (
     compute_sell_score,
     compute_technical,
 )
-from factors_extended import (
+from factors import (
     score_reversal,
     score_accruals,
     score_asset_growth,
