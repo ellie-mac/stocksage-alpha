@@ -26,7 +26,7 @@ from pathlib import Path
 
 ROOT    = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPTS))
+sys.path.insert(0, str(ROOT))
 
 import cache as _cache
 import fetcher as _fetcher
