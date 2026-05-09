@@ -296,33 +296,29 @@ _CHIP_TIERS = {
 }
 
 _TASK_DESC = {
-    "chip_Premarket":     "盘前数据兜底",
-    "market_Warm":        "市场数据预热",
-    "price_Prefetch":     "价格缓存预热",
-    "concept_Warm":       "概念 map 预热",
-    "fundflow_Prefetch":  "资金流向预取",
-    "watchlist_Scan":     "自选股盘中扫描 📱",
-    "xhs_Midday":         "午间快报 📱",
-    "xhs_Evening":        "收盘总结 📱",
-    "main_Scan":          "主策略扫盘 📱",
-    "gc_Scan":            "金叉策略扫描 📱",
-    "hot_Scan":           "热榜扫描 📱",
-    "institution_Scan":   "机构扫盘 📱",
-    "chip_Night":         "夜间筹码扫描",
-    "chip_CadScan":       "筹码策略扫描 📱",
-    "nightly_Scan":       "夜间主策略+小盘+ETF选股 📱",
-    "main_Night":         "夜间数据预热",
-    "integrity_Check":    "数据完整性检查",
-    "weekly_PerfReport":  "周度绩效报告",
+    "report_Morning":    "盘前报告 📱",
+    "report_Midday":     "午间报告 📱",
+    "report_Evening":    "收盘报告 📱",
+    "daily_PerfLog":     "胜率统计 📱",
+    "main_Scan":         "主策略扫盘 📱",
+    "gc_Scan":           "金叉扫描 📱",
+    "hot_Scan":          "热榜扫描 📱",
+    "chip_CadScan":      "筹码扫描 📱",
+    "chip_Night":        "筹码缓存",
+    "main_Night":        "夜间预热",
+    "integrity_Check":   "数据完整性",
 }
 
+_HOT_RANK_NAMES = [
+    "hot_Rank_0935", "hot_Rank_1000", "hot_Rank_1100",
+    "hot_Rank_1330", "hot_Rank_1430",
+]
+
 _TASK_DESC_BG = {
-    "factor_Analysis":    "因子IC分析",
-    "hot_Rank_0935":      "热榜记录 9:35",
-    "hot_Rank_1000":      "热榜记录 10:00",
-    "hot_Rank_1100":      "热榜记录 11:00",
-    "hot_Rank_1330":      "热榜记录 13:30",
-    "hot_Rank_1430":      "热榜记录 14:30",
+    "price_Prefetch":    "价格缓存",
+    "fundflow_Prefetch": "资金流向",
+    "market_Warm":       "市场数据",
+    "concept_Warm":      "概念map",
 }
 
 _FACTOR_ZH = {
@@ -615,7 +611,7 @@ def h_logs(n: int = 20) -> str:
 
 
 def h_tasks() -> str:
-    all_names = list(_TASK_DESC.keys()) + list(_TASK_DESC_BG.keys())
+    all_names = list(_TASK_DESC.keys()) + list(_TASK_DESC_BG.keys()) + _HOT_RANK_NAMES
     names_list = "','".join(all_names)
     ps = (
         f"$today = (Get-Date).Date;"
@@ -658,18 +654,19 @@ def h_tasks() -> str:
 
         lines = []
         for name, desc in _TASK_DESC.items():
-            status, last_run, next_run = by_name.get(name, ("--", "--", "--"))
-            tick = _tick(status, next_run)
-            time_s = f"  {last_run}" if last_run != "--" else ""
-            lines.append(f"{tick} {name} / {desc}{time_s}")
+            status, _, next_run = by_name.get(name, ("--", "--", "--"))
+            lines.append(f"{_tick(status, next_run)} {name} / {desc}")
 
-        # Background tasks: one summary line
-        bg_ok  = sum(1 for n in _TASK_DESC_BG if by_name.get(n, ("--",))[0] == "OK")
-        bg_tot = len(_TASK_DESC_BG)
-        lines.append(f"\n后台({bg_ok}/{bg_tot}完成): " + "  ".join(
-            ("✅" if by_name.get(n, ("--",))[0] == "OK" else "⬜") + n.split("_")[-1]
-            for n in _TASK_DESC_BG
-        ))
+        # 热榜快照：合并为一行
+        hot_ok  = sum(1 for n in _HOT_RANK_NAMES if by_name.get(n, ("--",))[0] == "OK")
+        hot_tot = len(_HOT_RANK_NAMES)
+        hot_tick = "✅" if hot_ok == hot_tot else ("🟡" if hot_ok > 0 else "⬜")
+
+        bg_parts = [f"{hot_tick}热榜快照({hot_ok}/{hot_tot})"]
+        for n, desc in _TASK_DESC_BG.items():
+            tick = "✅" if by_name.get(n, ("--",))[0] == "OK" else "⬜"
+            bg_parts.append(f"{tick}{desc}")
+        lines.append("\n后台: " + "  ".join(bg_parts))
 
         return "\n".join(lines)
     except Exception as e:
