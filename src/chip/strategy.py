@@ -1,0 +1,1134 @@
+#!/usr/bin/env python3
+"""
+筹码策略扫描：收盘价 > 95% 筹码成本（获利盘比例 >= min_win%）
+
+数据源：Tushare Pro
+  - cyq_perf(trade_date)   → 全市场筹码分布（winner_rate / cost_95pct）
+  - daily(trade_date)      → 收盘价 / 涨跌幅 / 成交额
+
+股票名称 / 行业：独立持久文件 data/stock_names.json（自动更新，超 7 天则刷新）
+  优先 Tushare stock_basic（含行业），受限时 akshare spot 兜底（仅名称）
+
+每日 chip 数据缓存：scripts/.cache/chip_data_YYYYMMDD.json
+  当天第二次运行直接读缓存，不重复拉 Tushare
+
+用法：
+    python -X utf8 scripts/chip_strategy.py               # 自动取最近交易日
+    python -X utf8 scripts/chip_strategy.py --date 20260416
+    python -X utf8 scripts/chip_strategy.py --min-win 90  # 放宽至 90%
+    python -X utf8 scripts/chip_strategy.py --dry-run     # 仅打印，不推送
+    python -X utf8 scripts/chip_strategy.py --refresh-names  # 强制刷新名称缓存
+    python -X utf8 scripts/chip_strategy.py --cad                       # 数据驱动多档扫描
+    python -X utf8 scripts/chip_strategy.py --cad --mods bekh bekhm    # 指定 mods
+    python -X utf8 scripts/chip_strategy.py --cad --always-t12         # 量化早报模式：T1+T2永远显示，T3只在<30时加
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import sys
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import pandas as pd
+
+ROOT    = Path(__file__).resolve().parent.parent.parent
+SCRIPTS = Path(__file__).resolve().parent.parent
+DATA    = ROOT / "data"
+sys.path.insert(0, str(SCRIPTS))
+
+import cache as _cache
+from common import configure_pushplus, get_trade_dates, push_wechat
+
+_NAMES_FILE = DATA / "stock_names.json"   # persistent: {ts_code: {name, industry}}
+_NAMES_TTL  = 7 * 24 * 3600               # refresh weekly
+
+
+# ---------------------------------------------------------------------------
+# Tushare init
+# ---------------------------------------------------------------------------
+
+def _get_pro():
+    try:
+        import tushare as ts
+        cfg = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
+        token = cfg.get("tushare", {}).get("token", "")
+        if not token:
+            raise RuntimeError("alert_config.json 未配置 tushare.token")
+        ts.set_token(token)
+        return ts.pro_api()
+    except Exception as e:
+        print(f"[ERROR] Tushare 初始化失败: {e}")
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Latest trade date
+# ---------------------------------------------------------------------------
+
+def _latest_trade_date() -> str:
+    now = datetime.now()
+    d   = now.date()
+    if now.hour < 15 or (now.hour == 15 and now.minute < 30) or d.weekday() >= 5:
+        d -= timedelta(days=1)
+    trade_dates = get_trade_dates(d.strftime("%Y"))
+    if trade_dates:
+        for _ in range(20):
+            if d.strftime("%Y%m%d") in trade_dates:
+                break
+            d -= timedelta(days=1)
+    else:
+        while d.weekday() >= 5:
+            d -= timedelta(days=1)
+    return d.strftime("%Y%m%d")
+
+
+# ---------------------------------------------------------------------------
+# Stock names — persistent JSON file, refreshed weekly
+# ---------------------------------------------------------------------------
+
+def _is_names_stale(force: bool = False) -> bool:
+    if force or not _NAMES_FILE.exists():
+        return True
+    age = time.time() - _NAMES_FILE.stat().st_mtime
+    return age > _NAMES_TTL
+
+
+def load_names(force: bool = False) -> dict[str, dict]:
+    """
+    Return {ts_code: {name, industry}}.
+    Loads from data/stock_names.json; refreshes if stale.
+    """
+    if not _is_names_stale(force):
+        try:
+            data = json.loads(_NAMES_FILE.read_text(encoding="utf-8"))
+            if data:
+                print(f"[names] 读取缓存 {len(data)} 条")
+                return data
+        except Exception:
+            pass
+
+    print("[names] 刷新股票名称 / 行业...")
+    pro = _get_pro()
+    names: dict[str, dict] = {}
+
+    # 1. Try bak_basic (backup daily basic — not rate-limited like stock_basic)
+    #    Returns ts_code, name, industry for all listed stocks on a given date.
+    try:
+        from datetime import date as _date
+        latest = _date.today().strftime("%Y%m%d")
+        df = pro.bak_basic(trade_date=latest, fields="ts_code,name,industry")
+        if df is None or df.empty:
+            # Try yesterday if today has no data yet
+            yesterday = (_date.today() - timedelta(days=1)).strftime("%Y%m%d")
+            df = pro.bak_basic(trade_date=yesterday, fields="ts_code,name,industry")
+        if df is not None and not df.empty:
+            df["name"]     = df["name"].fillna("").astype(str)
+            df["industry"] = df["industry"].fillna("").astype(str)
+            names.update({
+                r["ts_code"]: {"name": r["name"], "industry": r["industry"]}
+                for r in df[["ts_code", "name", "industry"]].to_dict("records")
+            })
+            print(f"[names] bak_basic: {len(names)} 条")
+    except Exception as e:
+        print(f"[names] bak_basic 失败: {e}，尝试 stock_basic...")
+
+    # 2. Fallback to stock_basic (rate-limited to 1/hour, but has richer data)
+    if len(names) < 100:
+        try:
+            df = pro.stock_basic(exchange="", list_status="L",
+                                 fields="ts_code,name,industry")
+            if df is not None and not df.empty:
+                df["name"]     = df["name"].fillna("").astype(str)
+                df["industry"] = df["industry"].fillna("").astype(str)
+                names.update({
+                    r["ts_code"]: {"name": r["name"], "industry": r["industry"]}
+                    for r in df[["ts_code", "name", "industry"]].to_dict("records")
+                })
+                print(f"[names] stock_basic: {len(names)} 条")
+        except Exception as e2:
+            print(f"[names] stock_basic 也失败: {e2}")
+
+    if names:
+        DATA.mkdir(parents=True, exist_ok=True)
+        _NAMES_FILE.write_text(json.dumps(names, ensure_ascii=False, indent=None),
+                               encoding="utf-8")
+        print(f"[names] 已写入 {_NAMES_FILE}")
+    else:
+        print("[names] 刷新失败，降级使用旧缓存")
+        try:
+            if _NAMES_FILE.exists():
+                cached = json.loads(_NAMES_FILE.read_text(encoding="utf-8"))
+                if cached:
+                    print(f"[names] 旧缓存 {len(cached)} 条")
+                    return cached
+        except Exception:
+            pass
+        print("[names] 无可用缓存，名称将显示为空")
+
+    return names
+
+
+# ---------------------------------------------------------------------------
+# Daily chip data — fetch + cache
+# ---------------------------------------------------------------------------
+
+_CHIP_TTL = 90 * 24 * 3600   # 90天；历史筹码数据不变，长期保留
+
+
+def _chip_cache_key(trade_date: str, source: str = "ts") -> str:
+    return f"chip_data_{source}_{trade_date}"
+
+
+# ---------------------------------------------------------------------------
+# 6-month high — fetch once, cache alongside chip data
+# ---------------------------------------------------------------------------
+
+def fetch_6m_high(ts_codes: list[str], trade_date: str, pro) -> dict[str, float]:
+    """
+    Return {ts_code: approximate_max_close_over_past_6_months}.
+
+    Uses bi-weekly date sampling (13 all-market daily calls) rather than one
+    call per stock, staying well under Tushare's 50-calls/min limit.
+    Results are cached with the same 23-hour TTL as chip data.
+    """
+    from datetime import datetime, timedelta
+
+    cache_key = f"6m_high_{trade_date}"
+    cached: dict[str, float] = _cache.get(cache_key, _CHIP_TTL) or {}
+
+    ts_set = set(ts_codes)
+    missing = [ts for ts in ts_set if ts not in cached]
+    if not missing:
+        print(f"[6m_high cache] 命中 {len(ts_codes)} 条")
+        return {ts: cached[ts] for ts in ts_codes if ts in cached}
+
+    # Build ~13 bi-weekly sample dates spanning the past 6 months.
+    # Slide backwards off weekends so we always try a weekday.
+    td = datetime.strptime(trade_date, "%Y%m%d")
+    sample_dates: list[str] = []
+    for weeks_back in range(2, 27, 2):          # 2, 4, 6 … 26 weeks
+        d = td - timedelta(weeks=weeks_back)
+        while d.weekday() >= 5:                 # skip Sat/Sun
+            d -= timedelta(days=1)
+        sample_dates.append(d.strftime("%Y%m%d"))
+
+    max_closes: dict[str, float] = {ts: cached.get(ts, 0.0) for ts in ts_set}
+
+    print(f"[6m_high] 采样 {len(sample_dates)} 个日期，更新 {len(missing)} 只股票最高价...")
+    for date in sample_dates:
+        try:
+            df = pro.daily(trade_date=date, fields="ts_code,close")
+            if df is None or df.empty:
+                continue
+            sub = df[df["ts_code"].isin(ts_set) & df["close"].notna()]
+            for row in sub.itertuples(index=False):
+                if row.close > max_closes.get(row.ts_code, 0.0):
+                    max_closes[row.ts_code] = float(row.close)
+        except Exception as e:
+            print(f"  [warn] date={date}: {e}")
+        time.sleep(0.3)   # ~3 calls/sec ≪ 50/min limit
+
+    result = {ts: v for ts, v in max_closes.items() if v > 0}
+    cached.update(result)
+    _cache.set(cache_key, cached)
+    print(f"[6m_high] 完成，覆盖 {len(result)} 只，已缓存")
+    return {ts: result[ts] for ts in ts_codes if ts in result}
+
+
+def _load_chip_cache(trade_date: str, source: str = "ts") -> pd.DataFrame | None:
+    # If today's cache was written before 15:30 but it's now past 15:30, rebuild once with today's close
+    from datetime import date as _date, time as _time, datetime as _dt
+    if trade_date == _date.today().strftime("%Y%m%d") and _dt.now().time() >= _time(15, 30):
+        import os
+        path = _cache._cache_path(_chip_cache_key(trade_date, source))
+        if os.path.exists(path):
+            mtime = _dt.fromtimestamp(os.path.getmtime(path))
+            if mtime.time() < _time(15, 30):
+                print(f"[chip cache] {trade_date} 缓存建于收盘前（{mtime:%H:%M}），重建以获取今日收盘价")
+                return None
+    raw = _cache.get(_chip_cache_key(trade_date, source), _CHIP_TTL)
+    if raw is None:
+        return None
+    try:
+        if isinstance(raw, dict) and raw.get("__type") == "dataframe":
+            import io
+            df = pd.read_json(io.StringIO(raw["records"]), orient="records")
+        else:
+            df = pd.DataFrame(raw)
+        # Re-derive code from ts_code to restore leading zeros lost during JSON round-trip
+        if "ts_code" in df.columns:
+            df["code"] = df["ts_code"].str.split(".").str[0]
+        return df
+    except Exception:
+        return None
+
+
+def _load_recent_ak_cache(max_days: int = 3) -> pd.DataFrame | None:
+    """找最近 max_days 天内最新的 AK 筹码缓存（>500条视为有效）。"""
+    from datetime import date as _d, timedelta as _td
+    today = _d.today()
+    for i in range(1, max_days + 1):
+        d = (today - _td(days=i)).strftime("%Y%m%d")
+        cached = _load_chip_cache(d, source="ak")
+        if cached is not None and len(cached) > 500:
+            print(f"[chip cache] 使用最近 AK 缓存 {d}（共 {len(cached)} 条）")
+            return cached
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Akshare-based chip distribution (自算版，无需 Tushare 额度)
+# ---------------------------------------------------------------------------
+
+def _calc_chip_stats(hist_df: pd.DataFrame, current_price: float) -> tuple[float, float, float]:
+    """
+    Compute (winner_rate, cost_95pct, cost_50pct) from OHLCV history.
+    hist_df: columns [low, high, vol/volume, turnover(%)], sorted oldest → newest.
+
+    Uses turnover-rate decay (同花顺 methodology):
+      survival_i = ∏(1 - turnover_j/100)  for all j > i
+    Chips from bar i that have NOT been replaced by subsequent trading.
+    Falls back to volume-ratio decay when turnover column is absent.
+    """
+    import numpy as np
+
+    need_cols = ["low", "high"]
+    has_turnover = "turnover" in hist_df.columns
+    vol_col      = "vol" if "vol" in hist_df.columns else "volume"
+    rows = hist_df[need_cols + [vol_col] + (["turnover"] if has_turnover else [])].dropna()
+    if rows.empty or current_price <= 0:
+        return 0.0, 0.0
+
+    lows  = rows["low"].values.astype(float)
+    highs = rows["high"].values.astype(float)
+    vols  = rows[vol_col].values.astype(float)
+    n     = len(lows)
+
+    if has_turnover:
+        # Turnover-rate survival: survival_i = ∏_{j>i}(1 - t_j)
+        t = np.minimum(rows["turnover"].values.astype(float) / 100, 0.99)
+        log_s        = np.log1p(-t)
+        cum_log_rev  = np.cumsum(log_s[::-1])[::-1]
+        cum_log_after = np.append(cum_log_rev[1:], 0.0)   # vol after bar i
+        survival = np.exp(cum_log_after)
+        weights  = t * survival   # traded fraction × survival
+    else:
+        total_vol = vols.sum()
+        if total_vol <= 0:
+            return 0.0, 0.0
+        k = 2.0
+        cum_vol_after = total_vol - np.cumsum(vols)
+        survival = np.exp(-k * cum_vol_after / total_vol)
+        weights  = vols * survival
+
+    min_p = lows.min() * 0.9
+    max_p = max(highs.max(), current_price) * 1.05
+    N = 400
+    edges    = np.linspace(min_p, max_p, N + 1)
+    mids     = (edges[:-1] + edges[1:]) / 2
+    bin_w    = edges[1] - edges[0]
+    chip     = np.zeros(N)
+
+    for i in range(n):
+        lo = int(max(0,   (lows[i]  - min_p) / bin_w))
+        hi = int(min(N,   (highs[i] - min_p) / bin_w + 1))
+        if hi > lo:
+            chip[lo:hi] += weights[i] / (hi - lo)
+        elif lo < N:
+            chip[lo] += weights[i]
+
+    total = chip.sum()
+    if total <= 0:
+        return 0.0, 0.0, 0.0
+
+    winner_rate = float(chip[mids <= current_price].sum() / total * 100)
+    cumsum      = np.cumsum(chip)
+    idx95       = int(np.searchsorted(cumsum, 0.95 * total))
+    cost_95pct  = float(mids[min(idx95, N - 1)])
+    idx50       = int(np.searchsorted(cumsum, 0.50 * total))
+    cost_50pct  = float(mids[min(idx50, N - 1)])
+    return winner_rate, cost_95pct, cost_50pct
+
+
+def _fetch_stock_hist_ak(code: str, start_date: str, end_date: str) -> pd.DataFrame | None:
+    """Fetch daily OHLCV from akshare for one stock. Returns df[low,high,vol,close,pct_chg,amount] or None."""
+    try:
+        import akshare as ak
+        df = ak.stock_zh_a_hist(symbol=code, period="daily",
+                                start_date=start_date, end_date=end_date,
+                                adjust="")
+        if df is None or df.empty:
+            return None
+        df = df.rename(columns={
+            "收盘": "close", "最低": "low", "最高": "high",
+            "成交量": "vol", "涨跌幅": "pct_chg", "成交额": "amount",
+        })
+        keep = [c for c in ["close", "low", "high", "vol", "pct_chg", "amount"] if c in df.columns]
+        return df[keep].reset_index(drop=True)
+    except Exception:
+        return None
+
+
+def _ts_code_suffix(code: str) -> str:
+    if code.startswith("6") or code.startswith("5"):
+        return code + ".SH"
+    if code.startswith("4") or code.startswith("8") or code.startswith("9"):
+        return code + ".BJ"
+    return code + ".SZ"
+
+
+def fetch_chip_data_ak(trade_date: str) -> pd.DataFrame:
+    """
+    Compute chip distribution for every A-share using fetcher.get_price_history.
+    No Tushare cyq_perf quota consumed.  fetcher has 5 fallback sources + per-stock cache.
+    Uses same cache key as Tushare path so subsequent calls are instant.
+
+    Returns DataFrame with columns compatible with fetch_chip_data():
+      ts_code, trade_date, winner_rate, cost_95pct, close, pct_chg, amount, code
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import fetcher as _fetcher
+
+    cached = _load_chip_cache(trade_date, source="ak")
+    if cached is not None:
+        print(f"[chip cache] 命中 chip_data_ak_{trade_date}，共 {len(cached)} 条")
+        return cached
+
+    names    = load_names()
+    ts_codes = list(names.keys())
+    trade_dt = datetime.strptime(trade_date, "%Y%m%d")
+    total    = len(ts_codes)
+    print(f"[chip_ak] {trade_date} — 自算模式，共 {total} 只（workers=5）", flush=True)
+
+    def _fetch(ts_code: str):
+        code = ts_code.split(".")[0]
+        try:
+            hist = _fetcher.get_price_history(code, days=260)
+            if hist is None or hist.empty:
+                return ts_code, None
+            # Filter to trade_date so we get the correct closing price
+            hist = hist[pd.to_datetime(hist["date"]) <= pd.Timestamp(trade_dt)].copy()
+            if len(hist) < 30:
+                return ts_code, None
+            hist = hist.rename(columns={"volume": "vol", "change_pct": "pct_chg"})
+            return ts_code, hist
+        except Exception:
+            return ts_code, None
+
+    hist_map: dict[str, pd.DataFrame] = {}
+    done = 0
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        futs = {ex.submit(_fetch, c): c for c in ts_codes}
+        for f in as_completed(futs):
+            ts_code, hist = f.result()
+            if hist is not None:
+                hist_map[ts_code] = hist
+            done += 1
+            if done % 500 == 0:
+                print(f"[chip_ak] {done}/{total} 完成 ...", flush=True)
+
+    print(f"[chip_ak] 历史数据就绪 {len(hist_map)} 只，计算筹码分布 ...", flush=True)
+    records = []
+    for ts_code, hist in hist_map.items():
+        last  = hist.iloc[-1]
+        close = float(last.get("close", 0))
+        if close <= 0:
+            continue
+        wr, c95, c50 = _calc_chip_stats(hist, close)
+        # Use actual last date from price history, not the query date
+        last_date = last.get("date")
+        if hasattr(last_date, "strftime"):
+            actual_date = last_date.strftime("%Y%m%d")
+        elif last_date:
+            actual_date = str(last_date).replace("-", "")[:8]
+        else:
+            actual_date = trade_date
+        records.append({
+            "ts_code":     ts_code,
+            "trade_date":  actual_date,
+            "winner_rate": wr,
+            "cost_95pct":  c95,
+            "cost_85pct":  float("nan"),
+            "cost_50pct":  c50,
+            "cost_5pct":   float("nan"),
+            "weight_avg":  float("nan"),
+            "close":       close,
+            "pct_chg":     float(last.get("pct_chg", 0)),
+            "amount":      float(last.get("amount", 0)),
+            "code":        ts_code.split(".")[0],
+        })
+
+    df_out = pd.DataFrame(records)
+    print(f"[chip_ak] 完成，共 {len(df_out)} 只")
+    _cache.set(_chip_cache_key(trade_date, "ak"), df_out)
+    print(f"[chip cache] 已写入 chip_data_ak_{trade_date}（akshare自算）")
+    df_out.attrs["source"] = "akshare"
+    return df_out
+
+
+def fetch_chip_data(trade_date: str, pro) -> pd.DataFrame:
+    """
+    Pull cyq_perf + daily for trade_date and cache.
+    Returns DataFrame with columns:
+        ts_code, trade_date, cost_5pct, cost_50pct, cost_85pct, cost_95pct,
+        weight_avg, winner_rate, close, pct_chg, amount
+
+    On Tushare rate-limit, automatically falls back to fetch_chip_data_ak().
+    """
+    cached = _load_chip_cache(trade_date, source="ts")
+    if cached is not None:
+        print(f"[chip cache] 命中 chip_data_ts_{trade_date}，共 {len(cached)} 条")
+        return cached
+
+    print(f"[fetch] trade_date={trade_date}")
+
+    print("  拉取 cyq_perf ...")
+    t0 = time.time()
+    try:
+        cyq = pro.cyq_perf(
+            trade_date=trade_date,
+            fields="ts_code,trade_date,cost_5pct,cost_50pct,cost_85pct,cost_95pct,weight_avg,winner_rate",
+        )
+    except Exception as e:
+        msg = str(e)
+        if "每小时" in msg or "每天" in msg or "最多访问" in msg or "频率超限" in msg or "次/天" in msg or "次/小时" in msg:
+            now = datetime.now()
+            reset_min = 60 - now.minute
+            print(f"[fetch] Tushare 限流：{msg}")
+            print(f"[fetch] 额度耗尽，自动切换到 akshare 自算模式 ...")
+            return fetch_chip_data_ak(trade_date)
+        else:
+            print(f"[fetch] cyq_perf 失败: {e}")
+        return pd.DataFrame()
+    print(f"  cyq_perf: {len(cyq) if cyq is not None else 0} 条  ({time.time()-t0:.1f}s)")
+
+    if cyq is None or cyq.empty:
+        print(f"[WARN] cyq_perf 无数据 (trade_date={trade_date})，可能是非交易日或数据延迟")
+        return pd.DataFrame()
+
+    if len(cyq) < 500:
+        print(f"[fetch] Tushare 返回 {len(cyq)} 条（<500，账户权限限制），尝试最近 AK 缓存 ...")
+        recent = _load_recent_ak_cache(max_days=3)
+        if recent is not None:
+            return recent
+        print(f"[fetch] 无最近 AK 缓存，切换到 AK 自算模式（耗时较长）...")
+        return fetch_chip_data_ak(trade_date)
+
+    print("  拉取 daily (close/pct_chg/amount) ...")
+    t0 = time.time()
+    daily = pro.daily(trade_date=trade_date, fields="ts_code,close,pct_chg,vol,amount")
+    print(f"  daily: {len(daily) if daily is not None else 0} 条  ({time.time()-t0:.1f}s)")
+
+    df = cyq.copy()
+    if daily is not None and not daily.empty:
+        df = df.merge(daily[["ts_code", "close", "pct_chg", "amount"]],
+                      on="ts_code", how="left")
+    else:
+        df["close"] = float("nan")
+        df["pct_chg"] = float("nan")
+        df["amount"]  = float("nan")
+
+    for col in ("winner_rate", "cost_95pct", "close", "pct_chg"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # 6-digit code for display
+    df["code"] = df["ts_code"].str.split(".").str[0]
+
+    _cache.set(_chip_cache_key(trade_date, "ts"), df)
+    print(f"[chip cache] 已写入 chip_data_ts_{trade_date}")
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Technical indicators (BOLL / MACD) via historical price data
+# ---------------------------------------------------------------------------
+
+def _ema(series: list[float], period: int) -> list[float]:
+    k = 2 / (period + 1)
+    result = [series[0]]
+    for v in series[1:]:
+        result.append(result[-1] * (1 - k) + v * k)
+    return result
+
+
+def _compute_indicators(ts_code: str) -> dict | None:
+    """
+    Compute BOLL middle band and MACD histogram (current + previous bar).
+    Uses fetcher.get_price_history (BaoStock/AKShare, cached, no Tushare quota).
+    Returns {'boll_mid', 'macd_hist', 'macd_hist_prev'} or None on failure.
+    """
+    try:
+        import fetcher as _fetcher
+        hist = _fetcher.get_price_history(ts_code.split(".")[0], days=60)
+        if hist is None or len(hist) < 28:
+            return None
+        closes = hist["close"].dropna().tolist()
+        if len(closes) < 28:
+            return None
+
+        # BOLL middle = 20-day SMA
+        boll_mid = sum(closes[-20:]) / 20
+
+        # MACD(12, 26, 9) — need last two histogram values to detect convergence
+        ema12 = _ema(closes, 12)
+        ema26 = _ema(closes, 26)
+        macd_line = [a - b for a, b in zip(ema12[25:], ema26[25:])]
+        signal    = _ema(macd_line, 9)
+        hist_cur  = macd_line[-1] - signal[-1]
+        hist_prev = macd_line[-2] - signal[-2]
+
+        return {"boll_mid": boll_mid, "macd_hist": hist_cur, "macd_hist_prev": hist_prev}
+    except Exception:
+        return None
+
+
+def add_indicators(df: pd.DataFrame, max_workers: int = 8) -> pd.DataFrame:
+    """
+    Fetch BOLL/MACD for every stock in df (after chip filter, typically <300 stocks).
+    Adds columns: boll_mid, macd_hist.  Runs in parallel for speed.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    codes = df["ts_code"].tolist()
+    results: dict[str, dict] = {}
+    print(f"[indicators] 计算 {len(codes)} 只股票的 BOLL/MACD ...", flush=True)
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        fut = {ex.submit(_compute_indicators, c): c for c in codes}
+        for f in as_completed(fut):
+            code = fut[f]
+            val  = f.result()
+            if val:
+                results[code] = val
+    df = df.copy()
+    df["boll_mid"]       = df["ts_code"].map(lambda c: results.get(c, {}).get("boll_mid"))
+    df["macd_hist"]      = df["ts_code"].map(lambda c: results.get(c, {}).get("macd_hist"))
+    df["macd_hist_prev"] = df["ts_code"].map(lambda c: results.get(c, {}).get("macd_hist_prev"))
+    print(f"[indicators] 完成，命中 {len(results)}/{len(codes)} 只")
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Screening
+# ---------------------------------------------------------------------------
+
+def screen(
+    df: pd.DataFrame,
+    min_win: float = 90.0,
+    max_win: float | None = None,
+    max_today_pct: float | None = 5.0,
+    max_6m_ratio: float | None = 0.9,
+    six_month_high: dict[str, float] | None = None,
+    max_price: float | None = None,
+    exclude_kcb: bool = False,
+    boll_near_mid: bool = False,
+    macd_converging: bool = False,
+    macd_near_zero: bool = False,
+) -> pd.DataFrame:
+    """
+    Filter stocks from chip data.
+    boll_near_mid   : close 在 BOLL中轨 ±8% 内；需先调用 add_indicators()。
+    macd_converging : 绿柱绝对值在收窄（往零轴靠近）；需先调用 add_indicators()。
+    macd_near_zero  : |hist|/close ≤ 1%；需先调用 add_indicators()。
+    """
+    if df.empty:
+        return df
+
+    mask = (
+        df["winner_rate"].notna() & (df["winner_rate"] >= min_win)
+        & df["close"].notna() & (df["close"] > 0)
+    )
+    if max_win is not None:
+        mask &= df["winner_rate"] < max_win
+    result = df[mask].copy()
+
+    # Exclude ST/退
+    if "name" in result.columns:
+        result = result[~result["name"].str.contains(r"ST|退", na=False)]
+
+    # Exclude 科创板 (688xxx.SH)
+    if exclude_kcb:
+        kcb = result["ts_code"].str.startswith("688")
+        n_kcb = kcb.sum()
+        result = result[~kcb]
+        if n_kcb:
+            print(f"[screen] 剔除 {n_kcb} 只科创板股票")
+
+
+    before = len(result)
+
+    # Filter 1: today's gain — exclude limit-up / continuous-rally stocks
+    if max_today_pct is not None:
+        hot = result["pct_chg"].notna() & (result["pct_chg"] > max_today_pct)
+        n_hot = hot.sum()
+        result = result[~hot]
+        if n_hot:
+            print(f"[screen] pct_chg>{max_today_pct:.1f}% 剔除 {n_hot} 只（今日涨幅过大）")
+
+    # Filter 1b: limit-up / limit-down / one-price-bar — chip indicators are meaningless on these days
+    if "pct_chg" in result.columns:
+        limit = result["pct_chg"].notna() & (result["pct_chg"].abs() >= 9.5)
+        n_limit = limit.sum()
+        result = result[~limit]
+        if n_limit:
+            print(f"[screen] |pct_chg|>=9.5% 剔除 {n_limit} 只（涨跌停）")
+    if "high" in result.columns and "low" in result.columns:
+        ziboard = result["high"].notna() & result["low"].notna() & (result["high"] == result["low"])
+        n_zi = ziboard.sum()
+        result = result[~ziboard]
+        if n_zi:
+            print(f"[screen] high==low 剔除 {n_zi} 只（一字板）")
+
+    # Filter 2: 6-month position — exclude stocks near their 6-month high
+    if max_6m_ratio is not None and six_month_high:
+        result["_6m_high"] = result["ts_code"].map(six_month_high)
+        result["_6m_ratio"] = result["close"] / result["_6m_high"]
+        near_high = (
+            result["_6m_ratio"].notna() &
+            (result["_6m_ratio"] >= max_6m_ratio)
+        )
+        n_high = near_high.sum()
+        result = result[~near_high]
+        result = result.drop(columns=["_6m_high", "_6m_ratio"], errors="ignore")
+        if n_high:
+            print(f"[screen] close/6m_high>={max_6m_ratio:.2f} 剔除 {n_high} 只（当前价处于半年高位）")
+
+    # Filter 3: price cap
+    if max_price is not None:
+        expensive = result["close"].notna() & (result["close"] > max_price)
+        n_exp = expensive.sum()
+        result = result[~expensive]
+        if n_exp:
+            print(f"[screen] close>{max_price:.0f} 剔除 {n_exp} 只（股价偏高）")
+
+    # Filter 4: BOLL中轨附近（需 add_indicators 预先调用）
+    if boll_near_mid and "boll_mid" in result.columns:
+        valid = result["boll_mid"].notna() & result["close"].notna()
+        ratio = (result["close"] - result["boll_mid"]).abs() / result["boll_mid"]
+        far = valid & (ratio > 0.08)   # 偏离中轨超过 8% 则剔除
+        n_far = far.sum()
+        result = result[~far]
+        if n_far:
+            print(f"[screen] 偏离BOLL中轨>8% 剔除 {n_far} 只")
+
+    # Filter 5: MACD绿柱收敛（需 add_indicators 预先调用）
+    # 红柱（hist>=0）无条件保留；绿柱（hist<0）只保留在缩小（往零靠近）的
+    if macd_converging and "macd_hist" in result.columns and "macd_hist_prev" in result.columns:
+        h     = result["macd_hist"]
+        h_pre = result["macd_hist_prev"]
+        valid = h.notna() & h_pre.notna()
+        green_expanding = valid & (h < 0) & (h.abs() >= h_pre.abs())
+        n_exp = green_expanding.sum()
+        result = result[~green_expanding]
+        if n_exp:
+            print(f"[screen] 绿柱扩张 剔除 {n_exp} 只")
+
+    # Filter 6: 绿柱离零轴不太远（|hist| / close ≤ 1%）；红柱（hist>=0）无条件保留
+    if macd_near_zero and "macd_hist" in result.columns:
+        h     = result["macd_hist"]
+        close = result["close"]
+        valid = h.notna() & close.notna() & (close > 0)
+        far_from_zero = valid & (h < 0) & (h.abs() / close > 0.01)
+        n_far = far_from_zero.sum()
+        result = result[~far_from_zero]
+        if n_far:
+            print(f"[screen] 绿柱|MACD|/close>1% 剔除 {n_far} 只（绿柱离零轴过远）")
+
+    after = len(result)
+    print(f"[screen] 过滤后: {before} → {after} 只")
+
+    return result.sort_values("winner_rate", ascending=False).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Format push message
+# ---------------------------------------------------------------------------
+
+def format_message(
+    result: pd.DataFrame,
+    trade_date: str,
+    min_win: float,
+    max_win: float | None = None,
+    max_today_pct: float | None = None,
+    max_6m_ratio: float | None = None,
+    max_price: float | None = None,
+    exclude_kcb: bool = False,
+) -> tuple[str, str]:
+    n = len(result)
+    date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
+    win_range = f"{min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{min_win:.0f}%"
+    title = f"T+1筹码 {date_fmt} 共{n}只"
+
+    if n == 0:
+        return title, f"**{date_fmt}** 无符合条件股票（获利盘 {win_range}）"
+
+    filter_parts = [f"获利盘 **{win_range}**"]
+    if max_6m_ratio is not None:
+        pct = int((1 - max_6m_ratio) * 100)
+        filter_parts.append(f"距半年高点 ≥ **{pct}%**（排除高位）")
+    if max_today_pct is not None:
+        filter_parts.append(f"今日涨幅 ≤ **{max_today_pct:.0f}%**（排除连续急涨）")
+    if max_price is not None:
+        filter_parts.append(f"股价 ≤ **{max_price:.0f}**（排除高价股）")
+    if exclude_kcb:
+        filter_parts.append("**排除科创板**")
+
+    filter_desc = "  ".join(filter_parts)
+    lines = [f"筛选：{filter_desc}  共{n}只", ""]
+
+    for _, row in result.iterrows():
+        code  = row.get("code", "")
+        name  = str(row.get("name", "") or "")[:6]
+        ind   = str(row.get("industry", "") or "")[:5]
+        close = row.get("close",      float("nan"))
+        wavg  = row.get("weight_avg", float("nan"))
+
+        close_s = f"{close:.2f}" if pd.notna(close) else "-"
+        wavg_s  = f"{wavg:.2f}"  if pd.notna(wavg)  else "-"
+        lines.append(f"**{code} {name}** {ind}  {close_s}  均{wavg_s}  ")
+
+    lines += ["", f"数据: Tushare Pro · {datetime.now():%Y-%m-%d %H:%M}"]
+    return title, "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CAD (data-driven multi-tier scan) — merged from chip_cad.py
+# ---------------------------------------------------------------------------
+
+_TIER_ORDER = [
+    ("C0", 95.0, None),
+    ("C1", 90.0, 95.0),
+    ("C2", 85.0, 90.0),
+    ("C3", 75.0, 85.0),
+    ("C4", 65.0, 75.0),
+]
+
+
+def _cad_run_one(df_all, mods: str, trade_date: str, pro) -> tuple[dict, int]:
+    """Run one mods variant. Returns (tiers_dict, total_count). Does NOT push."""
+    mods = mods.lower()
+    boll_near   = "b" in mods
+    cheap       = "e" in mods
+    no_kcb      = "k" in mods
+    high_filter = "h" in mods
+    macd_conv   = "m" in mods
+    macd_zero   = "z" in mods
+
+    max_price    = 50.0 if cheap else None
+    max_6m_ratio = 0.9  if high_filter else None
+
+    total = 0
+    saves: dict[str, list[dict]] = {}
+
+    for tier_name, min_win, max_win in _TIER_ORDER:
+        win_range = f"{min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{min_win:.0f}%"
+
+        result = screen(df_all, min_win, max_win=max_win, max_today_pct=9.4,
+                        max_6m_ratio=None, six_month_high=None,
+                        max_price=max_price, exclude_kcb=no_kcb)
+
+        if max_6m_ratio is not None and not result.empty:
+            six_m  = fetch_6m_high(result["ts_code"].tolist(), trade_date, pro)
+            result = screen(result, min_win, max_win=max_win, max_today_pct=None,
+                            max_6m_ratio=max_6m_ratio, six_month_high=six_m,
+                            max_price=None, exclude_kcb=False)
+
+        if (boll_near or macd_conv or macd_zero) and not result.empty:
+            result = add_indicators(result)
+            result = screen(result, min_win, max_win=max_win, max_today_pct=None,
+                            max_6m_ratio=None, six_month_high=None,
+                            max_price=None, exclude_kcb=False,
+                            boll_near_mid=boll_near, macd_converging=macd_conv,
+                            macd_near_zero=macd_zero)
+
+        n = len(result)
+        total += n
+        print(f"[cad/{mods}] {tier_name} ({win_range}): {n} 只", flush=True)
+
+        picks_list: list[dict] = []
+        for _, row in result.iterrows():
+            code   = row.get("code", "")
+            name   = str(row.get("name", "") or "").strip()[:8] or str(code)
+            ind    = str(row.get("industry", "") or "")[:6]
+            close  = row.get("close", float("nan"))
+            win    = row.get("winner_rate", float("nan"))
+            c50    = row.get("cost_50pct", float("nan"))
+            c95    = row.get("cost_95pct", float("nan"))
+            try:
+                spread_pct = (float(c95) - float(c50)) / float(close) * 100 if float(close) > 0 else float("nan")
+            except (TypeError, ValueError):
+                spread_pct = float("nan")
+            picks_list.append({"code": str(code), "name": name, "industry": ind,
+                               "close": close, "winner_rate": win, "spread_pct": spread_pct})
+        # Sort within tier: tighter spread first (NaN to end)
+        def _spread_key(p: dict) -> float:
+            try:
+                v = float(p.get("spread_pct", float("nan")))
+                return v if not math.isnan(v) else 1e9
+            except (TypeError, ValueError):
+                return 1e9
+        picks_list.sort(key=_spread_key)
+        saves[tier_name] = picks_list
+
+    if "m" in mods:
+        prefix = "chip_cadm"
+    elif mods == "h":
+        prefix = "chip_cah"
+    else:
+        prefix = "chip_cad"
+    payload = json.dumps({"date": trade_date, "mods": mods, "tiers": saves},
+                         ensure_ascii=False, indent=2)
+    dated  = DATA / f"{prefix}_{trade_date}.json"
+    latest = DATA / f"{prefix}_latest.json"
+    dated.write_text(payload, encoding="utf-8")
+    latest.write_text(payload, encoding="utf-8")
+    print(f"[cad/{mods}] 已保存 {dated.name}（共{total}只）")
+    return saves, total
+
+
+def _cad_build_section(tier_name: str, picks: list[dict], label: str) -> str:
+    n = len(picks)
+    if n == 0:
+        return ""
+    win_ranges = {"C0": "≥95%", "C1": "90-95%", "C2": "85-90%", "C3": "75-85%", "C4": "65-75%"}
+    header = f"\n**{tier_name}（{win_ranges.get(tier_name, '')}）{n}只**  "
+    rows = []
+    for p in picks:
+        close_s = f"{p['close']:.2f}" if not math.isnan(float(p['close'] or 0)) else "-"
+        win_s   = f"{p['winner_rate']:.1f}%" if not math.isnan(float(p['winner_rate'] or 0)) else "-"
+        sp = p.get("spread_pct")
+        try:
+            sp_f = float(sp)
+            shape_tag = " 锥" if sp_f < 15 else (" 散" if sp_f > 30 else "")
+        except (TypeError, ValueError):
+            shape_tag = ""
+        rows.append(f"**{p['code']} {p['name']}** ({p['industry']}) {close_s} 获利{win_s}{shape_tag}  ")
+    return header + "\n" + "\n".join(rows)
+
+
+def _tier_cap(tiers: dict[str, list], limit: int = 30, always_t12: bool = False) -> dict[str, list]:
+    """如果C0>=limit只显示C0；C0+C1>=limit只显示C0+C1；否则全显示。
+    always_t12=True: C0+C1永远显示，C2只在C0+C1<limit时才加（量化早报调度模式）。"""
+    c0 = tiers.get("C0", [])
+    c1 = tiers.get("C1", [])
+    if always_t12:
+        c2 = tiers.get("C2", [])
+        base = {"C0": c0, "C1": c1}
+        if len(c0) + len(c1) < limit:
+            base["C2"] = c2
+        return base
+    if len(c0) >= limit:
+        return {"C0": c0}
+    if len(c0) + len(c1) >= limit:
+        return {"C0": c0, "C1": c1}
+    return tiers
+
+
+def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_date: str,
+                     dry_run: bool, src_note: str = "",
+                     always_t12: bool = False) -> None:
+    """三段推送：cadm/cah/cad 三者 C0-C2 精华。"""
+    date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
+    top_tiers = [t for t in _TIER_ORDER if t[0] in ("C0", "C1", "C2")]
+
+    cadm_top = _tier_cap({t[0]: cadm_saves.get(t[0], []) for t in top_tiers}, always_t12=always_t12)
+    cadm_top_total = sum(len(v) for v in cadm_top.values())
+
+    cad_codes = {p["code"] for picks in cad_saves.values() for p in picks}
+    cah_only: dict[str, list[dict]] = _tier_cap({
+        t[0]: [p for p in cah_saves.get(t[0], []) if p["code"] not in cad_codes]
+        for t in top_tiers
+    }, always_t12=always_t12)
+    cah_only_total = sum(len(v) for v in cah_only.values())
+
+    cadm_codes = {p["code"] for picks in cadm_saves.values() for p in picks}
+    cad_only: dict[str, list[dict]] = _tier_cap({
+        t[0]: [p for p in cad_saves.get(t[0], []) if p["code"] not in cadm_codes]
+        for t in top_tiers
+    }, always_t12=always_t12)
+    cad_only_total = sum(len(v) for v in cad_only.values())
+
+    sections = []
+    if cadm_top_total:
+        sections.append(f"\n## ✅ 三筛俱过 C0-C2（cadm）共{cadm_top_total}只")
+        for t in top_tiers:
+            s = _cad_build_section(t[0], cadm_top.get(t[0], []), "cadm")
+            if s:
+                sections.append(s)
+
+    if cah_only_total:
+        sections.append(f"\n## 🔍 cah独有 C0-C2（排高位通过，未过BOLL/价格/科创）共{cah_only_total}只")
+        for t in top_tiers:
+            s = _cad_build_section(t[0], cah_only.get(t[0], []), "cah")
+            if s:
+                sections.append(s)
+
+    if cad_only_total:
+        sections.append(f"\n## 💡 cad独有 C0-C2（BOLL等通过，MACD未收敛）共{cad_only_total}只")
+        for t in top_tiers:
+            s = _cad_build_section(t[0], cad_only.get(t[0], []), "cad")
+            if s:
+                sections.append(s)
+
+    body  = "\n".join(sections) + "\n\n> ⚠️ 仅供参考，不构成投资建议" + (f"\n_{src_note}_" if src_note else "")
+    title = f"筹码驱动 {date_fmt} 三筛:{cadm_top_total} cah独有:{cah_only_total} cad独有:{cad_only_total}"
+    print(f"\n{title}\n")
+    push_wechat(title, body, dry_run=dry_run)
+
+
+def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool = False,
+             always_t12: bool = False) -> None:
+    """数据驱动多档扫描入口（原 chip_cad.py main）。"""
+    if mods_list is None:
+        mods_list = ["bekh", "bekhm"]
+
+    pro        = _get_pro()
+    query_date = date or _latest_trade_date()
+    df_all     = fetch_chip_data(query_date, pro)
+
+    if df_all.empty:
+        print("[cad] 无数据，退出")
+        return
+
+    trade_date = str(df_all["trade_date"].iloc[0]) if "trade_date" in df_all.columns else query_date
+    _src_note = "数据源：akshare自算（Tushare限额已耗尽，结果仅供参考）" if df_all.attrs.get("source") == "akshare" else ""
+
+    names = load_names()
+    if names:
+        df_all["name"]     = df_all["ts_code"].map(lambda c: names.get(c, {}).get("name", ""))
+        df_all["industry"] = df_all["ts_code"].map(lambda c: names.get(c, {}).get("industry", ""))
+    else:
+        df_all["name"] = df_all["industry"] = ""
+
+    print(f"[cad] trade_date={trade_date}  mods={mods_list}", flush=True)
+
+    mods_list = [m.lower() for m in mods_list]
+    if set(mods_list) == {"bekh", "bekhm"}:
+        cah_saves,  _ = _cad_run_one(df_all, "h",     trade_date, pro)
+        cadm_saves, _ = _cad_run_one(df_all, "bekhm", trade_date, pro)
+        cad_saves,  _ = _cad_run_one(df_all, "bekh",  trade_date, pro)
+        _cad_merged_push(cah_saves, cadm_saves, cad_saves, trade_date, dry_run,
+                         src_note=_src_note, always_t12=always_t12)
+    else:
+        for mods_str in mods_list:
+            saves, total = _cad_run_one(df_all, mods_str, trade_date, pro)
+            date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
+            body  = "\n".join(
+                _cad_build_section(t, saves.get(t, []), mods_str)
+                for t, _, _ in _TIER_ORDER[:3]
+            ) + "\n\n> ⚠️ 仅供参考，不构成投资建议" + (f"\n_{_src_note}_" if _src_note else "")
+            title = f"筹码驱动 {date_fmt} ({mods_str}) 共{total}只"
+            push_wechat(title, body, dry_run=dry_run)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cad",           action="store_true",
+                        help="数据驱动多档扫描（原 chip_cad.py）")
+    parser.add_argument("--mods",          nargs="+", default=["bekh", "bekhm"],
+                        help="--cad 专用: mods 列表")
+    parser.add_argument("--date",          type=str,   default="")
+    parser.add_argument("--min-win",       type=float, default=90.0,
+                        help="获利盘最低比例%%，默认90")
+    parser.add_argument("--max-win",       type=float, default=0.0,
+                        help="获利盘上限%%（用于分层推送），0=不限")
+    parser.add_argument("--max-today-pct", type=float, default=5.0,
+                        help="今日涨幅上限%%，默认5.0；0=关闭")
+    parser.add_argument("--max-6m-ratio",  type=float, default=0.9,
+                        help="最大(收盘/半年最高)比值，默认0.9（距高点≥10%%）；0=关闭")
+    parser.add_argument("--max-price",     type=float, default=0.0,
+                        help="股价上限，默认0=不限；50=剔除50元以上高价股")
+    parser.add_argument("--no-kcb",        action="store_true",
+                        help="剔除科创板（688开头）")
+    parser.add_argument("--boll-near",     action="store_true",
+                        help="只保留收盘价在BOLL中轨±8%%范围内的股票")
+    parser.add_argument("--macd-conv",     action="store_true",
+                        help="只保留MACD柱正在收敛（绝对值缩小，往零靠近）的股票")
+    parser.add_argument("--macd-zero",     action="store_true",
+                        help="|hist|/close<=1%，柱子离零轴不太远")
+    parser.add_argument("--dry-run",       action="store_true")
+    parser.add_argument("--always-t12",    action="store_true",
+                        help="--cad专用: T1+T2永远显示，T3只在T1+T2<30时才加（量化早报模式）")
+    parser.add_argument("--refresh-names", action="store_true", help="强制刷新名称缓存")
+    args = parser.parse_args()
+
+    if args.cad:
+        cad_main(mods_list=args.mods, date=args.date, dry_run=args.dry_run,
+                 always_t12=args.always_t12)
+        return
+
+    max_today_pct = args.max_today_pct if args.max_today_pct > 0 else None
+    max_6m_ratio  = args.max_6m_ratio  if args.max_6m_ratio  > 0 else None
+    max_win       = args.max_win       if args.max_win       > 0 else None
+    max_price     = args.max_price     if args.max_price     > 0 else None
+    exclude_kcb     = args.no_kcb
+    boll_near_mid   = args.boll_near
+    macd_converging = args.macd_conv
+    macd_near_zero  = args.macd_zero
+
+    trade_date = args.date or _latest_trade_date()
+    win_range = f"{args.min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{args.min_win:.0f}%"
+    print(f"[chip] trade_date={trade_date}  win={win_range}  "
+          f"max_today_pct={max_today_pct}  max_6m_ratio={max_6m_ratio}  "
+          f"max_price={max_price}  exclude_kcb={exclude_kcb}")
+
+    pro    = _get_pro()
+    df     = fetch_chip_data(trade_date, pro)
+
+    if df.empty:
+        print("[chip] 无数据，退出")
+        return
+
+    # Load names (refreshes from Tushare/akshare if stale)
+    names  = load_names(force=args.refresh_names)
+
+    # Merge names into df
+    if names:
+        df["name"]     = df["ts_code"].map(lambda c: names.get(c, {}).get("name", ""))
+        df["industry"] = df["ts_code"].map(lambda c: names.get(c, {}).get("industry", ""))
+    else:
+        df["name"]     = ""
+        df["industry"] = ""
+
+    # Step 1: cheap filters (no extra API calls)
+    result = screen(df, args.min_win, max_win=max_win, max_today_pct=max_today_pct,
+                    max_6m_ratio=None, six_month_high=None,
+                    max_price=max_price, exclude_kcb=exclude_kcb)
+
+    # Step 2: 6-month high filter (fetches per-stock history for survivors only)
+    six_month_high: dict[str, float] = {}
+    if max_6m_ratio is not None and not result.empty:
+        six_month_high = fetch_6m_high(result["ts_code"].tolist(), trade_date, pro)
+        result = screen(df, args.min_win, max_win=max_win, max_today_pct=max_today_pct,
+                        max_6m_ratio=max_6m_ratio, six_month_high=six_month_high,
+                        max_price=max_price, exclude_kcb=exclude_kcb)
+
+    # Step 3: BOLL / MACD filter (fetches 60d history for survivors only)
+    if (boll_near_mid or macd_converging or macd_near_zero) and not result.empty:
+        result = add_indicators(result)
+        result = screen(result, args.min_win, max_win=max_win, max_today_pct=None,
+                        max_6m_ratio=None, six_month_high=None,
+                        max_price=None, exclude_kcb=False,
+                        boll_near_mid=boll_near_mid, macd_converging=macd_converging,
+                        macd_near_zero=macd_near_zero)
+
+    print(f"[chip] 最终结果: {len(result)} 只")
+
+    if not result.empty:
+        cols = ["code", "name", "industry", "close", "pct_chg", "winner_rate", "cost_95pct"]
+        print(result[cols].head(20).to_string(index=False))
+
+    title, body = format_message(result, trade_date, args.min_win, max_win=max_win,
+                                 max_today_pct=max_today_pct, max_6m_ratio=max_6m_ratio,
+                                 max_price=max_price, exclude_kcb=exclude_kcb)
+    push_wechat(title, body, dry_run=args.dry_run)
+
+
+if __name__ == "__main__":
+    main()

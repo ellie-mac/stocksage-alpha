@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT    = Path(__file__).resolve().parent.parent
 BOT_DIR = Path(__file__).resolve().parent
-SCRIPTS = ROOT / "scripts"
+SCRIPTS = ROOT / "src"
 LOGS    = SCRIPTS / "logs"
 LOGS.mkdir(exist_ok=True)
 
@@ -462,18 +462,18 @@ def _describe_cmdline(cmd: str) -> str:
         ("feishu_bot.py",      "",                     "Feishu Bot"),
         ("lark_bot.py",        "",                     "Lark Bot"),
         ("discord_bot.py",     "",                     "Discord Bot"),
-        ("factor_analysis.py", "--universe.*smallcap", "IC回测 小盘"),
-        ("factor_analysis.py", "--universe.*etf",      "IC回测 ETF"),
-        ("factor_analysis.py", "",                     "IC回测 主策略"),
-        ("backtest.py",        "--smallcap",           "回测 小盘"),
-        ("backtest.py",        "",                     "回测 主策略"),
-        ("etf_backtest.py",    "",                     "回测 ETF"),
+        ("analysis.py",        "--universe.*smallcap", "IC回测 小盘"),
+        ("analysis.py",        "--universe.*etf",      "IC回测 ETF"),
+        ("analysis.py",        "",                     "IC回测 主策略"),
+        ("main.py",            "--smallcap",           "回测 小盘"),
+        ("main.py",            "",                     "回测 主策略"),
+        ("etf.py",             "",                     "回测 ETF"),
         ("batch_financials.py","",                     "财务数据预热"),
-        ("build_universe.py",  "",                     "重建股票池"),
-        ("chip_strategy.py",   "",                     "筹码策略扫描"),
-        ("daily_chip_scan.py", "",                     "筹码全档扫描"),
-        ("chip_strategy.py",   "--cad",                "筹码 CAD 扫描"),
-        ("run_cad_pipeline.py","",                     "筹码流水线"),
+        ("build_screener_universe.py", "",             "重建股票池"),
+        ("strategy.py",        "",                     "筹码策略扫描"),
+        ("daily_scan.py",      "",                     "筹码全档扫描"),
+        ("strategy.py",        "--cad",                "筹码 CAD 扫描"),
+        ("pipeline.py",        "",                     "筹码流水线"),
         ("prefetch.py",        "--price",              "价格缓存预热"),
         ("prefetch.py",        "--market",             "市场数据预热"),
         ("prefetch.py",        "--concept",            "概念 map 预热"),
@@ -501,11 +501,11 @@ def h_status() -> str:
     root_str = str(ROOT).replace("\\", "/").lower()
     _SS = {
         "monitor.py", "feishu_bot.py", "lark_bot.py", "discord_bot.py",
-        "factor_analysis.py", "backtest.py", "etf_backtest.py",
-        "batch_financials.py", "build_universe.py", "chip_strategy.py",
-        "daily_chip_scan.py", "run_cad_pipeline.py",
+        "analysis.py", "main.py", "etf.py",
+        "batch_financials.py", "build_screener_universe.py", "strategy.py",
+        "daily_scan.py", "pipeline.py",
         "prefetch.py", "research.py", "integrity_check.py", "hot_scan.py", "pos_check.py",
-        "institution_scan.py", "golden_cross_scan.py", "chip_cad.py",
+        "institution_scan.py", "golden_cross_scan.py",
     }
     ss_procs, other_procs = [], []
     for pid, cmd in proc_list:
@@ -755,7 +755,7 @@ def h_backtest(periods: int = 16, universe: str = "main", workers: int = 8) -> s
         f.write(f"--- Backtest started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         f.write(f"    universe={universe_file.name}, periods={periods}, workers={workers}\n\n")
     proc = subprocess.Popen(
-        [sys.executable, "-X", "utf8", str(SCRIPTS / "backtest.py"),
+        [sys.executable, "-X", "utf8", str(SCRIPTS / "backtest" / "main.py"),
          "--periods", str(periods), "--universe", str(universe_file),
          "--out", str(out_file), "--workers", str(workers)],
         cwd=str(ROOT),
@@ -777,7 +777,7 @@ def h_backtest_etf(periods: int = 12, fwd: int = 10, workers: int = 4) -> str:
     with open(log_path, "w", encoding="utf-8") as f:
         f.write(f"--- ETF backtest started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
     proc = subprocess.Popen(
-        [sys.executable, "-X", "utf8", str(SCRIPTS / "etf_backtest.py"),
+        [sys.executable, "-X", "utf8", str(SCRIPTS / "backtest" / "etf.py"),
          "--periods", str(periods), "--fwd", str(fwd),
          "--workers", str(workers), "--out", str(out_file)],
         cwd=str(ROOT),
@@ -797,7 +797,7 @@ def _launch_chip(tier: str, mods: str = "") -> str:
     log_path = LOGS / f"chip_strategy_{log_suffix}.log"
     with open(log_path, "w", encoding="utf-8") as f:
         f.write(f"--- chip_strategy {label} started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
-    cmd = [sys.executable, "-X", "utf8", str(SCRIPTS / "chip_strategy.py"),
+    cmd = [sys.executable, "-X", "utf8", str(SCRIPTS / "chip" / "strategy.py"),
            "--min-win", str(min_win), "--max-today-pct", "5"]
     if max_win:              cmd += ["--max-win", str(max_win)]
     if "e" in mods:          cmd += ["--max-price", "50"]
@@ -822,7 +822,7 @@ def h_chip(arg: str) -> str:
         log_path = LOGS / "daily_chip_scan.log"
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- daily_chip_scan started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
-        cmd_args = [sys.executable, "-X", "utf8", str(SCRIPTS / "daily_chip_scan.py")]
+        cmd_args = [sys.executable, "-X", "utf8", str(SCRIPTS / "chip" / "daily_scan.py")]
         if "h" in rest: cmd_args += ["--high-filter"]
         if "b" in rest: cmd_args += ["--boll"]
         if "e" in rest: cmd_args += ["--max-price", "50"]
@@ -849,7 +849,7 @@ def h_chip_data_driven(mods: str = "bekhm") -> str:
     with open(log_path, "w", encoding="utf-8") as f:
         f.write(f"--- chip_cad started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
     subprocess.Popen(
-        [sys.executable, "-X", "utf8", str(SCRIPTS / "chip_strategy.py"), "--cad", "--mods", mods],
+        [sys.executable, "-X", "utf8", str(SCRIPTS / "chip" / "strategy.py"), "--cad", "--mods", mods],
         cwd=str(ROOT),
         stdout=open(log_path, "a", encoding="utf-8"),
         stderr=subprocess.STDOUT,
@@ -863,7 +863,7 @@ def h_hot_scan(top_pct: float = 5.0, cah: bool = False) -> str:
     log_path = LOGS / "hot_scan.log"
     with open(log_path, "w", encoding="utf-8") as f:
         f.write(f"--- hot_scan {label} started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
-    cmd = [sys.executable, "-X", "utf8", str(SCRIPTS / "hot_scan.py"),
+    cmd = [sys.executable, "-X", "utf8", str(SCRIPTS / "strategies" / "hot_scan.py"),
            "--top-pct", str(top_pct), "--push"]
     if cah:
         cmd += ["--cah"]
@@ -1126,7 +1126,7 @@ def h_shortcut(num: str) -> str:
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- factor_analysis started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         subprocess.Popen(
-            [sys.executable, "-X", "utf8", str(SCRIPTS / "factor_analysis.py"),
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "factors" / "analysis.py"),
              "--rolling", "6", "--step", "20", "--out", str(ROOT / "data" / "factor_ic.json")],
             cwd=str(ROOT),
             stdout=open(log_path, "a", encoding="utf-8"),
@@ -1145,11 +1145,11 @@ def h_shortcut(num: str) -> str:
         )
         return "batch_financials.py 已启动（约1小时）✅"
     elif num == "6":
-        log_path = LOGS / "build_universe.log"
+        log_path = LOGS / "build_screener_universe.log"
         with open(log_path, "w", encoding="utf-8") as f:
-            f.write(f"--- build_universe started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+            f.write(f"--- build_screener_universe started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         subprocess.Popen(
-            [sys.executable, "-X", "utf8", str(SCRIPTS / "tools" / "build_universe.py")],
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "tools" / "build_screener_universe.py")],
             cwd=str(ROOT),
             stdout=open(log_path, "a", encoding="utf-8"),
             stderr=subprocess.STDOUT,
@@ -1164,7 +1164,7 @@ def h_shortcut(num: str) -> str:
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"--- daily_chip_scan started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
         subprocess.Popen(
-            [sys.executable, "-X", "utf8", str(SCRIPTS / "daily_chip_scan.py")],
+            [sys.executable, "-X", "utf8", str(SCRIPTS / "chip" / "daily_scan.py")],
             cwd=str(ROOT),
             stdout=open(log_path, "a", encoding="utf-8"),
             stderr=subprocess.STDOUT,
@@ -1297,7 +1297,7 @@ def call_tool(name: str, args: dict) -> str:
             with open(log_path, "w", encoding="utf-8") as f:
                 f.write(f"--- factor_analysis started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
             subprocess.Popen(
-                [sys.executable, "-X", "utf8", str(SCRIPTS / "factor_analysis.py"),
+                [sys.executable, "-X", "utf8", str(SCRIPTS / "factors" / "analysis.py"),
                  "--rolling", "6", "--step", "20", "--out", str(ROOT / "data" / "factor_ic.json")],
                 cwd=str(ROOT), stdout=open(log_path, "a", encoding="utf-8"), stderr=subprocess.STDOUT,
             )
