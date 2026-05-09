@@ -1271,7 +1271,7 @@ def _fmt_chip_section(chip_data: dict, prices: dict[str, dict], slot: str = "mid
 
 
 def _fmt_etf_section(etf_picks: list[dict], prices: dict[str, dict], slot: str = "midday") -> list[str]:
-    """Format ETF section matching chip/gc style: 【ETF策略 N只】胜率X% 均Y%"""
+    """Format ETF section matching chip style: 【ETF策略 N只】胜率X% 均Y%"""
     from report.utils import calc_pick_stats
     if not etf_picks:
         return []
@@ -1280,10 +1280,21 @@ def _fmt_etf_section(etf_picks: list[dict], prices: dict[str, dict], slot: str =
     if s["results"]:
         lines.append(f"**【ETF策略 {s['n_total']}只】"
                      f"  胜率 {s['win_rate']:.0f}%  均 {s['avg_ret']:+.2f}%**<br>")
-        label = "涨幅前五：  " if slot == "midday" else "收益前五：  "
-        lines.append(label)
-        for i, r in enumerate(s["top5"], 1):
-            lines.append(f"{i}. {r['code']} {r['name']} **{r['change_pct']:+.2f}%**  ")
+        if slot == "midday":
+            lines.append("涨幅前五：  ")
+            for i, r in enumerate(s["top5"], 1):
+                lines.append(f"{i}. {r['code']} {r['name']} **{r['change_pct']:+.2f}%**  ")
+            if s["watch_up"] or s["watch_dn"]:
+                lines.append("下午关注：  ")
+                for r in s["watch_up"][:3]:
+                    lines.append(f"📈 {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
+                for r in s["watch_dn"][:2]:
+                    lines.append(f"📉 {r['code']} {r['name']} {r['change_pct']:+.2f}%  ")
+        else:
+            lines.append("收益前五：  ")
+            for i, r in enumerate(s["top5"], 1):
+                price_s = f" ¥{r['price']:.2f}" if r.get("price") else ""
+                lines.append(f"{i}. {r['code']} {r['name']}{price_s} **{r['change_pct']:+.2f}%**  ")
     else:
         lines.append(f"**【ETF策略 {len(etf_picks)}只】**  （行情暂不可用）  ")
     lines.append("")
