@@ -298,14 +298,14 @@ _CHIP_TIERS = {
 # (name, sched_time, desc) — 按调度时间排序
 _TASK_LIST = [
     ("weekly_PerfReport",      "00:00", "周度绩效报告 📱"),
-    ("StockSage_SyncKnowledge","02:00", "知识库同步"),
+    ("sync_Knowledge",         "02:00", "知识库同步"),
     ("factor_Analysis",        "03:00", "因子IC分析"),
     ("chip_Premarket",         "07:00", "盘前筹码兜底"),
     ("main_Morning",           "07:10", "主策略盘前兜底"),
     ("integrity_Check",        "08:00", "数据完整性"),
     ("concept_Warm",           "08:30", "概念map预热"),
     ("institution_Scan",       "08:30", "机构扫盘 📱"),
-    ("StockSage_WL_Monitor",   "09:15", "自选股监控 📱"),
+    ("watchlist_Monitor",      "09:15", "自选股监控 📱"),
     ("report_Morning",         "09:25", "盘前报告 📱"),
     ("watchlist_Scan",         "09:30", "自选股扫描 📱"),
     ("report_Midday",          "11:35", "午间报告 📱"),
@@ -318,18 +318,13 @@ _TASK_LIST = [
     ("chip_Night",             "18:00", "筹码缓存"),
     ("main_Scan",              "18:30", "主/ETF/小盘扫盘 📱"),
     ("hot_Scan",               "19:00", "热榜扫描 📱"),
-    ("lark_MergeSessions",     "19:14", "Lark会话合并"),
+    ("merge_Sessions",         "19:14", "Lark会话合并"),
     ("gc_Scan",                "19:30", "金叉扫描 📱"),
-    ("StockSage_WL_Updater",   "20:00", "自选股更新"),
+    ("watchlist_Updater",      "20:00", "自选股更新"),
     ("chip_CadScan",           "21:00", "筹码扫描 📱"),
     ("nightly_Scan",           "22:10", "夜间选股 📱"),
     ("main_Night",             "22:30", "夜间预热"),
 ]
-
-_TASK_DISPLAY = {
-    "StockSage_WL_Monitor": "watchlist_monitor",
-    "StockSage_WL_Updater": "watchlist_updater",
-}
 
 _HOT_RANK_NAMES = [
     "hot_Rank_0935", "hot_Rank_1000", "hot_Rank_1100",
@@ -671,8 +666,7 @@ def h_tasks() -> str:
         for name, sched_time, desc in _TASK_LIST:
             status, _, next_run = by_name.get(name, ("--", "--", "--"))
             t = sched_time if sched_time else "--:--"
-            display = _TASK_DISPLAY.get(name, name.replace("StockSage_", "").replace("lark_", ""))
-            lines.append(f"{_tick(status, next_run)} {t} {display} / {desc}")
+            lines.append(f"{_tick(status, next_run)} {t} {name} / {desc}")
 
         hot_ok  = sum(1 for n in _HOT_RANK_NAMES if by_name.get(n, ("--",))[0] == "OK")
         hot_tot = len(_HOT_RANK_NAMES)
