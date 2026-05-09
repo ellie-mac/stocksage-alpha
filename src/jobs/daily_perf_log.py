@@ -189,6 +189,9 @@ def _emoji(win_rate: float | None) -> str:
     if win_rate >= 40:   return "🟡"
     return "🔴"
 
+def _emoji_s(s: dict) -> str:
+    """Emoji driven by open win rate when available, else close win rate."""
+    return _emoji(s.get("open_win_rate") if s.get("open_win_rate") is not None else s.get("win_rate"))
 
 def _wr(s: dict) -> str:
     return f"{s['win_rate']}%" if s["win_rate"] is not None else "-"
@@ -197,25 +200,25 @@ def _ar(s: dict) -> str:
     return f"{s['avg_ret']:+.2f}%" if s["avg_ret"] is not None else "-"
 
 def _owr(s: dict) -> str:
-    return f"{s['open_win_rate']}%" if s.get("open_win_rate") is not None else "-"
+    """Primary shown win rate: open-to-close if available, else close-to-close."""
+    v = s.get("open_win_rate") if s.get("open_win_rate") is not None else s.get("win_rate")
+    return f"{v}%" if v is not None else "-"
 
 def _oar(s: dict) -> str:
-    return f"{s['open_avg_ret']:+.2f}%" if s.get("open_avg_ret") is not None else "-"
+    """Primary shown avg return: open-to-close if available, else close-to-close."""
+    v = s.get("open_avg_ret") if s.get("open_avg_ret") is not None else s.get("avg_ret")
+    return f"{v:+.2f}%" if v is not None else "-"
 
-def _open_suffix(s: dict) -> str:
-    if s.get("open_win_rate") is None:
-        return ""
-    return f"  今开{_owr(s)} 均{_oar(s)}"
-
-def _stock_open(r: dict) -> str:
-    parts = []
-    if "open_pct" in r:
-        parts.append(f"今开{r['open_pct']:+.2f}%")
+def _stock_line(r: dict) -> str:
+    """Per-stock formatted line: open_pct as primary %, then price block."""
+    pct_s = f"{r['open_pct']:+.2f}%" if "open_pct" in r else f"{r['pct']:+.2f}%"
     px = r.get("prices")
     if px:
         pc_s = f"{px['pc']:.2f}" if px.get("pc") else "?"
-        parts.append(f"`昨{pc_s} 开{px['o']:.2f} 收{px['c']:.2f}`")
-    return ("  " + "  ".join(parts)) if parts else ""
+        price_s = f"  `昨{pc_s} 开{px['o']:.2f} 收{px['c']:.2f}`"
+    else:
+        price_s = ""
+    return f"  {r['code']} {r['name']} {pct_s}{price_s}"
 
 
 # ── 各策略数据加载 ─────────────────────────────────────────────────────────────
@@ -460,104 +463,102 @@ def main() -> None:
     hot_tier_stats  = {t: _stats(hot_by_tier[t],  prices, open_prices, raw_prices) for t in HOT_TIERS}
     wl_mon_stats    = _stats(wl_mon_picks, prices, open_prices, raw_prices)
     etf_stats       = _stats(etf_picks,   prices, open_prices, raw_prices)
-    cs = _stats(chip_flat, prices)
-    gs = _stats(gc_flat,   prices)
+    cs = _stats(chip_flat, prices, open_prices, raw_prices)
+    gs = _stats(gc_flat,   prices, open_prices, raw_prices)
     hs = hot_tier_stats["H1"]
 
-    for label, s in [("主策略", ms), ("小票", scs), ("筹码", cs), ("金叉", gs), ("热榜H1", hs), ("监控强买", wl_mon_stats), ("ETF", etf_stats)]:
+    def _sort_key(r): return r.get("open_pct", r["pct"])
+
+    for lbl, s in [("主策略", ms), ("小票", scs), ("筹码", cs), ("金叉", gs), ("热榜H1", hs), ("监控强买", wl_mon_stats), ("ETF", etf_stats)]:
         if s["n"] > 0:
-            print(f"  [{label}] {s['n']}只  胜率{_wr(s)}  均涨{_ar(s)}")
+            print(f"  [{lbl}] {s['n']}只  今开胜率{_owr(s)}  均{_oar(s)}")
 
     # ── 构建推送 ──────────────────────────────────────────────────────────────
     sections: list[str] = []
 
     # 主策略
     if ms["results"]:
-        rows = [f"{_emoji(ms['win_rate'])} **主策略 {ms['n']}只  胜率{_wr(ms)}  均{_ar(ms)}{_open_suffix(ms)}**"]
-        for r in sorted(ms["results"], key=lambda r: r["pct"], reverse=True):
-            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}")
+        rows = [f"{_emoji_s(ms)} **主策略 {ms['n']}只  胜率{_owr(ms)}  均{_oar(ms)}**"]
+        for r in sorted(ms["results"], key=_sort_key, reverse=True):
+            rows.append(_stock_line(r))
         sections.append("  \n".join(rows))
 
     # 小票策略
     if scs["results"]:
-        rows = [f"{_emoji(scs['win_rate'])} **小票策略 {scs['n']}只  胜率{_wr(scs)}  均{_ar(scs)}{_open_suffix(scs)}**"]
-        for r in sorted(scs["results"], key=lambda r: r["pct"], reverse=True):
-            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}")
+        rows = [f"{_emoji_s(scs)} **小票策略 {scs['n']}只  胜率{_owr(scs)}  均{_oar(scs)}**"]
+        for r in sorted(scs["results"], key=_sort_key, reverse=True):
+            rows.append(_stock_line(r))
         sections.append("  \n".join(rows))
 
-    # 筹码策略：各档胜率 + 前五（带编号和筹码峰）
+    # 筹码策略：各档胜率 + 前五（带筹码峰）
     if cs["results"]:
-        rows = [f"{_emoji(cs['win_rate'])} **筹码策略 {cs['n']}只  胜率{_wr(cs)}  均{_ar(cs)}{_open_suffix(cs)}**"]
+        rows = [f"{_emoji_s(cs)} **筹码策略 {cs['n']}只  胜率{_owr(cs)}  均{_oar(cs)}**"]
         for t in CHIP_TIERS:
             s = chip_tier_stats[t]
             if s["n"] == 0:
                 continue
-            rows.append(f"**{t}** {s['n']}只  胜率{_wr(s)}  均{_ar(s)}{_open_suffix(s)}")
+            rows.append(f"**{t}** {s['n']}只  胜率{_owr(s)}  均{_oar(s)}")
             for r in s["top5"]:
                 wr = r.get("winner_rate")
                 sp = r.get("spread_pct")
                 try:
                     sp_f = float(sp) if sp is not None else float("nan")
-                    if not math.isnan(sp_f):
-                        label = "(集中)" if sp_f < 15 else ("(分散)" if sp_f > 30 else "")
-                        sp_s = f"{sp_f:.1f}%{label}"
-                    else:
-                        sp_s = ""
+                    sp_s = f"{sp_f:.1f}%{'(集中)' if sp_f < 15 else ('(分散)' if sp_f > 30 else '')}" if not math.isnan(sp_f) else ""
                 except Exception:
                     sp_s = ""
                 try:
                     wr_s = f"{wr:.0f}%" if wr is not None and not math.isnan(float(wr)) else ""
                 except Exception:
                     wr_s = ""
-                parts = [x for x in [f"获利{wr_s}" if wr_s else "", f"散度{sp_s}" if sp_s else ""] if x]
-                chip_tag = f"<br>`{'·'.join(parts)}`" if parts else ""
-                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}{chip_tag}")
+                chip_parts = [x for x in [f"获利{wr_s}" if wr_s else "", f"散度{sp_s}" if sp_s else ""] if x]
+                chip_tag = f"<br>`{'·'.join(chip_parts)}`" if chip_parts else ""
+                rows.append(_stock_line(r) + chip_tag)
         sections.append("  \n".join(rows))
 
-    # 金叉共振：各档胜率 + 前五（带编号和信号缩写）
+    # 金叉共振：各档胜率 + 前五（带信号缩写）
     if gs["results"]:
-        rows = [f"{_emoji(gs['win_rate'])} **金叉共振 {gs['n']}只  胜率{_wr(gs)}  均{_ar(gs)}{_open_suffix(gs)}**"]
+        rows = [f"{_emoji_s(gs)} **金叉共振 {gs['n']}只  胜率{_owr(gs)}  均{_oar(gs)}**"]
         for t in GC_TIERS:
             s = gc_tier_stats[t]
             if s["n"] == 0:
                 continue
-            rows.append(f"**{t}** {s['n']}只  胜率{_wr(s)}  均{_ar(s)}{_open_suffix(s)}")
+            rows.append(f"**{t}** {s['n']}只  胜率{_owr(s)}  均{_oar(s)}")
             for r in s["top5"]:
                 sig_s = "·".join(_SIG_SHORT.get(sg, sg) for sg in r.get("signals", []))
                 sig_tag = f"<br>`{sig_s}`" if sig_s else ""
-                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}{sig_tag}")
+                rows.append(_stock_line(r) + sig_tag)
         sections.append("  \n".join(rows))
 
     # 热榜策略：H0（top5%）+ H1（全部）
     sh0 = hot_tier_stats["H0"]
     sh1 = hot_tier_stats["H1"]
     if sh0["results"] or sh1["results"]:
-        rows = [f"{_emoji(sh1['win_rate'])} **热榜策略 {sh1['n']}只  胜率{_wr(sh1)}  均{_ar(sh1)}{_open_suffix(sh1)}**"]
+        rows = [f"{_emoji_s(sh1)} **热榜策略 {sh1['n']}只  胜率{_owr(sh1)}  均{_oar(sh1)}**"]
         if sh0["n"] > 0:
-            rows.append(f"**H0** {sh0['n']}只  胜率{_wr(sh0)}  均{_ar(sh0)}{_open_suffix(sh0)}")
+            rows.append(f"**H0** {sh0['n']}只  胜率{_owr(sh0)}  均{_oar(sh0)}")
             for r in sh0["top5"]:
-                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}")
+                rows.append(_stock_line(r))
         if sh1["n"] > 0:
-            rows.append(f"**H1** {sh1['n']}只  胜率{_wr(sh1)}  均{_ar(sh1)}{_open_suffix(sh1)}")
+            rows.append(f"**H1** {sh1['n']}只  胜率{_owr(sh1)}  均{_oar(sh1)}")
             for r in sh1["top5"]:
-                rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}")
+                rows.append(_stock_line(r))
         sections.append("  \n".join(rows))
 
     # ETF 策略
     if etf_stats["results"]:
-        rows = [f"{_emoji(etf_stats['win_rate'])} **ETF策略 {etf_stats['n']}只  胜率{_wr(etf_stats)}  均{_ar(etf_stats)}{_open_suffix(etf_stats)}**"]
-        for r in sorted(etf_stats["results"], key=lambda r: r["pct"], reverse=True):
-            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)}")
+        rows = [f"{_emoji_s(etf_stats)} **ETF策略 {etf_stats['n']}只  胜率{_owr(etf_stats)}  均{_oar(etf_stats)}**"]
+        for r in sorted(etf_stats["results"], key=_sort_key, reverse=True):
+            rows.append(_stock_line(r))
         sections.append("  \n".join(rows))
 
     # 自选池监控强买
     if wl_mon_stats["results"]:
         src_label = {"main_scan": "主策略", "gc_scan": "金叉", "hot_scan": "热榜", "manual": "手动"}
-        rows = [f"{_emoji(wl_mon_stats['win_rate'])} **监控强买 {wl_mon_stats['n']}只  胜率{_wr(wl_mon_stats)}  均{_ar(wl_mon_stats)}{_open_suffix(wl_mon_stats)}**"]
-        for r in sorted(wl_mon_stats["results"], key=lambda r: r["pct"], reverse=True):
+        rows = [f"{_emoji_s(wl_mon_stats)} **监控强买 {wl_mon_stats['n']}只  胜率{_owr(wl_mon_stats)}  均{_oar(wl_mon_stats)}**"]
+        for r in sorted(wl_mon_stats["results"], key=_sort_key, reverse=True):
             sig = next((p.get("source", "") for p in wl_mon_picks if p["code"] == r["code"]), "")
-            tag = f"[{src_label.get(sig, sig)}]" if sig else ""
-            rows.append(f"  {r['code']} {r['name']} {r['pct']:+.2f}%{_stock_open(r)} {tag}")
+            tag = f" [{src_label.get(sig, sig)}]" if sig else ""
+            rows.append(_stock_line(r) + tag)
         sections.append("  \n".join(rows))
 
     sections.append("⚠️ 仅供参考，不构成投资建议")
@@ -614,14 +615,17 @@ def main() -> None:
         import sys
         sys.path.insert(0, str(ROOT / "src"))
         from common import push_wechat
+        def _tv(s):
+            v = s.get("open_win_rate") if s.get("open_win_rate") is not None else s.get("win_rate")
+            return v
         parts = []
-        if ms["win_rate"] is not None: parts.append(f"主{ms['win_rate']}%")
-        if cs["win_rate"] is not None: parts.append(f"筹{cs['win_rate']}%")
-        if gs["win_rate"] is not None: parts.append(f"叉{gs['win_rate']}%")
-        if hs["win_rate"] is not None: parts.append(f"热{hs['win_rate']}%")
-        if wl_mon_stats["win_rate"] is not None: parts.append(f"监{wl_mon_stats['win_rate']}%")
-        if etf_stats["win_rate"] is not None: parts.append(f"ETF{etf_stats['win_rate']}%")
-        title = f"收盘胜率 {date_fmt} | {' / '.join(parts)}"
+        if _tv(ms)        is not None: parts.append(f"主{_tv(ms)}%")
+        if _tv(cs)        is not None: parts.append(f"筹{_tv(cs)}%")
+        if _tv(gs)        is not None: parts.append(f"叉{_tv(gs)}%")
+        if _tv(hs)        is not None: parts.append(f"热{_tv(hs)}%")
+        if _tv(wl_mon_stats) is not None: parts.append(f"监{_tv(wl_mon_stats)}%")
+        if _tv(etf_stats) is not None: parts.append(f"ETF{_tv(etf_stats)}%")
+        title = f"今开胜率 {date_fmt} | {' / '.join(parts)}"
         push_wechat(title, push_body)
         print("[daily_perf] 微信推送成功")
     except Exception as e:
