@@ -144,6 +144,25 @@ def main() -> None:
     except Exception as e:
         print(f"[etf_strategy] 保存评分失败: {e}")
 
+    # 保存当日买入信号供 daily_perf_log 追踪胜率
+    if buys:
+        _picks_path = os.path.join(_ROOT, "data", f"etf_picks_{datetime.now().strftime('%Y%m%d')}.json")
+        try:
+            _picks_data = {
+                "date":      datetime.now().strftime("%Y%m%d"),
+                "timestamp": datetime.now().isoformat(),
+                "picks": [{"code": s["code"], "name": s.get("name", s["code"]),
+                           "buy_score": round(s.get("buy_score") or 0, 1)}
+                          for s in buys],
+            }
+            _tmp = _picks_path + ".tmp"
+            with open(_tmp, "w", encoding="utf-8") as f:
+                json.dump(_picks_data, f, ensure_ascii=False, indent=2)
+            os.replace(_tmp, _picks_path)
+            print(f"[etf_strategy] 已保存 {len(buys)} 只买入信号 → etf_picks_{datetime.now().strftime('%Y%m%d')}.json")
+        except Exception as e:
+            print(f"[etf_strategy] 保存买入信号失败: {e}")
+
     if not buys and not sells:
         print("[etf_strategy] 无信号，跳过推送")
         return
