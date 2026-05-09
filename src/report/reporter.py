@@ -1279,7 +1279,7 @@ def _fmt_etf_section(etf_picks: list[dict], prices: dict[str, dict], slot: str =
     lines = []
     if s["results"]:
         lines.append(f"**【ETF策略 {s['n_total']}只】"
-                     f"  胜率 {s['win_rate']:.0f}%  均 {s['avg_ret']:+.2f}%**  ")
+                     f"  胜率 {s['win_rate']:.0f}%  均 {s['avg_ret']:+.2f}%**<br>")
         label = "涨幅前五：  " if slot == "midday" else "收益前五：  "
         lines.append(label)
         for i, r in enumerate(s["top5"], 1):
