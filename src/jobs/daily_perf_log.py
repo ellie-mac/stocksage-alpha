@@ -404,7 +404,11 @@ def main() -> None:
                 sp = r.get("spread_pct")
                 try:
                     sp_f = float(sp) if sp is not None else float("nan")
-                    sp_s = f"{sp_f:.1f}%" if not math.isnan(sp_f) else ""
+                    if not math.isnan(sp_f):
+                        label = "(集中)" if sp_f < 15 else ("(分散)" if sp_f > 30 else "")
+                        sp_s = f"{sp_f:.1f}%{label}"
+                    else:
+                        sp_s = ""
                 except Exception:
                     sp_s = ""
                 try:
