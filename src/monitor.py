@@ -1610,11 +1610,11 @@ def run_loop(
             _premarket_scan_date = now.date()
             print(f"[{run_time}] Evening nightly_scan.py (18:00)...")
             try:
-                _ns_script = os.path.join(_ROOT, "scripts", "nightly_scan.py")
+                _ns_script = os.path.join(_ROOT, "src", "jobs", "nightly_scan.py")
                 _ns_cmd = [sys.executable, "-X", "utf8", _ns_script]
                 if dry_run:
                     _ns_cmd.append("--dry-run")
-                _ns_log = os.path.join(_ROOT, "scripts", "logs", "nightly_scan_18.log")
+                _ns_log = os.path.join(_ROOT, "src", "logs", "nightly_scan_18.log")
                 os.makedirs(os.path.dirname(_ns_log), exist_ok=True)
                 with open(_ns_log, "a", encoding="utf-8") as _nsf:
                     subprocess.Popen(_ns_cmd, stdout=_nsf, stderr=_nsf, cwd=_ROOT)
@@ -1629,11 +1629,11 @@ def run_loop(
             _night_scan_date = now.date()
             print(f"[{run_time}] Night nightly_scan.py (22:00)...")
             try:
-                _ns_script = os.path.join(_ROOT, "scripts", "nightly_scan.py")
+                _ns_script = os.path.join(_ROOT, "src", "jobs", "nightly_scan.py")
                 _ns_cmd = [sys.executable, "-X", "utf8", _ns_script]
                 if dry_run:
                     _ns_cmd.append("--dry-run")
-                _ns_log = os.path.join(_ROOT, "scripts", "logs", "nightly_scan_22.log")
+                _ns_log = os.path.join(_ROOT, "src", "logs", "nightly_scan_22.log")
                 os.makedirs(os.path.dirname(_ns_log), exist_ok=True)
                 with open(_ns_log, "a", encoding="utf-8") as _nsf:
                     subprocess.Popen(_ns_cmd, stdout=_nsf, stderr=_nsf, cwd=_ROOT)
@@ -2015,12 +2015,12 @@ def _trigger_xhs_post(slot: str, dry_run: bool = False) -> None:
         print(f"[XHS] (dry-run — skipping actual subprocess)")
         return
     try:
-        writer = os.path.join(_ROOT, "xhs", "writer.py")
+        writer = os.path.join(_ROOT, "src", "report", "reporter.py")
         cmd = [sys.executable, "-X", "utf8", writer, slot]
         # Only pass --style for slots that accept it
         if slot in ("morning", "midday", "night", "evening"):
             cmd += ["--style", "auto"]
-        log_path = os.path.join(_ROOT, "scripts", "logs", f"xhs_{slot}.log")
+        log_path = os.path.join(_ROOT, "src", "logs", f"xhs_{slot}.log")
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         with open(log_path, "a", encoding="utf-8") as _log:
             subprocess.Popen(cmd, stdout=_log, stderr=_log, cwd=_ROOT)
