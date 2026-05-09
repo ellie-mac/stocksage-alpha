@@ -27,6 +27,7 @@ from factors import score_market_regime
 import fetcher
 from common import configure_pushplus, send_wechat
 from report.utils import regime_key as _regime_key, score_one_buy as _score_watchlist
+from research import _FACTOR_ZH_REPORT
 
 _ROOT           = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCAN_CACHE_PATH = os.path.join(_ROOT, "data", "watchlist_scan_latest.json")
@@ -146,9 +147,10 @@ def main() -> None:
         rows.append(f"**{ba['name']} ({ba['code']})**<br>"
                     f"买入分 **{ba['buy_score']:.0f}** | 现价 **{p}**")
         if ba.get("bullish"):
-            signals = [b.get("signal") or b.get("factor", "") for b in ba["bullish"] if isinstance(b, dict)]
-            if signals:
-                rows.append("+ " + " / ".join(signals))
+            labels = [f"`{_FACTOR_ZH_REPORT.get(b['factor'], b['factor'])}`"
+                      for b in ba["bullish"] if isinstance(b, dict) and b.get("factor")]
+            if labels:
+                rows.append("+ " + " / ".join(labels))
     rows.append("<br>> 仅供参考")
     desp = "<br>".join(rows)
 
