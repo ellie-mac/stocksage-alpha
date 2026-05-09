@@ -98,6 +98,8 @@ OLD_TASKS = [
     "price_Warm",
     # bot keepalive tasks (replaced by in-process keepalive thread)
     "bot_Keepalive0", "bot_Keepalive1", "bot_Keepalive2",
+    # renamed to report_Morning/Midday/Evening
+    "xhs_Morning", "xhs_Midday", "xhs_Evening",
     # renamed to StockSage_LarkBot
     "StockSage_FeishuBot",
     # renamed to StockSage_LarkAgent_Watchdog
@@ -112,7 +114,7 @@ TASKS = [
     ("main_Morning",    "07:10", "monitor_scan",    "主策略盘前兜底（main_Scan未跑时），不推送",       False),
     ("integrity_Check", "08:00", "integrity_check", "每小时数据完整性检查（首次通过后当日跳过）",      False),
     ("concept_Warm",    "08:30", "concept_warm",    "预热概念板块反查 map（~30s），不推送",            False),
-    ("xhs_Morning",     "09:25", "chip_morning",    "小红书盘前筹码分析推送 📱",                      True),
+    ("report_Morning",  "09:25", "chip_morning",    "盘前选股报告推送 📱",                            True),
     # ── 盘中热榜快照（look-ahead 修复：记录采集时刻数据）────────────────────
     ("hot_Rank_0935",   "09:35", "hot_rank",        "热榜快照 09:35 落盘（开盘情绪极值）",             False),
     ("hot_Rank_1000",   "10:00", "hot_rank",        "热榜快照 10:00 落盘",                            False),
@@ -120,9 +122,9 @@ TASKS = [
     ("hot_Rank_1330",   "13:30", "hot_rank",        "热榜快照 13:30 落盘",                            False),
     ("hot_Rank_1430",   "14:30", "hot_rank",        "热榜快照 14:30 落盘",                            False),
     # ── 盘中 ────────────────────────────────────────────────────────────────
-    ("xhs_Midday",      "11:35", "chip_midday",     "小红书午间筹码分析推送 📱",                      True),
+    ("report_Midday",   "11:35", "chip_midday",     "午间行情报告推送 📱",                            True),
     # ── 收盘 ────────────────────────────────────────────────────────────────
-    ("xhs_Evening",     "15:30", "chip_evening",    "小红书收盘筹码分析推送 📱",                      True),
+    ("report_Evening",  "15:30", "chip_evening",    "收盘报告推送 📱",                                True),
     # ── 收盘后数据预热 ───────────────────────────────────────────────────────
     ("market_Warm",      "15:35", "market_warm",      "预热市场数据：CSI300/PE/申万/停牌表，不推送",    False),
     ("price_Prefetch",   "17:00", "price_prefetch",  "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
@@ -148,9 +150,9 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
         "main_night":      "main_Night",
         "chip_night":      "chip_Night",
         "chip_premarket":  "chip_Premarket",
-        "chip_morning":    "xhs_Morning",
-        "chip_midday":     "xhs_Midday",
-        "chip_evening":    "xhs_Evening",
+        "chip_morning":    "report_Morning",
+        "chip_midday":     "report_Midday",
+        "chip_evening":    "report_Evening",
         "monitor_scan":    "main_Scan",
         "market_warm":     "market_Warm",
         "price_prefetch":  "price_Prefetch",
