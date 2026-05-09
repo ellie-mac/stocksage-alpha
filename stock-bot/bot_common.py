@@ -666,7 +666,8 @@ def h_tasks() -> str:
         for name, sched_time, desc in _TASK_LIST:
             status, _, next_run = by_name.get(name, ("--", "--", "--"))
             t = sched_time if sched_time else "--:--"
-            lines.append(f"{_tick(status, next_run)} {t} {name} / {desc}")
+            display = name.replace("StockSage_", "")
+            lines.append(f"{_tick(status, next_run)} {t} {display} / {desc}")
 
         hot_ok  = sum(1 for n in _HOT_RANK_NAMES if by_name.get(n, ("--",))[0] == "OK")
         hot_tot = len(_HOT_RANK_NAMES)
