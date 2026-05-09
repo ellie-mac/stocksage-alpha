@@ -46,3 +46,4 @@ stock-bot/*.log
 scripts/tools/.cache/
 src/tools/.cache/
 .claude/
+memory.md
