@@ -2,7 +2,7 @@
 """
 src/report/reporter.py — 小红书文案生成器
 
-用法（从仓库根目录运行）:
+用法(从仓库根目录运行):
     python src/report/reporter.py morning  [--query "低估值高成长"] [--top 5] [--style 1|2|3|all|auto]
     python src/report/reporter.py midday   [--style ...]
     python src/report/reporter.py evening  [--style ...] [--no-tomorrow]
@@ -70,10 +70,10 @@ def _load_latest_picks(top_n: int) -> Optional[dict]:
         ts = datetime.fromisoformat(data.get("timestamp", "1970-01-01"))
         age_min = (datetime.now() - ts).total_seconds() / 60
         if age_min > _LATEST_PICKS_MAX_AGE_MIN:
-            print(f"[~] latest_picks.json 已过期（{age_min:.0f}min），重新筛选...")
+            print(f"[~] latest_picks.json 已过期({age_min:.0f}min)，重新筛选...")
             return None
         picks = data.get("results", [])[:top_n]
-        print(f"[+] 复用 monitor 扫描结果（{age_min:.0f}min 前，{len(picks)} 只）")
+        print(f"[+] 复用 monitor 扫描结果({age_min:.0f}min 前，{len(picks)} 只)")
         return {"results": picks, "regime": data.get("regime", "NORMAL")}
     except Exception as e:
         print(f"[~] 读取 latest_picks.json 失败: {e}，重新筛选...")
@@ -224,13 +224,13 @@ def streak_narrative(streak: dict, slot: str) -> str:
         return ""
     if slot == "morning":
         if t == "对了" and n >= 3:
-            return f"（模型最近连续{n}次判断正确，今天继续测试。）"
+            return f"(模型最近连续{n}次判断正确，今天继续测试。)"
         elif t == "对了" and n == 2:
-            return "（昨天也对了，今天继续记。）"
+            return "(昨天也对了，今天继续记。)"
         elif t == "错了" and n >= 2:
-            return f"（最近连续{n}次偏差，今天看看能不能扳回来。）"
+            return f"(最近连续{n}次偏差，今天看看能不能扳回来。)"
         elif t == "偏了" and n >= 2:
-            return "（最近连续几次判断比较模糊，今天看看是否清晰一点。）"
+            return "(最近连续几次判断比较模糊，今天看看是否清晰一点。)"
     elif slot == "evening":
         if t == "对了" and n >= 3:
             return f"\n连续{n}天判断正确了。\n但我不打算提前庆祝，数据不够多。"
@@ -388,7 +388,7 @@ def format_picks_morning(picks: list[dict], show_score: bool = False) -> str:
         change = float(p.get("change_pct", 0) or 0)
         arrow  = "↑" if change > 0 else ("↓" if change < 0 else "—")
         if show_score:
-            lines.append(f"  {i}. {name}（{score:.0f}分）{arrow}")
+            lines.append(f"  {i}. {name}({score:.0f}分){arrow}")
         else:
             lines.append(f"  {i}. {name} {arrow}")
     return "\n".join(lines)
@@ -564,16 +564,16 @@ Day {day}，连续记录实验。{series_decl}
     regime_note = ""
     if regime and regime not in ("NORMAL", ""):
         regime_map = {
-            "BEAR":         "（当前市场：熊市模式，模型已降低仓位权重）",
-            "CAUTION":      "（当前市场：谨慎信号）",
-            "BULL":         "（当前市场：偏多信号）",
-            "EXTREME_BULL": "（当前市场：极度偏多，注意过热风险）",
+            "BEAR":         "(当前市场：熊市模式，模型已降低仓位权重)",
+            "CAUTION":      "(当前市场：谨慎信号)",
+            "BULL":         "(当前市场：偏多信号)",
+            "EXTREME_BULL": "(当前市场：极度偏多，注意过热风险)",
         }
         regime_note = f"\n{regime_map.get(regime, '')}"
 
     signal_line = f"\n{signal_hook}" if signal_hook else ""
     streak_line = f"\n{streak_note}" if streak_note else ""
-    night_line  = f"\n（{night_context}）" if night_context else ""
+    night_line  = f"\n({night_context})" if night_context else ""
 
     # Style 3: human vs model battle format
     if style == 3:
@@ -763,8 +763,8 @@ def generate_evening_post(
     )
 
     names_short    = pick_names_short(morning_picks)
-    picks_block    = format_picks_evening(morning_picks, prices) if prices else "（行情数据获取失败）"
-    benchmark_note = f"\n（沪深300今天 {benchmark:+.2f}%）" if benchmark is not None else ""
+    picks_block    = format_picks_evening(morning_picks, prices) if prices else "(行情数据获取失败)"
+    benchmark_note = f"\n(沪深300今天 {benchmark:+.2f}%)" if benchmark is not None else ""
     streak_note    = streak_narrative(streak, "evening")
     cta            = random.choice(EVENING_CTA)
 
@@ -905,8 +905,8 @@ def generate_milestone_post(day: int, stats: dict) -> str:
     cta      = random.choice(MILESTONE_CTA)
     hashtags = _safe_hashtags("milestone")
 
-    best_line  = f"跑得最好的一次：Day {stats['best']['day']}，{stats['best']['picks']}（均涨{stats['best']['avg']:+.1f}%）" if stats.get("best") else ""
-    worst_line = f"跑得最差的一次：Day {stats['worst']['day']}，{stats['worst']['picks']}（均涨{stats['worst']['avg']:+.1f}%）" if stats.get("worst") else ""
+    best_line  = f"跑得最好的一次：Day {stats['best']['day']}，{stats['best']['picks']}(均涨{stats['best']['avg']:+.1f}%)" if stats.get("best") else ""
+    worst_line = f"跑得最差的一次：Day {stats['worst']['day']}，{stats['worst']['picks']}(均涨{stats['worst']['avg']:+.1f}%)" if stats.get("worst") else ""
 
     alpha_str = f"{stats['cum_alpha']:+.1f}%"
     bm_str    = f"{stats['cum_bm']:+.1f}%"
@@ -961,7 +961,7 @@ def generate_milestone_post(day: int, stats: dict) -> str:
 {best_line}
 {worst_line}
 
-累计表现（简单求和，非复利）：
+累计表现(简单求和，非复利)：
 模型方向：{model_str}
 沪深300：{bm_str}
 超额：{alpha_str}
@@ -988,7 +988,7 @@ def run_milestone(args):
     day     = record.get("day") or get_day_number()
 
     if day not in MILESTONE_DAYS and not args.force:
-        print(f"[!] 今天是 Day {day}，不是里程碑节点（{sorted(MILESTONE_DAYS)}）。")
+        print(f"[!] 今天是 Day {day}，不是里程碑节点({sorted(MILESTONE_DAYS)})。")
         print("    加 --force 可以强制生成。")
         return
 
@@ -1000,7 +1000,7 @@ def run_milestone(args):
     post  = generate_milestone_post(day, stats)
     saved = save_post_file(post, "milestone", day)
     print(f"{'='*52}")
-    print(f"🏁 里程碑复盘帖  Day {day}  （已保存 → {saved.relative_to(REPO_ROOT)}）")
+    print(f"🏁 里程碑复盘帖  Day {day}  (已保存 → {saved.relative_to(REPO_ROOT)})")
     print(f"{'='*52}")
     print(post)
     print()
@@ -1052,7 +1052,7 @@ def run_morning(args):
     ensure_dirs()
     record = load_today()
     if "morning" in record:
-        print("[~] 今日早盘文案已生成，跳过（dedup guard）。")
+        print("[~] 今日早盘文案已生成，跳过(dedup guard)。")
         return
 
     day  = get_day_number()
@@ -1064,7 +1064,7 @@ def run_morning(args):
     night_preview_picks = yesterday.get("night_preview", {}).get("picks", []) if yesterday else []
     night_codes = {p.get("code") for p in night_preview_picks if p.get("code")}
 
-    print(f"[+] 正在运行模型筛选（竞价后确认，query='{query}', top={args.top}）...")
+    print(f"[+] 正在运行模型筛选(竞价后确认，query='{query}', top={args.top})...")
     screener_output = run_screener(query, args.top)
 
     if screener_output is None:
@@ -1123,7 +1123,7 @@ def run_morning(args):
                                       night_context=night_context)
         saved = save_post_file(post, "morning", s)
         print(f"{'='*52}")
-        print(f"🌅 早盘文案 — 风格{s}  （已保存 → {saved.relative_to(REPO_ROOT)}）")
+        print(f"🌅 早盘文案 — 风格{s}  (已保存 → {saved.relative_to(REPO_ROOT)})")
         print(f"{'='*52}")
         print(post)
         print()
@@ -1137,7 +1137,7 @@ def cmd_night(args):
     ensure_dirs()
     record = load_today()
     if "night_preview" in record:
-        print("[~] 今日晚间文案已生成，跳过（dedup guard）。")
+        print("[~] 今日晚间文案已生成，跳过(dedup guard)。")
         return
 
     day = record.get("day") or get_day_number()
@@ -1161,10 +1161,10 @@ def cmd_night(args):
         buy  = p.get("buy_score", 0) or 0
         sell = p.get("sell_score", 0) or 0
         bullish = p.get("bullish", [])
-        tag  = f"（{bullish[0]}）" if bullish else ""
+        tag  = f"({bullish[0]})" if bullish else ""
         lines.append(f"  {i}. {name}  买:{buy:.0f} 卖:{sell:.0f}{tag}")
 
-    picks_block = "\n".join(lines) if lines else "  （暂无候选标的）"
+    picks_block = "\n".join(lines) if lines else "  (暂无候选标的)"
 
     regime_label = {
         "BULL": "强势", "EXTREME_BULL": "极强势",
@@ -1175,9 +1175,9 @@ def cmd_night(args):
 
 Day {day}，连续记录实验。
 
-18:00 跑了一遍全量因子筛选（市场状态：{regime_label}）。
+18:00 跑了一遍全量因子筛选(市场状态：{regime_label})。
 
-明日关注候选（买入分 / 卖出分）：
+明日关注候选(买入分 / 卖出分)：
 
 {picks_block}
 
@@ -1265,7 +1265,7 @@ def _fmt_chip_section(chip_data: dict, prices: dict[str, dict], slot: str = "mid
                 codes_s = " ".join(f"{r['code']}{r['name']}" for r in s["nan_stocks"])
                 lines.append(f"⚠️ 行情缺失：{codes_s}  ")
     else:
-        lines.append(f"**【筹码策略 {len(picks)}只{fallback_s}】**  （行情暂不可用）  ")
+        lines.append(f"**【筹码策略 {len(picks)}只{fallback_s}】**  (行情暂不可用)  ")
     lines.append("")
     return lines
 
@@ -1296,7 +1296,7 @@ def _fmt_etf_section(etf_picks: list[dict], prices: dict[str, dict], slot: str =
                 price_s = f" ¥{r['price']:.2f}" if r.get("price") else ""
                 lines.append(f"{i}. {r['code']} {r['name']}{price_s} **{r['change_pct']:+.2f}%**  ")
     else:
-        lines.append(f"**【ETF策略 {len(etf_picks)}只】**  （行情暂不可用）  ")
+        lines.append(f"**【ETF策略 {len(etf_picks)}只】**  (行情暂不可用)  ")
     lines.append("")
     return lines
 
@@ -1335,7 +1335,7 @@ def _fmt_gc_section(gc_data: dict, prices: dict[str, dict]) -> list[str]:
         ts = calc_pick_stats([dict(p, tier=t) for p in picks], prices)
         stat_s = (f"  胜率{ts['win_rate']:.0f}%  均{ts['avg_ret']:+.2f}%"
                   if ts["results"] else "")
-        out.append(f"**{t} {label}（{len(picks)}只）{stat_s}**  ")
+        out.append(f"**{t} {label}({len(picks)}只){stat_s}**  ")
         for p in picks[:3]:
             pr = prices.get(p["code"])
             pct_s = f" **{pr['change_pct']:+.2f}%**" if pr else ""
@@ -1357,7 +1357,7 @@ def _load_all_strategy_data() -> tuple[list, list, list[dict], dict, dict]:
 
     cfg = _load_alert_config()
 
-    # 优先用 etf_strategy 的评分结果（已按 buy_score 降序），无则退回 config 列表顺序
+    # 优先用 etf_strategy 的评分结果(已按 buy_score 降序)，无则退回 config 列表顺序
     etf_picks: list[dict] = []
     etf_scan_path = REPO_ROOT / "data" / "etf_scan_latest.json"
     if etf_scan_path.exists():
@@ -1393,7 +1393,7 @@ def run_midday(args):
     ensure_dirs()
     record = load_today()
     if "midday" in record:
-        print("[~] 今日午盘文案已生成，跳过（dedup guard）。")
+        print("[~] 今日午盘文案已生成，跳过(dedup guard)。")
         return
 
     day = record.get("day") or get_day_number()
@@ -1430,7 +1430,7 @@ def run_midday(args):
 
     saved = save_post_file(post, "midday", "auto")
     print(f"{'='*52}")
-    print(f"☀️  午间快报  （已保存 → {saved.relative_to(REPO_ROOT)}）")
+    print(f"☀️  午间快报  (已保存 → {saved.relative_to(REPO_ROOT)})")
     print(f"{'='*52}")
     print(post)
     _send_wechat_notify(f"☀️ Day {day} 午间快报｜11:35", post)
@@ -1440,7 +1440,7 @@ def run_evening(args):
     ensure_dirs()
     record = load_today()
     if "evening" in record:
-        print("[~] 今日收盘文案已生成，跳过（dedup guard）。")
+        print("[~] 今日收盘文案已生成，跳过(dedup guard)。")
         return
 
     day = record.get("day") or get_day_number()
@@ -1510,7 +1510,7 @@ def run_evening(args):
 
     saved = save_post_file(post, "evening", "auto")
     print(f"{'='*52}")
-    print(f"📊 收盘总结  （已保存 → {saved.relative_to(REPO_ROOT)}）")
+    print(f"📊 收盘总结  (已保存 → {saved.relative_to(REPO_ROOT)})")
     print(f"{'='*52}")
     print(post)
     _send_wechat_notify(
@@ -1523,7 +1523,7 @@ def run_status(args):
     ensure_dirs()
     record = load_today()
     if not record:
-        print(f"今天（{date.today()}）暂无记录。")
+        print(f"今天({date.today()})暂无记录。")
         return
 
     print(f"📅 {record.get('date')}  Day {record.get('day', '?')}")
@@ -1547,7 +1547,7 @@ def run_status(args):
         bm_str  = f"  (沪深300: {bm:+.2f}%)" if bm is not None else ""
         print(f"   avg chg : {avg_str}{bm_str}")
     else:
-        print("\n🌙 晚盘记录暂无（运行 python xhs/reporter.py evening）")
+        print("\n🌙 晚盘记录暂无(运行 python xhs/reporter.py evening)")
 
     if "tomorrow_preview" in record:
         t     = record["tomorrow_preview"]
@@ -1606,7 +1606,7 @@ def main():
   python xhs/reporter.py morning --query "低估值高成长" --top 5
   python xhs/reporter.py morning --style auto     # 根据当前 streak 自动选风格
   python xhs/reporter.py evening --style 1
-  python xhs/reporter.py evening --no-tomorrow    # 跳过明日筛选（省2分钟）
+  python xhs/reporter.py evening --no-tomorrow    # 跳过明日筛选(省2分钟)
   python xhs/reporter.py milestone                # Day 7/14/30 复盘帖
   python xhs/reporter.py milestone --force        # 任意时间强制生成复盘
   python xhs/reporter.py history
@@ -1614,25 +1614,25 @@ def main():
     )
     sub = parser.add_subparsers(dest="cmd")
 
-    p_morning = sub.add_parser("morning", help="生成早盘文案（竞价后，09:30 运行）")
-    p_morning.add_argument("--query",  default="", help="筛选条件（留空则复用上次）")
-    p_morning.add_argument("--top",    type=int, default=5, help="展示前N支股票（默认5）")
-    p_morning.add_argument("--style",  default="all", help="文风 1/2/3/all/auto（默认all）")
+    p_morning = sub.add_parser("morning", help="生成早盘文案(竞价后，09:30 运行)")
+    p_morning.add_argument("--query",  default="", help="筛选条件(留空则复用上次)")
+    p_morning.add_argument("--top",    type=int, default=5, help="展示前N支股票(默认5)")
+    p_morning.add_argument("--style",  default="all", help="文风 1/2/3/all/auto(默认all)")
 
     p_midday = sub.add_parser("midday", help="生成午盘中场更新文案")
     p_midday.add_argument("--style", default="all")
 
-    p_night = sub.add_parser("night", help="生成晚间预告文案（22:00，筛明日候选方向）")
-    p_night.add_argument("--query", default="", help="筛选条件（留空则复用上次）")
-    p_night.add_argument("--top",   type=int, default=5, help="展示前N支股票（默认5）")
-    p_night.add_argument("--style", default="auto", help="文风 1/2/3/all/auto（默认auto）")
+    p_night = sub.add_parser("night", help="生成晚间预告文案(22:00，筛明日候选方向)")
+    p_night.add_argument("--query", default="", help="筛选条件(留空则复用上次)")
+    p_night.add_argument("--top",   type=int, default=5, help="展示前N支股票(默认5)")
+    p_night.add_argument("--style", default="auto", help="文风 1/2/3/all/auto(默认auto)")
 
     p_evening = sub.add_parser("evening", help="生成晚盘复盘+明日预告文案")
     p_evening.add_argument("--style", default="all")
     p_evening.add_argument("--no-tomorrow", action="store_true",
-                           help="跳过明日预告筛选（省约2分钟）")
+                           help="跳过明日预告筛选(省约2分钟)")
 
-    p_milestone = sub.add_parser("milestone", help="生成里程碑复盘帖（Day 7/14/30）")
+    p_milestone = sub.add_parser("milestone", help="生成里程碑复盘帖(Day 7/14/30)")
     p_milestone.add_argument("--force", action="store_true", help="忽略日期限制强制生成")
 
     sub.add_parser("status",  help="查看今日记录")
