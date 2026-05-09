@@ -1270,6 +1270,31 @@ def _fmt_chip_section(chip_data: dict, prices: dict[str, dict], slot: str = "mid
     return lines
 
 
+def _fmt_marketcap_section(mc_picks: list[dict], prices: dict[str, dict], slot: str = "midday") -> list[str]:
+    """Format market cap strategy section: lowest market cap 20 stocks."""
+    from report.utils import calc_pick_stats
+    if not mc_picks:
+        return ["**[市值策略]**  今日暂无数据  ", ""]
+    s = calc_pick_stats(mc_picks, prices)
+    lines = []
+    header = f"**[市值策略 {len(mc_picks)}只(最低市值)]"
+    if s["results"]:
+        header += f"  胜率 {s['win_rate']:.0f}%  均 {s['avg_ret']:+.2f}%**<br>"
+    else:
+        header += "**  "
+    lines.append(header)
+    label = "涨幅前五：  " if slot == "midday" else "收益前五：  "
+    lines.append(label)
+    shown = s["top5"] if s["results"] else mc_picks[:5]
+    for i, r in enumerate(shown, 1):
+        cap_s = f" {r.get('marketcap_yi', 0):.1f}亿" if r.get("marketcap_yi") else ""
+        pct_s = f" **{r['change_pct']:+.2f}%**" if "change_pct" in r else ""
+        price_s = f" ¥{r['price']:.2f}" if slot == "evening" and r.get("price") else ""
+        lines.append(f"{i}. {r['code']} {r['name']}{cap_s}{price_s}{pct_s}  ")
+    lines.append("")
+    return lines
+
+
 def _fmt_etf_section(etf_picks: list[dict], prices: dict[str, dict], slot: str = "midday") -> list[str]:
     """Format ETF section matching chip style: [ETF策略 N只]胜率X% 均Y%"""
     from report.utils import calc_pick_stats
@@ -1353,8 +1378,8 @@ def _fmt_gc_section(gc_data: dict, prices: dict[str, dict]) -> list[str]:
     return out
 
 
-def _load_all_strategy_data() -> tuple[list, list, list[dict], dict, dict]:
-    """Load all strategy data sources. Returns (main, smallcap, etf_picks, chip, gc)."""
+def _load_all_strategy_data() -> tuple[list, list, list[dict], dict, dict, list[dict]]:
+    """Load all strategy data sources. Returns (main, smallcap, etf_picks, chip, gc, marketcap)."""
     from chip.daily_scan import load_chip_results
     from strategies.golden_cross_scan import load_gc_results
 
@@ -1378,10 +1403,24 @@ def _load_all_strategy_data() -> tuple[list, list, list[dict], dict, dict]:
         except Exception:
             pass
 
+    # 市值策略：从 marketcap_latest.json 读取
+    mc_picks: list[dict] = []
+    mc_path = REPO_ROOT / "data" / "marketcap_latest.json"
+    if mc_path.exists():
+        try:
+            mc_data = json.loads(mc_path.read_text(encoding="utf-8"))
+            mc_picks = [
+                {"code": p["code"], "name": p.get("name", p["code"]),
+                 "marketcap_yi": p.get("marketcap_yi", 0)}
+                for p in mc_data.get("picks", [])
+            ]
+        except Exception:
+            pass
+
     chip_data = load_chip_results()
     gc_data   = load_gc_results()
 
-    return main_picks, small_picks, etf_picks, chip_data, gc_data
+    return main_picks, small_picks, etf_picks, chip_data, gc_data, mc_picks
 
 
 # ---------------------------------------------------------------------------
@@ -1397,7 +1436,7 @@ def run_midday(args):
 
     day = record.get("day") or get_day_number()
     print("[midday] 加载策略数据...")
-    main_picks, small_picks, etf_picks, chip_data, gc_data = _load_all_strategy_data()
+    main_picks, small_picks, etf_picks, chip_data, gc_data, mc_picks = _load_all_strategy_data()
 
     chip_picks   = chip_data.get("all_picks", [])
     gc_codes     = [p["code"][-6:] for t in ("G0", "G1") for p in gc_data.get("tiers", {}).get(t, [])]
@@ -1406,6 +1445,7 @@ def run_midday(args):
         [p["code"] for p in main_picks + small_picks]
         + [p["code"] for p in etf_shown]
         + [p["code"] for p in chip_picks] + gc_codes
+        + [p["code"] for p in mc_picks]
     ))
     print(f"[midday] 批量拉取行情 {len(all_codes)} 只...")
     prices = fetch_current_prices(all_codes) if all_codes else {}
@@ -1417,6 +1457,7 @@ def run_midday(args):
     lines += _fmt_picks_section(f"小盘策略 {len(small_picks)}只",  small_picks, prices)
     if etf_shown:
         lines += _fmt_etf_section(etf_shown, prices, slot="midday")
+    lines += _fmt_marketcap_section(mc_picks, prices, slot="midday")
     lines += _fmt_chip_section(chip_data, prices, slot="midday")
     lines += _fmt_gc_section(gc_data, prices)
     lines += ["⚠️ 仅供参考，不构成投资建议", "#量化记录 #A股 #选股", ""]
@@ -1444,7 +1485,7 @@ def run_evening(args):
 
     day = record.get("day") or get_day_number()
     print("[evening] 加载策略数据...")
-    main_picks, small_picks, etf_picks, chip_data, gc_data = _load_all_strategy_data()
+    main_picks, small_picks, etf_picks, chip_data, gc_data, mc_picks = _load_all_strategy_data()
 
     chip_picks = chip_data.get("all_picks", [])
     gc_codes   = [p["code"][-6:] for t in ("G0", "G1") for p in gc_data.get("tiers", {}).get(t, [])]
@@ -1453,6 +1494,7 @@ def run_evening(args):
         [p["code"] for p in main_picks + small_picks]
         + [p["code"] for p in etf_shown]
         + [p["code"] for p in chip_picks] + gc_codes
+        + [p["code"] for p in mc_picks]
     ))
     print(f"[evening] 批量拉取收盘行情 {len(all_codes)} 只...")
     prices    = fetch_current_prices(all_codes) if all_codes else {}
@@ -1487,6 +1529,7 @@ def run_evening(args):
     if etf_shown:
         lines += _fmt_etf_section(etf_shown, prices, slot="evening")
 
+    lines += _fmt_marketcap_section(mc_picks, prices, slot="evening")
     lines += _fmt_chip_section(chip_data, prices, slot="evening")
     lines += _fmt_gc_section(gc_data, prices)
     lines += ["⚠️ 仅供参考，不构成投资建议", "#量化记录 #A股 #收盘", ""]

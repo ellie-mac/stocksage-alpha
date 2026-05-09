@@ -491,6 +491,7 @@ def _describe_cmdline(cmd: str) -> str:
         ("watchlist_scan.py",  "",                    "自选股扫描"),
         ("small_strategy.py",  "",                    "小盘策略"),
         ("etf_strategy.py",    "",                    "ETF策略"),
+        ("marketcap_strategy.py", "",                 "市值策略"),
     ]
     for script, arg_pattern, label in rules:
         if script in cmd:
@@ -516,6 +517,7 @@ def h_status() -> str:
         "prefetch.py", "research.py", "integrity_check.py", "hot_scan.py", "pos_check.py",
         "institution_scan.py", "golden_cross_scan.py",
         "nightly_scan.py", "watchlist_scan.py", "small_strategy.py", "etf_strategy.py",
+        "marketcap_strategy.py",
     }
     ss_procs, other_procs = [], []
     for pid, cmd in proc_list:
