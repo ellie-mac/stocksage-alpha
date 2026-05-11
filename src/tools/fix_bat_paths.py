@@ -1,15 +1,15 @@
-"""
+r"""
 fix_bat_paths.py — 修复 tasks/ 下 bat 文件里因重构产生的旧路径引用。
 
 重构后路径变化：
-  src\notify.py            → src\notify\notify.py
-  src\notify_failure.py    → src\notify\notify_failure.py
-  src\golden_cross_scan.py → src\strategies\golden_cross_scan.py
-  src\daily_perf_log.py    → src\jobs\daily_perf_log.py  (仅根级)
-  src\prefetch.py          → src\jobs\prefetch.py
-  src\integrity_check.py   → src\jobs\integrity_check.py
-  src\daily_chip_scan.py   → src\chip\daily_scan.py
-  src\run_cad_pipeline.py  → src\chip\pipeline.py
+  src\notify.py            -> src\notify\notify.py
+  src\notify_failure.py    -> src\notify\notify_failure.py
+  src\golden_cross_scan.py -> src\strategies\golden_cross_scan.py
+  src\daily_perf_log.py    -> src\jobs\daily_perf_log.py  (仅根级)
+  src\prefetch.py          -> src\jobs\prefetch.py
+  src\integrity_check.py   -> src\jobs\integrity_check.py
+  src\daily_chip_scan.py   -> src\chip\daily_scan.py
+  src\run_cad_pipeline.py  -> src\chip\pipeline.py
 
 用法（在 repo 根目录执行）：
   python src/tools/fix_bat_paths.py
@@ -56,7 +56,7 @@ def fix_file(path: Path) -> bool:
         new = new.replace(old, repl)
     # daily_perf_log: 只替换根级（排除已正确的 jobs\ 前缀）
     import re
-    new = re.sub(r'src\\daily_perf_log\.py(?!")', r'src\\jobs\\daily_perf_log.py', new)
+    new = re.sub(r"src\\daily_perf_log\.py", r"src\\jobs\\daily_perf_log.py", new)
     # 防止二次替换
     for bad, good in _DEDUP:
         new = new.replace(bad, good)
