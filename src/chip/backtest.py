@@ -104,24 +104,7 @@ def _fetch_chip_retry(date: str, pro, max_retries: int = 0) -> "pd.DataFrame":
 # ---------------------------------------------------------------------------
 
 def _push_notify(title: str, body: str) -> None:
-    """Send completion notification to WeChat + Discord webhook."""
     push_wechat(title, body)
-
-    webhook_url = cfg.get("discord", {}).get("webhook_url", "")
-    if webhook_url:
-        try:
-            import urllib.request
-            discord_text = f"**{title}**\n{body[:1900]}"
-            data = json.dumps({"content": discord_text}).encode("utf-8")
-            req = urllib.request.Request(
-                webhook_url, data=data,
-                headers={"Content-Type": "application/json",
-                         "User-Agent": "DiscordBot (stocksage-alpha, 1.0)"},
-            )
-            with urllib.request.urlopen(req, timeout=10) as r:
-                print(f"[discord] webhook 已发送 (HTTP {r.status})")
-        except Exception as e:
-            print(f"[discord] webhook 失败: {e}")
 
 
 # ---------------------------------------------------------------------------
