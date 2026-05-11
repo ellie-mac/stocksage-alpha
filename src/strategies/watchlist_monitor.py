@@ -182,19 +182,30 @@ def _push(
             fs = b.get("sell_score")
             bear_tags.append(f"{zh} {fs:.1f}" if fs is not None else zh)
 
+    chg   = alert.get("change_pct")
+    chg_s = f"{chg:+.2f}%" if chg is not None else ""
+    pre_close_s = ""
+    if price and chg is not None:
+        pre = round(price / (1 + chg / 100), 2)
+        pre_close_s = f" | 昨收{pre}"
+
     _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     title = f"🔔 强买 {name}({code}) {score:.0f}分 [{src_label}]"
+    price_line = f"买入分 **{score:.0f}** | 现价 {price}"
+    if chg_s:
+        price_line += f" | {chg_s}"
+    price_line += pre_close_s
+
     rows = [
-        f"*{now_str}*<br>市场 {_re_emoji} {regime_score:.0f}/10",
-        f"**{name}({code})**<br>买入分 **{score:.0f}** | 现价 **{price}**",
+        f"{now_str} 市场 {_re_emoji} {regime_score:.0f}/10",
+        price_line,
     ]
     if bull_tags:
         rows.append("+ " + " / ".join(f"`{t}`" for t in bull_tags))
     if bear_tags:
         rows.append("- " + " / ".join(f"`{t}`" for t in bear_tags))
-    rows.append("<br>> 仅供参考")
     desp = "<br>".join(rows)
 
     if dry_run:
