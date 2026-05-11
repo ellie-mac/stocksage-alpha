@@ -226,7 +226,7 @@ def fill_watchlist_returns(today: str, dry_run: bool) -> None:
     print(f"  自选股远期收益已更新 {updated} 个字段。")
 
 
-def trim_log(log: list, keep_days: int = 90) -> tuple[list, int]:
+def trim_log(log: list, keep_days: int = 365) -> tuple[list, int]:
     """Remove entries with date older than keep_days. Returns (trimmed, n_removed)."""
     cutoff = (datetime.now() - timedelta(days=keep_days)).strftime("%Y-%m-%d")
     kept = [e for e in log if e.get("date", "") >= cutoff]
