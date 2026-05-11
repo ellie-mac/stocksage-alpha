@@ -245,11 +245,15 @@ def main() -> None:
         "all_picks":    all_picks,
     }
     dated_out = ROOT / "data" / f"chip_scan_{trade_date}.json"
-    dated_out.write_text(json.dumps(scan_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _tmp = dated_out.with_suffix(".tmp")
+    _tmp.write_text(json.dumps(scan_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _tmp.replace(dated_out)
     saved_msg = f"chip_scan_{trade_date}.json"
     if trade_date == latest_trade or args.date is None:
         scan_out = ROOT / "data" / "chip_scan_latest.json"
-        scan_out.write_text(json.dumps(scan_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        _tmp2 = scan_out.with_suffix(".tmp")
+        _tmp2.write_text(json.dumps(scan_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        _tmp2.replace(scan_out)
         saved_msg += " + chip_scan_latest.json"
     print(f"[scan] 已保存 {saved_msg}（{len(all_picks)} 只）")
 

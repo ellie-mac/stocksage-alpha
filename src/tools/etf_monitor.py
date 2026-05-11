@@ -47,7 +47,7 @@ from common import is_trading_hours, next_session_seconds, send_wechat
 # ── Paths ──────────────────────────────────────────────────────────────────────
 _ROOT            = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIG_PATH      = os.path.join(_ROOT, "alert_config.json")
-SIGNALS_LOG_PATH = os.path.join(_ROOT, "signals_log.json")
+SIGNALS_LOG_PATH = os.path.join(_ROOT, "data", "signals_log.json")
 
 # No cooldowns for ETF: T+0 means each signal can represent a new partial trade tranche.
 
@@ -94,14 +94,8 @@ def _append_signals_log(buy_alerts: list[dict], sell_alerts: list[dict],
             for s in sell_alerts
         ],
     }
-    try:
-        with open(SIGNALS_LOG_PATH, "r", encoding="utf-8") as f:
-            log = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        log = []
-    log.append(entry)
-    with open(SIGNALS_LOG_PATH, "w", encoding="utf-8") as f:
-        json.dump(log, f, ensure_ascii=False, indent=2)
+    import signals_store as _ss
+    _ss.append(entry)
     print(f"  Signals logged → signals_log.json "
           f"(buy={len(buy_alerts)}, sell={len(sell_alerts)})")
 

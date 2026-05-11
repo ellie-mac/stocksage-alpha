@@ -31,6 +31,9 @@ from report.utils import (
     score_one_buy as _score_one_buy,
 )
 
+_ROOT             = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+LATEST_PICKS_PATH = os.path.join(_ROOT, "data", "latest_picks.json")
+
 
 # ── 核心扫描 ───────────────────────────────────────────────────────────────────
 
@@ -148,6 +151,51 @@ def save_picks(candidates: list[dict], regime_signal: str) -> None:
             pass
 
 
+# ── 推送/副作用（与 scan 分离，供适配器复用）──────────────────────────────────
+
+def _push_results(
+    candidates: list[dict],
+    regime_score: float,
+    regime_signal: str,
+    run_time: str,
+    config: dict,
+    dry_run: bool = False,
+) -> None:
+    """save_picks + WeChat 推送。与 scan() 完全分离。"""
+    sendkey = config.get("serverchan", {}).get("sendkey", "")
+    configure_pushplus(config.get("pushplus", {}).get("token", ""))
+
+    if not dry_run:
+        save_picks(candidates, regime_signal)
+
+    if not candidates:
+        print("[small_strategy] 无候选，跳过推送")
+        return
+
+    rk = _regime_key(regime_score)
+    _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
+    alerts = [s for s in candidates if s.get("_sc_signal")]
+    parts  = [f"📊 {len(alerts)} 信号"] if alerts else ["明日关注"]
+    title  = f"小盘策略 {' | '.join(parts)}"
+
+    rows = [f"*{run_time}*<br>市场 {_re_emoji} {regime_score:.0f}/10 {rk}",
+            "<br>**今日关注（小市值策略）**"]
+    for s in candidates:
+        cap_str  = f" {s['market_cap_b']:.0f}亿" if s.get("market_cap_b") else ""
+        mark = " ✅" if s.get("_sc_signal") else ""
+        rows.append(f"**{s['code']} {s['name']}** 买入分:{s['buy_score']:.0f}{cap_str}{mark}")
+    desp = "<br>".join(rows) + "<br><br>> 仅供参考，不构成投资建议"
+
+    if not dry_run:
+        try:
+            send_wechat(title, desp, sendkey, dry_run=False)
+            print("[small_strategy] 微信推送完成")
+        except Exception as e:
+            print(f"[small_strategy] 微信推送失败: {e}")
+    else:
+        print(f"[small_strategy] dry-run:\n{title}\n{desp}")
+
+
 # ── 入口 ──────────────────────────────────────────────────────────────────────
 
 def main() -> list[dict]:
@@ -159,8 +207,6 @@ def main() -> list[dict]:
     with open(config_path, encoding="utf-8") as f:
         config = json.load(f)
     thresholds = config.get("thresholds", {})
-    sendkey    = config.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(config.get("pushplus", {}).get("token", ""))
 
     regime_score  = 5.0
     regime_signal = "unknown"
@@ -176,36 +222,8 @@ def main() -> list[dict]:
     candidates = scan(config, thresholds, regime_score=regime_score)
     print(f"[small_strategy] {len(candidates)} candidates")
 
-    if not args.dry_run:
-        save_picks(candidates, regime_signal)
-
-    if not candidates:
-        print("[small_strategy] 无候选，跳过推送")
-        return candidates
-
-    rk = _regime_key(regime_score)
-    _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
-    alerts = [s for s in candidates if s.get("_sc_signal")]
-    parts  = [f"📊 {len(alerts)} 信号"] if alerts else ["明日关注"]
-    title  = f"小盘策略 {' | '.join(parts)}"
-
-    rows = [f"*{datetime.now():%Y-%m-%d %H:%M}*<br>市场 {_re_emoji} {regime_score:.0f}/10 {rk}",
-            "<br>**今日关注（小市值策略）**"]
-    for s in candidates:
-        cap_str  = f" {s['market_cap_b']:.0f}亿" if s.get("market_cap_b") else ""
-        mark = " ✅" if s.get("_sc_signal") else ""
-        rows.append(f"**{s['code']} {s['name']}** 买入分:{s['buy_score']:.0f}{cap_str}{mark}")
-    desp = "<br>".join(rows) + "<br><br>> 仅供参考，不构成投资建议"
-
-    if not args.dry_run:
-        try:
-            send_wechat(title, desp, sendkey, dry_run=False)
-            print("[small_strategy] 微信推送完成")
-        except Exception as e:
-            print(f"[small_strategy] 微信推送失败: {e}")
-    else:
-        print(f"[small_strategy] dry-run:\n{title}\n{desp}")
-
+    run_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    _push_results(candidates, regime_score, regime_signal, run_time, config, args.dry_run)
     return candidates
 
 

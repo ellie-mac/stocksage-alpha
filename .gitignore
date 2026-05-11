@@ -46,3 +46,6 @@ scripts/tools/.cache/
 src/tools/.cache/
 .claude/
 memory.md
+# dev-only scripts (local use, not for CI)
+scripts/ask_advisors.py
+scripts/r*.txt

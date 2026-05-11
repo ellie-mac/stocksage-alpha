@@ -16,10 +16,14 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _PY   = sys.executable
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from run_manifest import log_run  # noqa: E402
 
 
 def _run(label: str, cmd: list[str], timeout: int = 300) -> bool:
@@ -50,6 +54,7 @@ def main() -> None:
     args = parser.parse_args()
 
     now = datetime.now()
+    trade_date = now.strftime("%Y-%m-%d")
     print(f"[closing_batch] 开始 {now:%Y-%m-%d %H:%M}")
 
     # 1. XHS evening post
@@ -58,22 +63,31 @@ def main() -> None:
         if args.dry_run:
             print("[closing_batch] dry-run: XHS evening 跳过")
         else:
-            _run("XHS evening", [_PY, "-X", "utf8", writer, "evening", "--style", "auto"],
-                 timeout=120)
+            t0 = time.monotonic()
+            ok = _run("XHS evening", [_PY, "-X", "utf8", writer, "evening", "--style", "auto"],
+                      timeout=120)
+            log_run("closing_batch/reporter", trade_date, success=ok,
+                    duration_sec=round(time.monotonic() - t0, 1))
     else:
         print("[closing_batch] xhs/reporter.py 不存在，跳过")
 
     # 2. signal_tracker.py
     tracker = os.path.join(_ROOT, "src", "tools", "signal_tracker.py")
     if os.path.exists(tracker):
-        _run("signal_tracker", [_PY, "-X", "utf8", tracker], timeout=300)
+        t0 = time.monotonic()
+        ok = _run("signal_tracker", [_PY, "-X", "utf8", tracker], timeout=300)
+        log_run("closing_batch/signal_tracker", trade_date, success=ok,
+                duration_sec=round(time.monotonic() - t0, 1))
     else:
         print("[closing_batch] signal_tracker.py 不存在，跳过")
 
     # 3. daily_perf_log.py --force
     perf_log = os.path.join(_ROOT, "src", "jobs", "daily_perf_log.py")
     if os.path.exists(perf_log):
-        _run("daily_perf_log", [_PY, "-X", "utf8", perf_log, "--force"], timeout=300)
+        t0 = time.monotonic()
+        ok = _run("daily_perf_log", [_PY, "-X", "utf8", perf_log, "--force"], timeout=300)
+        log_run("closing_batch/daily_perf_log", trade_date, success=ok,
+                duration_sec=round(time.monotonic() - t0, 1))
     else:
         print("[closing_batch] daily_perf_log.py 不存在，跳过")
 
@@ -81,8 +95,11 @@ def main() -> None:
     if now.weekday() == 0:
         auto_tune = os.path.join(_ROOT, "src", "jobs", "auto_tune.py")
         if os.path.exists(auto_tune):
-            _run("auto_tune (Monday)", [_PY, "-X", "utf8", auto_tune, "--apply"],
-                 timeout=120)
+            t0 = time.monotonic()
+            ok = _run("auto_tune (Monday)", [_PY, "-X", "utf8", auto_tune, "--apply"],
+                      timeout=120)
+            log_run("closing_batch/auto_tune", trade_date, success=ok,
+                    duration_sec=round(time.monotonic() - t0, 1))
         else:
             print("[closing_batch] auto_tune.py 不存在，跳过")
 

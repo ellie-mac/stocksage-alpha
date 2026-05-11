@@ -91,77 +91,63 @@ def scan(
     return buy_alerts, sell_alerts, all_scores
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
+# ── 推送/副作用（与 scan 分离，供适配器复用）──────────────────────────────────
 
-    config_path = os.path.join(_ROOT, "alert_config.json")
-    with open(config_path, encoding="utf-8") as f:
-        config = json.load(f)
-    thresholds = config.get("thresholds", {})
-    sendkey    = config.get("serverchan", {}).get("sendkey", "")
+def _push_results(
+    buys: list[dict],
+    sells: list[dict],
+    all_scores: list[dict],
+    regime_score: float,
+    regime_signal: str,
+    config: dict,
+    dry_run: bool = False,
+) -> None:
+    """保存评分文件 + ETF picks 文件 + WeChat 推送。与 scan() 完全分离。"""
+    sendkey = config.get("serverchan", {}).get("sendkey", "")
     configure_pushplus(config.get("pushplus", {}).get("token", ""))
-
-    etf_list = config.get("etf_watchlist", [])
-    if not etf_list:
-        print("[etf_strategy] etf_watchlist 为空，退出")
-        return
-    print(f"[etf_strategy] scanning {len(etf_list)} ETFs")
-
-    regime_score  = 5.0
-    regime_signal = "unknown"
-    try:
-        mkt = score_market_regime(fetcher.get_market_regime_data())
-        if mkt:
-            regime_score  = mkt.get("score", 5.0)
-            regime_signal = mkt.get("details", {}).get("signal", "unknown")
-    except Exception as e:
-        print(f"[etf_strategy] regime fetch failed: {e}")
-
-    buys, sells, all_scores = scan(etf_list, thresholds, regime_score)
-    print(f"[etf_strategy] buy={len(buys)} sell={len(sells)}")
+    thresholds = config.get("thresholds", {})
 
     # 无论有无信号，始终保存评分结果供 reporter 午间/收盘快报使用
     _out_path = os.path.join(_ROOT, "data", "etf_scan_latest.json")
-    try:
-        _out_data = {
-            "date":      datetime.now().strftime("%Y%m%d"),
-            "timestamp": datetime.now().isoformat(),
-            "scores": [
-                {"code": s["code"], "name": s.get("name", s["code"]),
-                 "buy_score": round(s.get("buy_score") or 0, 1),
-                 "sell_score": round(s.get("sell_score") or 0, 1),
-                 "price": s.get("price"), "pnl_pct": s.get("pnl_pct", 0)}
-                for s in all_scores if not s.get("error")
-            ],
-        }
-        _tmp = _out_path + ".tmp"
-        with open(_tmp, "w", encoding="utf-8") as f:
-            json.dump(_out_data, f, ensure_ascii=False, indent=2)
-        os.replace(_tmp, _out_path)
-        print(f"[etf_strategy] 已保存 {len(_out_data['scores'])} 只评分 → etf_scan_latest.json")
-    except Exception as e:
-        print(f"[etf_strategy] 保存评分失败: {e}")
-
-    # 保存当日买入信号供 daily_perf_log 追踪胜率
-    if buys:
-        _picks_path = os.path.join(_ROOT, "data", f"etf_picks_{datetime.now().strftime('%Y%m%d')}.json")
+    if not dry_run:
         try:
-            _picks_data = {
+            _out_data = {
                 "date":      datetime.now().strftime("%Y%m%d"),
                 "timestamp": datetime.now().isoformat(),
-                "picks": [{"code": s["code"], "name": s.get("name", s["code"]),
-                           "buy_score": round(s.get("buy_score") or 0, 1)}
-                          for s in buys],
+                "scores": [
+                    {"code": s["code"], "name": s.get("name", s["code"]),
+                     "buy_score": round(s.get("buy_score") or 0, 1),
+                     "sell_score": round(s.get("sell_score") or 0, 1),
+                     "price": s.get("price"), "pnl_pct": s.get("pnl_pct", 0)}
+                    for s in all_scores if not s.get("error")
+                ],
             }
-            _tmp = _picks_path + ".tmp"
+            _tmp = _out_path + ".tmp"
             with open(_tmp, "w", encoding="utf-8") as f:
-                json.dump(_picks_data, f, ensure_ascii=False, indent=2)
-            os.replace(_tmp, _picks_path)
-            print(f"[etf_strategy] 已保存 {len(buys)} 只买入信号 → etf_picks_{datetime.now().strftime('%Y%m%d')}.json")
+                json.dump(_out_data, f, ensure_ascii=False, indent=2)
+            os.replace(_tmp, _out_path)
+            print(f"[etf_strategy] 已保存 {len(_out_data['scores'])} 只评分 → etf_scan_latest.json")
         except Exception as e:
-            print(f"[etf_strategy] 保存买入信号失败: {e}")
+            print(f"[etf_strategy] 保存评分失败: {e}")
+
+        # 保存当日买入信号供 daily_perf_log 追踪胜率
+        if buys:
+            _picks_path = os.path.join(_ROOT, "data", f"etf_picks_{datetime.now().strftime('%Y%m%d')}.json")
+            try:
+                _picks_data = {
+                    "date":      datetime.now().strftime("%Y%m%d"),
+                    "timestamp": datetime.now().isoformat(),
+                    "picks": [{"code": s["code"], "name": s.get("name", s["code"]),
+                               "buy_score": round(s.get("buy_score") or 0, 1)}
+                              for s in buys],
+                }
+                _tmp = _picks_path + ".tmp"
+                with open(_tmp, "w", encoding="utf-8") as f:
+                    json.dump(_picks_data, f, ensure_ascii=False, indent=2)
+                os.replace(_tmp, _picks_path)
+                print(f"[etf_strategy] 已保存 {len(buys)} 只买入信号 → etf_picks_{datetime.now().strftime('%Y%m%d')}.json")
+            except Exception as e:
+                print(f"[etf_strategy] 保存买入信号失败: {e}")
 
     if not buys and not sells:
         print("[etf_strategy] 无信号，跳过推送")
@@ -193,7 +179,7 @@ def main() -> None:
     rows.append("<br>> T+0 / 仅供参考")
     desp = "<br>".join(rows)
 
-    if not args.dry_run:
+    if not dry_run:
         try:
             send_wechat(title, desp, sendkey, dry_run=False)
             print("[etf_strategy] 微信推送完成")
@@ -201,6 +187,40 @@ def main() -> None:
             print(f"[etf_strategy] 微信推送失败: {e}")
     else:
         print(f"[etf_strategy] dry-run:\n{title}\n{desp}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+
+    config_path = os.path.join(_ROOT, "alert_config.json")
+    with open(config_path, encoding="utf-8") as f:
+        config = json.load(f)
+    thresholds = config.get("thresholds", {})
+    sendkey    = config.get("serverchan", {}).get("sendkey", "")
+    configure_pushplus(config.get("pushplus", {}).get("token", ""))
+
+    etf_list = config.get("etf_watchlist", [])
+    if not etf_list:
+        print("[etf_strategy] etf_watchlist 为空，退出")
+        return
+    print(f"[etf_strategy] scanning {len(etf_list)} ETFs")
+
+    regime_score  = 5.0
+    regime_signal = "unknown"
+    try:
+        mkt = score_market_regime(fetcher.get_market_regime_data())
+        if mkt:
+            regime_score  = mkt.get("score", 5.0)
+            regime_signal = mkt.get("details", {}).get("signal", "unknown")
+    except Exception as e:
+        print(f"[etf_strategy] regime fetch failed: {e}")
+
+    buys, sells, all_scores = scan(etf_list, thresholds, regime_score)
+    print(f"[etf_strategy] buy={len(buys)} sell={len(sells)}")
+
+    _push_results(buys, sells, all_scores, regime_score, regime_signal, config, args.dry_run)
 
 
 if __name__ == "__main__":
