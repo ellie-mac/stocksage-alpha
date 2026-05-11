@@ -219,8 +219,18 @@ def fill_watchlist_returns(today: str, dry_run: bool) -> None:
                         item[f"fwd_ret_{n}d"] = ret
                         updated += 1
 
+    wl_log, n_trimmed = trim_log(wl_log)
+    if n_trimmed:
+        print(f"  裁剪 watchlist_log {n_trimmed} 条旧记录（保留近 90 天）")
     _save_json_dry(WATCHLIST_LOG, wl_log, dry_run)
     print(f"  自选股远期收益已更新 {updated} 个字段。")
+
+
+def trim_log(log: list, keep_days: int = 90) -> tuple[list, int]:
+    """Remove entries with date older than keep_days. Returns (trimmed, n_removed)."""
+    cutoff = (datetime.now() - timedelta(days=keep_days)).strftime("%Y-%m-%d")
+    kept = [e for e in log if e.get("date", "") >= cutoff]
+    return kept, len(log) - len(kept)
 
 
 def compute_performance(signals_log: list) -> dict:
@@ -356,6 +366,11 @@ def main() -> None:
 
     signals_log = fill_signal_returns(signals_log, today, args.dry_run,
                                       max_age_days=args.max_age_days)
+
+    # 裁剪 90 天前的旧记录，控制文件大小
+    signals_log, n_trimmed = trim_log(signals_log)
+    if n_trimmed:
+        print(f"  裁剪 signals_log {n_trimmed} 条旧记录（保留近 90 天）")
 
     # 写回 signals_log
     if not args.dry_run and signals_log:
