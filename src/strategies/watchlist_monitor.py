@@ -29,7 +29,7 @@ from factors import weights_from_config_dict
 from factors.config import REGIME_WEIGHTS
 from factors import score_market_regime
 import fetcher
-from common import configure_pushplus, send_wechat
+from common import send_wechat, setup_push
 from report.utils import regime_key as _regime_key, score_one_buy as _score_one
 from research import _FACTOR_ZH_REPORT
 
@@ -238,8 +238,7 @@ def main() -> None:
 
     cfg        = _load_config()
     thresholds = cfg.get("thresholds", {})
-    sendkey    = cfg.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(cfg.get("pushplus", {}).get("token", ""))
+    sendkey = setup_push(cfg)
 
     # 等待开盘
     if not args.force:

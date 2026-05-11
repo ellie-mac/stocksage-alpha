@@ -23,7 +23,7 @@ from factors import weights_from_config_dict
 from factors.config import FACTOR_WEIGHTS_ETF
 from factors import score_market_regime
 import fetcher
-from common import configure_pushplus, send_wechat
+from common import send_wechat, setup_push, regime_emoji
 from report.utils import score_one_buy as _score_one
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -103,8 +103,7 @@ def _push_results(
     dry_run: bool = False,
 ) -> None:
     """保存评分文件 + ETF picks 文件 + WeChat 推送。与 scan() 完全分离。"""
-    sendkey = config.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(config.get("pushplus", {}).get("token", ""))
+    sendkey = setup_push(config)
     thresholds = config.get("thresholds", {})
 
     # 无论有无信号，始终保存评分结果供 reporter 午间/收盘快报使用
@@ -153,7 +152,7 @@ def _push_results(
         print("[etf_strategy] 无信号，跳过推送")
         return
 
-    _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
+    _re_emoji = regime_emoji(regime_score)
     strong_s = [a for a in sells if a["sell_score"] >= thresholds.get("sell_score_trigger", 60)]
     stall_s  = [a for a in sells if a not in strong_s]
     strong_b = [a for a in buys  if a["buy_score"] >= 80]
@@ -198,8 +197,6 @@ def main() -> None:
     with open(config_path, encoding="utf-8") as f:
         config = json.load(f)
     thresholds = config.get("thresholds", {})
-    sendkey    = config.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(config.get("pushplus", {}).get("token", ""))
 
     etf_list = config.get("etf_watchlist", [])
     if not etf_list:

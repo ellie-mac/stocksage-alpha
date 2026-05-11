@@ -23,7 +23,7 @@ from factors import weights_from_config_dict
 from factors.config import REGIME_WEIGHTS
 from factors import score_market_regime
 import fetcher
-from common import configure_pushplus, send_wechat
+from common import send_wechat, setup_push, regime_emoji
 from report.utils import (
     regime_key as _regime_key,
     compact_factor_scores as _compact_factor_scores,
@@ -161,8 +161,7 @@ def _push_results(
     dry_run: bool = False,
 ) -> None:
     """save_picks + append_signals_log + WeChat 推送。与 scan() 完全分离。"""
-    sendkey = config.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(config.get("pushplus", {}).get("token", ""))
+    sendkey = setup_push(config)
 
     if not dry_run:
         save_picks(buy_alerts, regime_signal)
@@ -175,7 +174,7 @@ def _push_results(
         return
 
     rk = _regime_key(regime_score)
-    _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
+    _re_emoji = regime_emoji(regime_score)
     strong = [b for b in buy_alerts if b["buy_score"] >= 80]
     add    = [b for b in buy_alerts if b["buy_score"] < 80]
     parts  = []

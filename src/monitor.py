@@ -46,7 +46,7 @@ from common import (
     is_trading_hours  as _is_trading_hours,
     next_session_seconds as _next_session_seconds,
     send_wechat,
-    configure_pushplus,
+    setup_push,
     is_etf   as _is_etf,
     is_t1_locked as _is_t1_locked_common,
     is_limit_locked,
@@ -1013,8 +1013,7 @@ def run(
     config     = load_config()
     holdings   = load_holdings()
     thresholds = config.get("thresholds", {})
-    sendkey    = config.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(config.get("pushplus", {}).get("token", ""))
+    sendkey = setup_push(config)
     always_send = always_send or config.get("always_send", False)
     if universe_override is not None:
         universe = universe_override
@@ -1417,8 +1416,7 @@ def run_loop(
     config     = load_config()
     holdings   = load_holdings()
     thresholds = config.get("thresholds", {})
-    sendkey    = config.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(config.get("pushplus", {}).get("token", ""))
+    sendkey = setup_push(config)
 
     # ── Restore persisted state (survives restarts) ───────────────────────────
     _state = _load_state()
@@ -1446,8 +1444,6 @@ def run_loop(
     _error_notified:    dict = {}   # error_key -> last WeChat push datetime (1h rate limit)
     _etf_activity:      dict = {}   # code -> {"buys": int, "sells": int}（收盘快报读取）
     _etf_closing_date:  Optional[object] = None
-    _xhs_triggered_today: set = set()  # slots triggered today
-    _xhs_date: Optional[object] = None              # date _xhs_triggered_today belongs to
     _auction_checked_date: Optional[object] = None   # date of last 竞价检验
 
     # Restore scanned_sessions: stored as "YYYY-MM-DD|session" strings
@@ -1466,10 +1462,6 @@ def run_loop(
     _closing_date   = None   # not persisted — harmless if fired twice on restart
     last_universe_refresh_date = _restore_date("universe_refresh_date")
     _watchlist_last_scan: Optional[datetime] = _restore_dt("watchlist_last_scan")
-    _premarket_scan_date: Optional[object] = _restore_date("premarket_scan_date")
-    _premarket_picks: list[str] = _state.get("premarket_picks", [])
-    _night_scan_date: Optional[object] = _restore_date("night_scan_date")
-    _night_picks: list[str] = _state.get("night_picks", [])   # 22:00 buy signals → 9:25 auction check
     _regime_cached: Optional[tuple] = None
     _regime_cached_at: float = 0.0
     _WATCHLIST_INTERVAL_MIN = 5
@@ -1480,13 +1472,9 @@ def run_loop(
     )
 
     _build_universe_script  = os.path.join(_ROOT, "src", "tools", "generate_full_universe.py")
-    _signal_tracker_script  = os.path.join(_ROOT, "src", "tools", "signal_tracker.py")
-    _auto_tune_script       = os.path.join(_ROOT, "src", "jobs", "auto_tune.py")
     _universe_refresh_done  = threading.Event()   # background thread sets this when finished
     _universe_running       = threading.Event()   # set while refresh is in progress (duplicate guard)
     _universe_proc: Optional[subprocess.Popen] = None   # track running subprocess
-    _signal_tracker_date: Optional[object] = _restore_date("signal_tracker_date")
-    _auto_tune_date:      Optional[object] = _restore_date("auto_tune_date")
 
     # ── Startup universe check: refresh immediately if empty or stale (>7 days) ──
     _startup_age = (
@@ -1547,11 +1535,6 @@ def run_loop(
                   f"{len(config.get('screener_universe', []))} stocks, "
                   f"{len(config.get('watchlist', []))} watchlist")
 
-        # ── Daily reset of XHS trigger set ────────────────────────────────────────
-        if _xhs_date != now.date():
-            _xhs_triggered_today = set()
-            _xhs_date = now.date()
-
         # ── Daily universe refresh (00:00, gives 9h before market open) ─────────
         # Starts at midnight so it always finishes well before 09:25 open.
         # Fallback: also runs if loop starts any time before 09:25 and hasn't run today.
@@ -1603,43 +1586,6 @@ def run_loop(
                         _universe_running.clear()
 
                 threading.Thread(target=_run_universe_refresh, daemon=True).start()
-
-        # ── Evening nightly scan (18:00) → nightly_scan.py 非阻塞子进程 ────────
-        if (now.hour == 18 and 0 <= now.minute < 5
-                and _premarket_scan_date != now.date()):
-            _premarket_scan_date = now.date()
-            print(f"[{run_time}] Evening nightly_scan.py (18:00)...")
-            try:
-                _ns_script = os.path.join(_ROOT, "src", "jobs", "nightly_scan.py")
-                _ns_cmd = [sys.executable, "-X", "utf8", _ns_script]
-                if dry_run:
-                    _ns_cmd.append("--dry-run")
-                _ns_log = os.path.join(_ROOT, "src", "logs", "nightly_scan_18.log")
-                os.makedirs(os.path.dirname(_ns_log), exist_ok=True)
-                with open(_ns_log, "a", encoding="utf-8") as _nsf:
-                    subprocess.Popen(_ns_cmd, stdout=_nsf, stderr=_nsf, cwd=_ROOT)
-                print(f"  nightly_scan.py launched (log: {_ns_log})")
-                _trigger_xhs_post("night", dry_run)
-            except Exception as e:
-                print(f"  [ERROR] Evening nightly_scan failed: {e}")
-
-        # ── Night scan (22:00) → nightly_scan.py 非阻塞子进程 ────────────────
-        if (now.hour == 22 and 0 <= now.minute < 5
-                and _night_scan_date != now.date()):
-            _night_scan_date = now.date()
-            print(f"[{run_time}] Night nightly_scan.py (22:00)...")
-            try:
-                _ns_script = os.path.join(_ROOT, "src", "jobs", "nightly_scan.py")
-                _ns_cmd = [sys.executable, "-X", "utf8", _ns_script]
-                if dry_run:
-                    _ns_cmd.append("--dry-run")
-                _ns_log = os.path.join(_ROOT, "src", "logs", "nightly_scan_22.log")
-                os.makedirs(os.path.dirname(_ns_log), exist_ok=True)
-                with open(_ns_log, "a", encoding="utf-8") as _nsf:
-                    subprocess.Popen(_ns_cmd, stdout=_nsf, stderr=_nsf, cwd=_ROOT)
-                print(f"  nightly_scan.py launched (log: {_ns_log})")
-            except Exception as e:
-                print(f"  [ERROR] Night nightly_scan failed: {e}")
 
         # ── Daily heartbeat + cache purge (09:00, before market open) ──────────
         if (now.weekday() < 5
@@ -1735,48 +1681,6 @@ def run_loop(
             #     send_wechat("今日收盘 📊", closing_desp, sendkey, dry_run=dry_run)
             # except Exception as e:
             #     print(f"  [WARN] Closing summary push failed: {e}")
-            # XHS evening post: today's watchlist performance summary
-            if "evening" not in _xhs_triggered_today:
-                _xhs_triggered_today.add("evening")
-                _trigger_xhs_post("evening", dry_run)
-
-        # ── Daily signal tracker (15:20 — after closing scan) ────────────────
-        if (now.hour == 15 and 20 <= now.minute < 30
-                and _signal_tracker_date != now.date()):
-            _signal_tracker_date = now.date()
-            print(f"[{now.strftime('%H:%M')}] Running signal tracker...")
-            def _run_signal_tracker():
-                try:
-                    result = subprocess.run(
-                        [sys.executable, "-X", "utf8", _signal_tracker_script],
-                        capture_output=True, text=True, encoding="utf-8", timeout=300,
-                    )
-                    if result.returncode == 0:
-                        print(f"  [Tracker] Done.\n{result.stdout[-500:]}")
-                    else:
-                        print(f"  [Tracker] Failed:\n{result.stderr[:300]}")
-                except Exception as e:
-                    print(f"  [Tracker] Error: {e}")
-            threading.Thread(target=_run_signal_tracker, daemon=True).start()
-
-        # ── Weekly auto-tune (Monday 08:00, if enough signal data) ───────────
-        if (now.weekday() == 0 and now.hour == 8 and now.minute < 5
-                and _auto_tune_date != now.date()):
-            _auto_tune_date = now.date()
-            print(f"[{now.strftime('%H:%M')}] Running auto-tune...")
-            def _run_auto_tune():
-                try:
-                    result = subprocess.run(
-                        [sys.executable, "-X", "utf8", _auto_tune_script, "--apply"],
-                        capture_output=True, text=True, encoding="utf-8", timeout=60,
-                    )
-                    if result.returncode == 0:
-                        print(f"  [AutoTune] Done.\n{result.stdout[-500:]}")
-                    else:
-                        print(f"  [AutoTune] Failed:\n{result.stderr[:300]}")
-                except Exception as e:
-                    print(f"  [AutoTune] Error: {e}")
-            threading.Thread(target=_run_auto_tune, daemon=True).start()
 
         # TEST: trading-hours gate bypassed so full scan runs at any time
         # if not _is_trading_hours():
@@ -1885,68 +1789,13 @@ def run_loop(
         if need_full:
             print(f"[{run_time}] Full factor check ({session_key} session)...")
 
-            # ── Opening auction quality check 已禁用（竞价检验效果不佳）────────
-            # if session_key == "morning" and _auction_checked_date != now.date():
-            #     _auction_checked_date = now.date()
-            #     try:
-            #         _auction_picks = list(dict.fromkeys(_night_picks + _premarket_picks))
-            #         _check_opening_auction(...)
-            #     except Exception as e:
-            #         print(f"  [竞价检验] 异常: {e}")
-
-            # ── Preauction XHS trigger (fires at start of morning session) ────
-            if session_key == "morning" and "preauction" not in _xhs_triggered_today:
-                _xhs_triggered_today.add("preauction")
-                _trigger_xhs_post("preauction", dry_run)
-
             try:
                 _watchlist_set = set(_wl_codes(config))
                 _screener_universe = config.get("screener_universe", [])
-
-                # Morning open: first confirm today's 1AM pre-market picks, then
-                # scan the full universe for any new signals after the auction.
-                _morning_signals = []
-                if (session_key == "morning"
-                        and _premarket_picks
-                        and _premarket_scan_date == now.date()):
-                    _pm_universe = [c for c in _premarket_picks
-                                    if c not in _watchlist_set]
-                    print(f"  Post-auction: confirming {len(_pm_universe)} "
-                          f"pre-market picks...")
-                    _picked1 = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
-                                   _regime=_regime_this_iter, universe_override=_pm_universe)
-                    _morning_signals.extend(_picked1 or [])
-                    # Then scan the rest of the universe for new signals.
-                    _pm_set = set(_premarket_picks)
-                    _remaining = [c for c in _screener_universe
-                                  if c not in _pm_set and c not in _watchlist_set]
-                    if _remaining:
-                        print(f"  Post-auction: scanning {len(_remaining)} "
-                              f"remaining stocks...")
-                        _picked2 = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
-                                       _regime=_regime_this_iter,
-                                       universe_override=_remaining)
-                        _morning_signals.extend(_picked2 or [])
-                elif session_key == "midday":
-                    _full_universe = [c for c in _screener_universe
-                                      if c not in _watchlist_set]
-                    picked = run(dry_run=dry_run, sell_alert_state=sell_alert_state,
-                                 _regime=_regime_this_iter, universe_override=_full_universe)
-                    if "midday" not in _xhs_triggered_today:
-                        _xhs_triggered_today.add("midday")
-                        _trigger_xhs_post("midday", dry_run)
-                else:
-                    _full_universe = [c for c in _screener_universe
-                                      if c not in _watchlist_set]
-                    run(dry_run=dry_run, sell_alert_state=sell_alert_state,
-                        _regime=_regime_this_iter, universe_override=_full_universe)
+                _full_universe = [c for c in _screener_universe if c not in _watchlist_set]
+                run(dry_run=dry_run, sell_alert_state=sell_alert_state,
+                    _regime=_regime_this_iter, universe_override=_full_universe)
                 _scanned_sessions.add(scan_id)
-
-                # ── Post-scan XHS triggers ────────────────────────────────────
-                # morning slot: no longer triggers XHS (preauction handles 09:25)
-                # evening slot: triggered at 15:05 closing summary (not here)
-                # midday slot: triggered below
-                pass
 
             except Exception as e:
                 print(f"  [ERROR] Full check failed: {e}")
@@ -1962,16 +1811,6 @@ def run_loop(
                                      if last_universe_refresh_date else None,
             "watchlist_last_scan": _watchlist_last_scan.isoformat()
                                    if _watchlist_last_scan else None,
-            "premarket_scan_date": _premarket_scan_date.isoformat()
-                                   if _premarket_scan_date else None,
-            "premarket_picks":     _premarket_picks,
-            "night_scan_date":     _night_scan_date.isoformat()
-                                   if _night_scan_date else None,
-            "night_picks":         _night_picks,
-            "signal_tracker_date": _signal_tracker_date.isoformat()
-                                   if _signal_tracker_date else None,
-            "auto_tune_date":      _auto_tune_date.isoformat()
-                                   if _auto_tune_date else None,
             "sell_alert_state":   {k: v.isoformat() for k, v in sell_alert_state.items()
                                    if isinstance(v, datetime)},
         })
@@ -1992,40 +1831,10 @@ def run_loop(
                                      if last_universe_refresh_date else None,
             "watchlist_last_scan":   _watchlist_last_scan.isoformat()
                                      if _watchlist_last_scan else None,
-            "premarket_scan_date":   _premarket_scan_date.isoformat()
-                                     if _premarket_scan_date else None,
-            "premarket_picks":       _premarket_picks,
-            "night_scan_date":       _night_scan_date.isoformat()
-                                     if _night_scan_date else None,
-            "night_picks":           _night_picks,
-            "signal_tracker_date":   _signal_tracker_date.isoformat()
-                                     if _signal_tracker_date else None,
-            "auto_tune_date":        _auto_tune_date.isoformat()
-                                     if _auto_tune_date else None,
             "sell_alert_state":     {k: v.isoformat() for k, v in sell_alert_state.items()
                                      if isinstance(v, datetime)},
         })
         print("\n[StockSage] 监控已停止（Ctrl+C）。状态已保存。")
-
-
-def _trigger_xhs_post(slot: str, dry_run: bool = False) -> None:
-    """Fire xhs/writer.py {slot} as a non-blocking background process."""
-    print(f"[XHS] Triggering writer.py {slot}...")
-    if dry_run:
-        print(f"[XHS] (dry-run — skipping actual subprocess)")
-        return
-    try:
-        writer = os.path.join(_ROOT, "src", "report", "reporter.py")
-        cmd = [sys.executable, "-X", "utf8", writer, slot]
-        # Only pass --style for slots that accept it
-        if slot in ("morning", "midday", "night", "evening"):
-            cmd += ["--style", "auto"]
-        log_path = os.path.join(_ROOT, "src", "logs", f"xhs_{slot}.log")
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
-        with open(log_path, "a", encoding="utf-8") as _log:
-            subprocess.Popen(cmd, stdout=_log, stderr=_log, cwd=_ROOT)
-    except Exception as e:
-        print(f"[XHS] Failed to trigger {slot}: {e}")
 
 
 def _register_scheduler_tasks(dry_run: bool = False) -> None:

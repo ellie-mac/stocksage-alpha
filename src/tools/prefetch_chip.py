@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT))
 import cache as _cache
 import fetcher as _fetcher
 from chip.strategy import fetch_chip_data, _chip_cache_key, _get_pro
-from common import send_wechat, configure_pushplus
+from common import send_wechat
 
 _PREFETCH_TTL = 30 * 24 * 3600   # 30 天：历史数据不变，长期有效
 _THROTTLE_SEC = 520               # 每次新 API 调用后等待，控制在 ~7 次/小时

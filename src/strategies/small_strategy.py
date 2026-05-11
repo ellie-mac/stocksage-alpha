@@ -24,7 +24,7 @@ from factors.config import REGIME_WEIGHTS_SMALLCAP, SMALLCAP_CONFIG
 from factors import score_market_regime
 import fetcher
 import pandas as pd
-from common import configure_pushplus, send_wechat
+from common import send_wechat, setup_push, regime_emoji
 from report.utils import (
     regime_key as _regime_key,
     compact_factor_scores as _compact_factor_scores,
@@ -162,8 +162,7 @@ def _push_results(
     dry_run: bool = False,
 ) -> None:
     """save_picks + WeChat 推送。与 scan() 完全分离。"""
-    sendkey = config.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(config.get("pushplus", {}).get("token", ""))
+    sendkey = setup_push(config)
 
     if not dry_run:
         save_picks(candidates, regime_signal)
@@ -173,7 +172,7 @@ def _push_results(
         return
 
     rk = _regime_key(regime_score)
-    _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
+    _re_emoji = regime_emoji(regime_score)
     alerts = [s for s in candidates if s.get("_sc_signal")]
     parts  = [f"📊 {len(alerts)} 信号"] if alerts else ["明日关注"]
     title  = f"小盘策略 {' | '.join(parts)}"

@@ -25,7 +25,7 @@ from factors import weights_from_config_dict
 from factors.config import REGIME_WEIGHTS
 from factors import score_market_regime
 import fetcher
-from common import configure_pushplus, send_wechat
+from common import send_wechat, setup_push
 from report.utils import regime_key as _regime_key, score_one_buy as _score_watchlist
 from research import _FACTOR_ZH_REPORT
 
@@ -90,8 +90,7 @@ def main() -> None:
     with open(config_path, encoding="utf-8") as f:
         config = json.load(f)
     thresholds = config.get("thresholds", {})
-    sendkey    = config.get("serverchan", {}).get("sendkey", "")
-    configure_pushplus(config.get("pushplus", {}).get("token", ""))
+    sendkey = setup_push(config)
 
     raw_wl = config.get("watchlist", [])
     if raw_wl and isinstance(raw_wl[0], dict):

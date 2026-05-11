@@ -41,7 +41,7 @@ DATA    = ROOT / "data"
 sys.path.insert(0, str(SCRIPTS))
 
 import cache as _cache
-from common import configure_pushplus, get_trade_dates, push_wechat
+from common import get_trade_dates, push_wechat
 
 _NAMES_FILE = DATA / "stock_names.json"   # persistent: {ts_code: {name, industry}}
 _NAMES_TTL  = 7 * 24 * 3600               # refresh weekly

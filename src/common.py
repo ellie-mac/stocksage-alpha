@@ -130,6 +130,21 @@ def push_wechat(title: str, body: str, dry_run: bool = False) -> None:
     send_wechat(title, body, cfg.get("serverchan", {}).get("sendkey", ""), dry_run=dry_run)
 
 
+def setup_push(config: dict) -> str:
+    """Configure PushPlus from config and return the Server酱 sendkey."""
+    configure_pushplus(config.get("pushplus", {}).get("token", ""))
+    return config.get("serverchan", {}).get("sendkey", "")
+
+
+def regime_emoji(score: float) -> str:
+    """Map a 0–10 regime score to a bear/neutral/bull emoji."""
+    if score <= 3:
+        return "🐻"
+    if score <= 6:
+        return "🟡"
+    return "🐂"
+
+
 def is_limit_locked(pct_chg: float, threshold: float = 9.5) -> bool:
     """True if stock hit limit-up or limit-down (|pct_chg| >= threshold)."""
     return abs(pct_chg) >= threshold

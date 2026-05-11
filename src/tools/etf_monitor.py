@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from research import research
 from factors import score_market_regime
 import fetcher
-from common import is_trading_hours, next_session_seconds, send_wechat
+from common import is_trading_hours, next_session_seconds, send_wechat, setup_push
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 _ROOT            = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -285,7 +285,7 @@ def run_loop(interval_min: int = 5, dry_run: bool = False) -> None:
     config     = load_config()
     etf_list   = config.get("etf_watchlist", [])
     thresholds = config.get("thresholds", {})
-    sendkey    = config.get("serverchan", {}).get("sendkey", "")
+    sendkey = setup_push(config)
 
     if not etf_list:
         print("[WARN] etf_watchlist is empty in alert_config.json. Nothing to monitor.")
@@ -309,7 +309,7 @@ def run_loop(interval_min: int = 5, dry_run: bool = False) -> None:
             config     = load_config()
             etf_list   = config.get("etf_watchlist", [])
             thresholds = config.get("thresholds", {})
-            sendkey    = config.get("serverchan", {}).get("sendkey", "")
+            sendkey = setup_push(config)
         except Exception as e:
             print(f"  [WARN] Config reload failed: {e}")
 

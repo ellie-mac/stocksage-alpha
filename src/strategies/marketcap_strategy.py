@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import pandas as pd
 import fetcher
-from common import configure_pushplus, send_wechat
+from common import send_wechat, setup_push
 
 _OUT_LATEST     = ROOT / "data" / "marketcap_latest.json"
 _MARKETCAP_CACHE = ROOT / "data" / "marketcap_cache.json"
@@ -267,8 +267,7 @@ def main() -> None:
     config_path = ROOT / "alert_config.json"
     with open(config_path, encoding="utf-8") as f:
         config = json.load(f)
-    configure_pushplus(config.get("pushplus", {}).get("token", ""))
-    sendkey = config.get("serverchan", {}).get("sendkey", "")
+    sendkey = setup_push(config)
 
     picks = scan()
     if not picks:
