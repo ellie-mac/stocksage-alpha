@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+
+socket.setdefaulttimeout(40)  # akshare calls hang indefinitely without this
 
 import pandas as pd
 from tqdm import tqdm
