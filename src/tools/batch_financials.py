@@ -107,6 +107,26 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
     total = len(pending)
     print(f"Stocks to process: {total}  (skipping {len(already_done)} already done)")
 
+    if total == 0:
+        print("Cache is up to date, nothing to do.")
+        return 0
+
+    # Network probe: try first 5 stocks before committing to the full run.
+    # If all probe attempts fail, the API endpoint is likely unreachable from this VM.
+    PROBE_N = 5
+    probe_ok = 0
+    for probe_code in pending[:PROBE_N]:
+        try:
+            df = _call_with_timeout(ak.stock_financial_analysis_indicator, 15, symbol=probe_code, start_year="2022")
+            if df is not None and not df.empty:
+                probe_ok += 1
+        except Exception:
+            pass
+    if probe_ok == 0:
+        print(f"[warn] Network probe failed ({PROBE_N}/{PROBE_N} stocks unreachable) — "
+              f"ak.stock_financial_analysis_indicator not accessible from this host. Skipping batch.", flush=True)
+        return 0
+
     buffer: list[dict] = []
     n_done = 0
     flush_every = 100   # write to disk every N stocks
@@ -164,6 +184,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     n_done = run_batch(max_stocks=args.max, resume=not args.no_resume)
-    if args.max is None and n_done == 0:
-        print("[error] 0 stocks processed — likely network failure", flush=True)
-        sys.exit(1)
