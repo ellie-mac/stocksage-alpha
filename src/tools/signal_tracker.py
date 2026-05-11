@@ -70,13 +70,16 @@ def _enough_time_passed(signal_date: str, n: int, today: str,
 
 # ── 主要步骤 ────────────────────────────────────────────────────────────────────
 
-def fill_signal_returns(signals_log: list, today: str, dry_run: bool) -> list:
+def fill_signal_returns(signals_log: list, today: str, dry_run: bool,
+                        max_age_days: int = 60) -> list:
     """
     遍历 signals_log 中的 BUY 信号，填写尚未计算的远期收益字段。
+    max_age_days: 超过此天数的信号跳过（20d 窗口最多需要 ~30 个自然日，60d 足够）。
     返回更新后的 signals_log（保留原始结构）。
     """
     print("\n=== 填写买入信号远期收益 ===")
     updated = 0
+    cutoff = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
 
     # 为了减少 API 调用，按 code 聚合需要查询的日期范围
     # 先扫描需要填写的信号
@@ -84,6 +87,8 @@ def fill_signal_returns(signals_log: list, today: str, dry_run: bool) -> list:
 
     for run_entry in signals_log:
         run_date = run_entry.get("date", "")
+        if run_date < cutoff:
+            continue
         for sig in run_entry.get("buy_signals", []):
             code = sig.get("code", "")
             price = float(sig.get("signal_price") or sig.get("price") or 0)
@@ -100,12 +105,16 @@ def fill_signal_returns(signals_log: list, today: str, dry_run: bool) -> list:
                         needed[code]["max_date"] = run_date
 
     if not needed:
-        print("  没有需要填写的买入信号。")
+        print(f"  没有需要填写的买入信号（cutoff={cutoff}）。")
         return signals_log
+
+    print(f"  需处理 {len(needed)} 只标的（cutoff={cutoff}）")
 
     # 每个 code 获取一次行情
     for run_entry in signals_log:
         run_date = run_entry.get("date", "")
+        if run_date < cutoff:
+            continue
         for sig in run_entry.get("buy_signals", []):
             code = sig.get("code", "")
             price = float(sig.get("signal_price") or sig.get("price") or 0)
@@ -324,6 +333,8 @@ def main() -> None:
                         help="只打印现有绩效报告，不更新数据")
     parser.add_argument("--dry-run", action="store_true",
                         help="计算但不写文件")
+    parser.add_argument("--max-age-days", type=int, default=60,
+                        help="只处理近 N 天的信号（默认 60）")
     args = parser.parse_args()
 
     # --report 模式：直接从磁盘加载并打印
@@ -343,7 +354,8 @@ def main() -> None:
     if not isinstance(signals_log, list):
         signals_log = []
 
-    signals_log = fill_signal_returns(signals_log, today, args.dry_run)
+    signals_log = fill_signal_returns(signals_log, today, args.dry_run,
+                                      max_age_days=args.max_age_days)
 
     # 写回 signals_log
     if not args.dry_run and signals_log:

@@ -75,7 +75,7 @@ def main() -> None:
     tracker = os.path.join(_ROOT, "src", "tools", "signal_tracker.py")
     if os.path.exists(tracker):
         t0 = time.monotonic()
-        ok = _run("signal_tracker", [_PY, "-X", "utf8", tracker], timeout=300)
+        ok = _run("signal_tracker", [_PY, "-X", "utf8", tracker], timeout=900)
         log_run("closing_batch/signal_tracker", trade_date, success=ok,
                 duration_sec=round(time.monotonic() - t0, 1))
     else:
