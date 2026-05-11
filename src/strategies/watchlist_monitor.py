@@ -38,7 +38,7 @@ DYNAMIC_WL_PATH  = ROOT / "data" / "watchlist_dynamic.json"
 SIGNAL_LOG_PATH  = ROOT / "data" / "wl_strong_buy_log.json"
 
 POLL_INTERVAL        = 180    # 秒，3 分钟
-STRONG_BUY_THRESHOLD = 80     # buy_score 阈值
+STRONG_BUY_THRESHOLD = 90     # buy_score 阈值
 COOLDOWN_MIN         = 30     # 同一只股票冷却分钟数
 MARKET_OPEN          = (9, 30)
 MARKET_CLOSE         = (15, 5)

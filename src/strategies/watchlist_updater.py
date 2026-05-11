@@ -8,7 +8,7 @@
   C 热榜    data/hot_scan_latest.json       top 10 by score
 
 淘汰规则（每次运行时检查当前动态池）：
-  - TTL 到期（A/B: 14 日, C: 7 日）
+  - TTL 到期（A: 14 日, B/C: 7 日）
   - 入池后浮亏 ≥ 8%
   - 价格跌破 MA20（含 1% 缓冲）
 
@@ -37,7 +37,7 @@ LATEST_PICKS_PATH = DATA / "latest_picks.json"
 GC_LATEST_PATH    = DATA / "golden_cross_latest.json"
 HOT_LATEST_PATH   = DATA / "hot_scan_latest.json"
 
-TTL_DAYS  = {"main_scan": 14, "gc_scan": 14, "hot_scan": 7}
+TTL_DAYS  = {"main_scan": 14, "gc_scan": 7, "hot_scan": 7}
 LIMIT_A   = 15
 LIMIT_C   = 10
 STOP_LOSS = -8.0
