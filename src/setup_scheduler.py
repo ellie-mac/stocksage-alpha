@@ -37,6 +37,7 @@ NOTIFY_FAIL       = SCRIPTS   / "notify" / "notify_failure.py"
 NOTIFY            = SCRIPTS   / "notify" / "notify.py"
 HOT_RANK_LOGGER   = SCRIPTS   / "tools" / "hot_rank_logger.py"
 HOT_SCAN          = SCRIPTS   / "strategies" / "hot_scan.py"
+MARKETCAP_SCAN    = SCRIPTS   / "strategies" / "marketcap_strategy.py"
 
 # ── Bot startup tasks (At Logon trigger) ─────────────────────────────────────
 BOT_TASKS = [
@@ -96,6 +97,10 @@ OLD_TASKS = [
     "gc_PerfLog", "chip_PerfLog", "main_PerfLog",
     # old prefetch task names (in case of re-registration)
     "price_Warm",
+    # renamed to golden_Scan
+    "gc_Scan",
+    # orphaned task (was never in scheduler, now managed here)
+    "StockSage_marketcap_Scan",
     # bot keepalive tasks (replaced by in-process keepalive thread)
     "bot_Keepalive0", "bot_Keepalive1", "bot_Keepalive2",
     # renamed to report_Morning/Midday/Evening
@@ -127,13 +132,14 @@ TASKS = [
     ("report_Evening",  "15:30", "chip_evening",    "收盘报告推送 📱",                                True),
     # ── 收盘后数据预热 ───────────────────────────────────────────────────────
     ("market_Warm",      "15:35", "market_warm",      "预热市场数据：CSI300/PE/申万/停牌表，不推送",    False),
+    ("marketcap_Scan",   "15:35", "marketcap_scan",   "市值策略扫盘 📱",                               True),
     ("price_Prefetch",   "17:00", "price_prefetch",  "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
     ("fundflow_Prefetch","17:30", "fundflow_prefetch","预热全市场资金流向缓存（~20min），不推送",       False),
     # ── 收盘后分析 ──────────────────────────────────────────────────────────
     ("daily_PerfLog",   "16:05", "daily_perf_log",  "多策略收盘胜率统计 📱",                           True),
     ("chip_Night",      "18:00", "chip_night",      "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
     ("main_Scan",       "18:30", "monitor_scan",    "主/ETF/小盘策略扫盘 📱",                         True),
-    ("gc_Scan",         "19:30", "gc_scan",         "金叉策略扫描（全A股7项指标共振）推送 📱",         True),
+    ("golden_Scan",     "19:30", "gc_scan",         "金叉策略扫描（全A股7项指标共振）推送 📱",         True),
     ("hot_Scan",        "19:00", "hot_scan",        "热榜策略扫描，更新 hot_scan_latest.json 推送 📱", True),
     ("chip_CadScan",    "21:00", "cad_scan",        "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱",    True),
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
@@ -240,6 +246,9 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
     elif slot == "hot_scan":
         path = TASKS_DIR / "run_hot_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{HOT_SCAN}" --push >> "{log}\\hot_scan.log" 2>&1'
+    elif slot == "marketcap_scan":
+        path = TASKS_DIR / "run_marketcap_scan.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{MARKETCAP_SCAN}" --push >> "{log}\\marketcap_scan.log" 2>&1'
     else:
         raise ValueError(f"Unknown slot: {slot}")
 
