@@ -49,3 +49,5 @@ memory.md
 # dev-only scripts (local use, not for CI)
 scripts/ask_advisors.py
 scripts/r*.txt
+# local architecture doc (not for CI)
+ARCHITECTURE.md

@@ -63,11 +63,12 @@ def check(dry_run: bool = False) -> bool:
 
     completed_at_str = data.get("completed_at", "")
     trade_date       = data.get("trade_date", "?")
+    status           = data.get("status", "ok")
     succeeded        = data.get("strategies_succeeded", 0)
     attempted        = data.get("strategies_attempted", 0)
     failures         = data.get("failures", [])
 
-    # ── 完成时间过期 ──────────────────────────────────────────────────────────
+    # ── 完成时间解析 ──────────────────────────────────────────────────────────
     try:
         completed_at = datetime.strptime(completed_at_str, "%Y-%m-%d %H:%M:%S")
     except ValueError:
@@ -76,6 +77,22 @@ def check(dry_run: bool = False) -> bool:
         return False
 
     age_h = (now - completed_at).total_seconds() / 3600
+
+    # ── 非交易日跳过（正常，不告警）────────────────────────────────────────────
+    if status == "skipped":
+        if age_h <= _MAX_AGE_H:
+            print(f"[check_liveness] OK(skipped): {trade_date} 非交易日，夜跑已跳过，{completed_at_str}")
+            return True
+        # skipped 记录也超时了，说明连续多天没有记录，可能真出问题
+        _alert(
+            "⚠️ 夜跑记录长时间未更新",
+            f"最后记录：{completed_at_str}（{age_h:.1f}h 前，状态：skipped）\n"
+            f"超过 {_MAX_AGE_H}h 未有新记录，夜跑调度可能中断。",
+            dry_run=dry_run,
+        )
+        return False
+
+    # ── 完成时间过期 ──────────────────────────────────────────────────────────
     if age_h > _MAX_AGE_H:
         _alert(
             "⚠️ 夜跑超时未更新",

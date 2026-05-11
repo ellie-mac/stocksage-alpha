@@ -131,22 +131,27 @@ def _write_liveness(
     succeeded: int,
     failures: list[str],
     duration_sec: float,
+    status: str = "ok",
 ) -> None:
-    """原子写 data/last_run.json —— 用于外部监控判断夜跑是否正常完成。"""
+    """原子写 data/last_run.json —— 用于外部监控判断夜跑是否正常完成。
+    status: 'ok' | 'skipped'（非交易日跳过）
+    """
     try:
         out = _ROOT / "data" / "last_run.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "completed_at":        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "trade_date":          trade_date,
-            "duration_sec":        round(duration_sec, 1),
+            "completed_at":         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "trade_date":           trade_date,
+            "status":               status,
+            "duration_sec":         round(duration_sec, 1),
             "strategies_attempted": attempted,
             "strategies_succeeded": succeeded,
-            "failures":            failures,
+            "failures":             failures,
         }
         tmp = out.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(out)
-        log.info("liveness_written", extra={"path": str(out)})
+        log.info("liveness_written", extra={"path": str(out), "status": status})
     except Exception:
         log.error("liveness_write_failed", extra={"error": traceback.format_exc()[:200]})
 
@@ -223,10 +228,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not _pre_run_checks(force=args.force):
-        return
-
     trade_date = datetime.now().strftime("%Y-%m-%d")
+
+    if not _pre_run_checks(force=args.force):
+        _write_liveness(trade_date, 0, 0, [], 0.0, status="skipped")
+        return
     t_total = time.monotonic()
 
     print(f"[nightly_scan {_ts()}] 开始夜间扫描 dry_run={args.dry_run}")

@@ -1,13 +1,19 @@
 """
-R13 测试：前置数据质量门控
+R13 测试：前置数据质量门控 + check_liveness 非交易日语义修复
   - 非交易日跳过
   - --force 绕过非交易日检查
   - 交易日历接口报错时保守放行（fail open）
   - 零信号时记录 warning
+  - check_liveness: skipped 状态不告警
+  - check_liveness: skipped 超期仍告警
+  - nightly_scan 跳过时写入 status=skipped 的 liveness 文件
 """
 from __future__ import annotations
 
 import importlib
+import json
+from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 
@@ -77,3 +83,66 @@ def test_zero_signals_emits_warning(tmp_path, caplog):
             ns._run_strategy("test", "test_job", "main", {}, dry_run=True)
 
     assert any("zero_signals" in r.message for r in caplog.records)
+
+
+# ── check_liveness: skipped 状态 ─────────────────────────────────────────────
+
+def _write_live(tmp_path: Path, completed_at: str, status: str = "ok",
+                succeeded: int = 3, attempted: int = 3, failures=None) -> None:
+    (tmp_path / "data").mkdir(exist_ok=True)
+    (tmp_path / "data" / "last_run.json").write_text(json.dumps({
+        "completed_at":          completed_at,
+        "trade_date":            completed_at[:10],
+        "status":                status,
+        "duration_sec":          0.0,
+        "strategies_attempted":  attempted,
+        "strategies_succeeded":  succeeded,
+        "failures":              failures or [],
+    }), encoding="utf-8")
+
+
+def test_liveness_skipped_recent_is_ok(tmp_path):
+    """非交易日跳过且记录在 25h 内，check_liveness 应返回 True、不告警。"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    _write_live(tmp_path, now, status="skipped", succeeded=0, attempted=0)
+
+    import jobs.check_liveness as cl
+    importlib.reload(cl)
+    with patch.object(cl, "_LIVE_FILE", tmp_path / "data" / "last_run.json"), \
+         patch.object(cl, "push_wechat") as mock_push:
+        result = cl.check(dry_run=True)
+
+    assert result is True
+    mock_push.assert_not_called()
+
+
+def test_liveness_skipped_stale_alerts(tmp_path):
+    """skipped 记录超过 25h（如连续多天未更新），应告警。"""
+    old = (datetime.now() - timedelta(hours=30)).strftime("%Y-%m-%d %H:%M:%S")
+    _write_live(tmp_path, old, status="skipped", succeeded=0, attempted=0)
+
+    import jobs.check_liveness as cl
+    importlib.reload(cl)
+    with patch.object(cl, "_LIVE_FILE", tmp_path / "data" / "last_run.json"), \
+         patch.object(cl, "push_wechat") as mock_push:
+        result = cl.check(dry_run=True)
+
+    assert result is False
+    mock_push.assert_called_once()
+
+
+def test_nightly_scan_writes_skipped_liveness(tmp_path):
+    """_write_liveness(status='skipped') 应写出含 status 字段的 liveness 文件。"""
+    import jobs.nightly_scan as ns
+    importlib.reload(ns)
+
+    live_file = tmp_path / "data" / "last_run.json"
+    trade_date = datetime.now().strftime("%Y-%m-%d")
+
+    with patch.object(ns, "_ROOT", tmp_path):
+        ns._write_liveness(trade_date, 0, 0, [], 0.0, status="skipped")
+
+    assert live_file.exists()
+    data = json.loads(live_file.read_text(encoding="utf-8"))
+    assert data["status"] == "skipped"
+    assert data["strategies_attempted"] == 0
