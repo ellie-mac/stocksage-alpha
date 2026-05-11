@@ -137,7 +137,7 @@ def log_run(
     status = STATUS_SUCCEEDED if success else STATUS_FAILED
     with _conn() as conn:
         cur = conn.execute(
-            """INSERT INTO runs
+            """INSERT OR IGNORE INTO runs
                (job_name, trade_date, status, params, success, duration_sec, artifacts, error,
                 finished_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))""",
