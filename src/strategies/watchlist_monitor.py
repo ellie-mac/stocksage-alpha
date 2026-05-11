@@ -185,11 +185,10 @@ def _push(
     _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    title = f"🔔 强买 {name} ({code})  {score:.0f}分"
+    title = f"🔔 强买 {name}({code}) {score:.0f}分 [{src_label}]"
     rows = [
         f"*{now_str}*<br>市场 {_re_emoji} {regime_score:.0f}/10",
-        f"**{name} ({code})**  [{src_label}]<br>"
-        f"买入分 **{score:.0f}** | 现价 **{price}**",
+        f"**{name}({code})**<br>买入分 **{score:.0f}** | 现价 **{price}**",
     ]
     if bull_tags:
         rows.append("+ " + " / ".join(f"`{t}`" for t in bull_tags))
