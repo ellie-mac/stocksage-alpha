@@ -168,10 +168,19 @@ def _push(
     src   = _dynamic_source(code)
     src_label = {"main_scan": "主策略", "gc_scan": "金叉", "hot_scan": "热榜", "manual": "手动"}.get(src, src)
 
-    factors = []
+    bull_tags = []
     for b in (alert.get("bullish") or []):
         if isinstance(b, dict) and b.get("factor"):
-            factors.append(_FACTOR_ZH_REPORT.get(b["factor"], b["factor"]))
+            zh = _FACTOR_ZH_REPORT.get(b["factor"], b["factor"])
+            fs = b.get("score")
+            bull_tags.append(f"{zh} {fs:.1f}" if fs is not None else zh)
+
+    bear_tags = []
+    for b in (alert.get("bearish") or []):
+        if isinstance(b, dict) and b.get("factor"):
+            zh = _FACTOR_ZH_REPORT.get(b["factor"], b["factor"])
+            fs = b.get("sell_score")
+            bear_tags.append(f"{zh} {fs:.1f}" if fs is not None else zh)
 
     _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -182,8 +191,10 @@ def _push(
         f"**{name} ({code})**  [{src_label}]<br>"
         f"买入分 **{score:.0f}** | 现价 **{price}**",
     ]
-    if factors:
-        rows.append("+ " + " / ".join(f"`{f}`" for f in factors))
+    if bull_tags:
+        rows.append("+ " + " / ".join(f"`{t}`" for t in bull_tags))
+    if bear_tags:
+        rows.append("- " + " / ".join(f"`{t}`" for t in bear_tags))
     rows.append("<br>> 仅供参考")
     desp = "<br>".join(rows)
 
