@@ -8,6 +8,7 @@
     python -X utf8 src/jobs/nightly_scan.py --only main
     python -X utf8 src/jobs/nightly_scan.py --only small
     python -X utf8 src/jobs/nightly_scan.py --only etf
+    python -X utf8 src/jobs/nightly_scan.py --force   # 非交易日强制运行
 
 Windows 任务计划示例（每日 22:00）：
     pythonw -X utf8 C:/path/to/src/jobs/nightly_scan.py
@@ -77,8 +78,11 @@ def _run_strategy(
             err_msg = result.metadata.get("error", "strategy reported failed")
             log.error("strategy_failed", extra={"strategy": job_name, "error": (err_msg or "")[:300]})
         else:
+            signal_count = len(result.signals)
+            if signal_count == 0:
+                log.warning("strategy_zero_signals", extra={"strategy": job_name, "trade_date": trade_date})
             artifacts = [
-                f"signals={len(result.signals)}",
+                f"signals={signal_count}",
                 f"regime={result.regime_label or '?'}",
             ]
             # publish() is best-effort: push failure doesn't mark the run as failed
@@ -177,6 +181,26 @@ def _backup_db(backup_dir: Path | None = None) -> None:
         log.error("db_backup_failed", extra={"error": traceback.format_exc()[:300]})
 
 
+def _pre_run_checks(force: bool = False) -> bool:
+    """前置质量门控：交易日检查。
+    返回 True 表示可以继续，False 表示应跳过。
+    calendar 获取失败时保守地放行（fail open），避免因日历接口抖动误杀夜跑。
+    """
+    try:
+        from trading_calendar import is_trading_day
+        if not is_trading_day():
+            if force:
+                print(f"[nightly_scan {_ts()}] 非交易日，--force 强制继续")
+                log.info("pre_check_non_trading_day_forced")
+            else:
+                print(f"[nightly_scan {_ts()}] 今日非交易日，跳过 (--force 可强制运行)")
+                log.info("nightly_scan_skipped", extra={"reason": "non_trading_day"})
+                return False
+    except Exception:
+        log.warning("pre_check_calendar_error", extra={"error": traceback.format_exc()[:200]})
+    return True
+
+
 def run_main(config: dict, dry_run: bool) -> bool:
     return _run_strategy("主策略", "nightly_scan/main_strategy", "main", config, dry_run)
 
@@ -192,11 +216,16 @@ def run_etf(config: dict, dry_run: bool) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true", help="非交易日也强制运行")
     parser.add_argument(
         "--only", choices=["main", "small", "etf"],
         help="只运行指定策略"
     )
     args = parser.parse_args()
+
+    if not _pre_run_checks(force=args.force):
+        return
+
     trade_date = datetime.now().strftime("%Y-%m-%d")
     t_total = time.monotonic()
 
