@@ -19,8 +19,10 @@ import argparse
 import json
 import sys
 import os
+import socket
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -33,6 +35,9 @@ from logger import get_logger, bind_run_id                       # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 log = get_logger("nightly_scan")
+
+_STRATEGY_TIMEOUT_SEC = 3600   # 每个策略最长 60 分钟
+_SOCKET_TIMEOUT_SEC   = 120    # 单次 akshare HTTP 调用最长 2 分钟
 
 
 def _ts() -> str:
@@ -71,7 +76,16 @@ def _run_strategy(
     try:
         from strategies.base import get_strategy
         strategy = get_strategy(strategy_name)
-        result = strategy.run(config, dry_run=dry_run)  # never raises
+        _ex = ThreadPoolExecutor(max_workers=1)
+        _fut = _ex.submit(strategy.run, config, dry_run=dry_run)
+        try:
+            result = _fut.result(timeout=_STRATEGY_TIMEOUT_SEC)
+        except _FuturesTimeout:
+            _ex.shutdown(wait=False)
+            raise TimeoutError(
+                f"{label} 运行超时 ({_STRATEGY_TIMEOUT_SEC // 60} 分钟)"
+            )
+        _ex.shutdown(wait=False)
 
         ok = not result.metadata.get("failed", False)
         if not ok:
@@ -267,6 +281,7 @@ def main() -> None:
         return
     t_total = time.monotonic()
 
+    socket.setdefaulttimeout(_SOCKET_TIMEOUT_SEC)
     print(f"[nightly_scan {_ts()}] 开始夜间扫描 dry_run={args.dry_run}")
     log.info("nightly_scan_started", extra={"dry_run": args.dry_run})
 
