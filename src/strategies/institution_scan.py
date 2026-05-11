@@ -128,10 +128,14 @@ def run_institution_scan(min_funds: int = 2, push: bool = False,
     with ThreadPoolExecutor(max_workers=6) as ex:
         futs = {ex.submit(_fetch, f): f for f in funds}
         for fut in tqdm(as_completed(futs), total=len(futs), desc="拉持仓"):
-            code, df, disc_dates = fut.result()
-            if not df.empty:
-                holdings[code] = df
-                disc_date_map[code] = disc_dates
+            try:
+                code, df, disc_dates = fut.result()
+                if not df.empty:
+                    holdings[code] = df
+                    disc_date_map[code] = disc_dates
+            except Exception as e:
+                fund = futs[fut]
+                print(f"  WARN: 基金 {fund['code']} 拉取失败: {e}", flush=True)
 
     print(f"[institution_scan] 成功拉取 {len(holdings)}/{len(funds)} 只基金持仓", flush=True)
 

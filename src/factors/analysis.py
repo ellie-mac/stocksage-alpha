@@ -964,7 +964,7 @@ def run_analysis(
 
     # ── Phase 1: parallel I/O pre-fetch (warm caches before scoring) ────────
     history_needed = max(400, 300 + forward_days + 10)
-    prefetch_workers = min(len(codes), max(max_workers, 16))
+    prefetch_workers = min(len(codes), max_workers)
     print(f"Pre-fetching stock data ({prefetch_workers} workers, group={group})...")
 
     # Pre-warm shared (non-per-stock) data first so thread pool doesn't race on it
@@ -1251,7 +1251,7 @@ def _run_rolling(
     # All rolling periods reuse the same cache entry (_PRICE_FETCH_DAYS covers them all)
     max_offset       = (n_periods - 1) * step
     history_needed   = max(400, 300 + forward_days + max_offset + 10)
-    prefetch_workers = min(len(codes), max(max_workers, 16))
+    prefetch_workers = min(len(codes), max_workers)
     print(f"Pre-fetching stock data for all periods ({prefetch_workers} workers, group={group})...")
 
     if "B" in group.upper():
