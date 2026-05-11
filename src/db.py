@@ -43,6 +43,26 @@ _MIGRATIONS: list[tuple[int, str, str]] = [
         "alerted_at TEXT NOT NULL"
         ")",
     ),
+    (
+        4,
+        "snapshots: EOD per-signal snapshot for IC backtesting",
+        "CREATE TABLE IF NOT EXISTS snapshots ("
+        "id           INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "date         TEXT NOT NULL, "
+        "source       TEXT NOT NULL, "
+        "run_id       INTEGER, "
+        "code         TEXT NOT NULL, "
+        "name         TEXT, "
+        "score        REAL NOT NULL, "
+        "sell_score   REAL NOT NULL DEFAULT 0.0, "
+        "rank         INTEGER, "
+        "regime_score REAL, "
+        "regime_label TEXT, "
+        "factor_scores TEXT, "
+        "created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')), "
+        "UNIQUE(date, source, code)"
+        ")",
+    ),
 ]
 
 
@@ -118,8 +138,17 @@ def _conn() -> sqlite3.Connection:
 
     conn.commit()
 
-    # 执行尚未应用的迁移（幂等）
+    # 执行尚未应用的迁移（幂等），migration 4 会建 snapshots 表
     _apply_migrations(conn)
+
+    # snapshots 索引：表由 migration 4 创建，索引在此幂等补建
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_snap_date_src  ON snapshots(date, source)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_snap_code_date ON snapshots(code, date)"
+    )
+    conn.commit()
 
     return conn
 

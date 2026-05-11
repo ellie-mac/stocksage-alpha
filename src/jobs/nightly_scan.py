@@ -85,6 +85,24 @@ def _run_strategy(
                 f"signals={signal_count}",
                 f"regime={result.regime_label or '?'}",
             ]
+            # snapshot save: best-effort, skipped in dry-run
+            if not dry_run:
+                try:
+                    from snapshot_store import save_snapshot
+                    snap_count = save_snapshot(
+                        date=trade_date,
+                        source=strategy_name,
+                        signals=result.signals,
+                        run_id=run_id,
+                        regime_score=result.regime_score,
+                        regime_label=result.regime_label,
+                    )
+                    artifacts.append(f"snapshot={snap_count}")
+                    log.info("snapshot_saved", extra={"strategy": job_name, "rows": snap_count})
+                except Exception:
+                    snap_err = traceback.format_exc()
+                    log.error("snapshot_failed", extra={"strategy": job_name, "error": snap_err[:200]})
+                    artifacts.append("snapshot=failed")
             # publish() is best-effort: push failure doesn't mark the run as failed
             try:
                 strategy.publish(result, config, dry_run=dry_run)
