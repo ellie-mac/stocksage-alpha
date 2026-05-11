@@ -757,6 +757,42 @@ def ic_summary(ic: float, n: int, pval: float = np.nan) -> dict:
     }
 
 
+def _apply_fdr_correction(ic_results: dict, alpha: float = 0.05) -> None:
+    """Benjamini-Hochberg FDR correction across all factors (in-place).
+
+    Adds 'fdr_significant' (bool | None) to each entry.
+    Appends ,FDR✓ or ,FDR✗ to the quality label for nominally significant factors.
+    Without correction, ~50 factors tested at α=0.05 expects ~2-3 false positives.
+    """
+    testable = [(f, r["p_value"]) for f, r in ic_results.items()
+                if r.get("p_value") is not None and not np.isnan(r["p_value"])]
+    if not testable:
+        for r in ic_results.values():
+            r["fdr_significant"] = None
+        return
+
+    m = len(testable)
+    sorted_pvals = sorted(testable, key=lambda x: x[1])
+    # Find BH threshold: largest p_k ≤ (k/m) * α
+    bh_threshold = 0.0
+    for k, (_, p) in enumerate(sorted_pvals, 1):
+        if p <= k / m * alpha:
+            bh_threshold = p
+
+    for factor, r in ic_results.items():
+        p = r.get("p_value")
+        if p is None or np.isnan(p):
+            r["fdr_significant"] = None
+            continue
+        sig = p <= bh_threshold
+        r["fdr_significant"] = sig
+        q = r.get("quality", "")
+        if "p<0.01" in q:
+            r["quality"] = q.replace("p<0.01", "p<0.01,FDR✓" if sig else "p<0.01,FDR✗")
+        elif "p<0.05" in q:
+            r["quality"] = q.replace("p<0.05", "p<0.05,FDR✓" if sig else "p<0.05,FDR✗")
+
+
 def _newey_west_t(ic_series: list, lags: int = None) -> float:
     """Newey-West HAC t-statistic for mean IC, correcting for autocorrelation."""
     arr = np.array([v for v in ic_series if v is not None and not np.isnan(v)])
@@ -1039,6 +1075,8 @@ def run_analysis(
             continue
         ic, pval = spearman_ic(scores, forward_ret)
         ic_results[factor] = ic_summary(ic, n, pval)
+
+    _apply_fdr_correction(ic_results)
 
     # Sort by abs(IC) descending
     ic_results = dict(sorted(ic_results.items(),
@@ -1650,13 +1688,15 @@ if __name__ == "__main__":
         print("IC ANALYSIS RESULTS")
         print("="*70)
         if "ic_table" in result:
-            print(f"\n{'Factor':<28} {'IC':>8} {'t-stat':>8} {'p-val':>7} {'N':>5} {'Quality':<22} {'Direction'}")
-            print("-" * 90)
+            print(f"\n{'Factor':<28} {'IC':>8} {'t-stat':>8} {'p-val':>7} {'N':>5} {'FDR':>5} {'Quality':<22} {'Direction'}")
+            print("-" * 96)
             for factor, stats in result["ic_table"].items():
                 ic    = f"{stats['ic']:.4f}"    if stats["ic"]      is not None else "  N/A "
                 tstat = f"{stats['t_stat']:.2f}" if stats["t_stat"]  is not None else "  N/A"
                 pval  = f"{stats['p_value']:.4f}" if stats.get("p_value") is not None else "  N/A"
-                print(f"{factor:<28} {ic:>8} {tstat:>8} {pval:>7} {stats['n_stocks']:>5} "
+                fdr   = ("✓" if stats.get("fdr_significant") is True
+                         else ("✗" if stats.get("fdr_significant") is False else " "))
+                print(f"{factor:<28} {ic:>8} {tstat:>8} {pval:>7} {stats['n_stocks']:>5} {fdr:>5} "
                       f"{stats['quality']:<22} {stats['direction']}")
 
             print("\n" + "="*60)
