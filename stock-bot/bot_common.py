@@ -317,7 +317,6 @@ _TASK_LIST = [
     ("price_Prefetch",         "17:00", "价格缓存预热"),
     ("fundflow_Prefetch",      "17:30", "资金流向预取"),
     ("chip_Night",             "18:00", "筹码缓存"),
-    ("main_Scan",              "18:30", "主/ETF/小盘扫盘 📱"),
     ("hot_Scan",               "19:00", "热榜扫描 📱"),
     ("merge_Sessions",         "19:14", "Lark会话合并"),
     ("golden_Scan",            "19:30", "金叉扫描 📱"),
