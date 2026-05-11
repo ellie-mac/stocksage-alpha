@@ -20,10 +20,21 @@ Windows 任务计划设置（每日 00:30，即夜跑后约 2h）：
 """
 from __future__ import annotations
 
+# pythonw.exe 无控制台时 sys.stdout/stderr 为 None，所有 print() 均报错。
+# 在所有 import 之前重定向，确保即使后续 import 失败也能捕获到错误。
+import sys
+import os
+if sys.stdout is None:
+    import os as _os
+    _log_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                             "..", "..", "src", "logs")
+    _os.makedirs(_log_dir, exist_ok=True)
+    _log_fh = open(_os.path.join(_log_dir, "check_liveness.log"),
+                   "a", encoding="utf-8")
+    sys.stdout = sys.stderr = _log_fh
+
 import argparse
 import json
-import os
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -33,14 +44,6 @@ from common import push_wechat
 
 _ROOT      = Path(__file__).resolve().parent.parent.parent
 _LIVE_FILE = _ROOT / "data" / "last_run.json"
-
-# pythonw.exe 无控制台时 sys.stdout/stderr 为 None，print() 会抛 AttributeError
-# 将 stdout/stderr 重定向到日志文件，使两种执行方式均可工作
-if sys.stdout is None:
-    _log_path = _ROOT / "src" / "logs" / "check_liveness.log"
-    _log_path.parent.mkdir(parents=True, exist_ok=True)
-    _log_fh = _log_path.open("a", encoding="utf-8")
-    sys.stdout = sys.stderr = _log_fh
 _MAX_AGE_H = 25   # 超过 25h 未完成视为异常（允许夜跑最长跑到 23:xx）
 
 
