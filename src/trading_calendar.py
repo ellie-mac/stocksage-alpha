@@ -91,6 +91,17 @@ def is_trading_hours(dt: Optional[datetime] = None) -> bool:
             _AFTERNOON_OPEN <= hm <= _AFTERNOON_CLOSE)
 
 
+def nth_trading_day_before(n: int, ref: datetime | None = None) -> str | None:
+    """往前数第 n 个交易日，返回 'YYYY-MM-DD'；日历为空或不足则返回 None。"""
+    if ref is None:
+        ref = datetime.now()
+    ref_str = ref.strftime("%Y-%m-%d")
+    dates = sorted(d for d in _load_trade_dates() if d < ref_str)
+    if len(dates) < n:
+        return None
+    return dates[-n]
+
+
 def next_session_seconds() -> int:
     """Seconds until the next trading session opens."""
     now = datetime.now()

@@ -204,6 +204,20 @@ def _backup_db(backup_dir: Path | None = None) -> None:
         log.error("db_backup_failed", extra={"error": traceback.format_exc()[:300]})
 
 
+def _run_backfill(dry_run: bool) -> None:
+    """回填 forward return；best-effort，失败不影响主流程。"""
+    try:
+        from backfill_returns import run_backfill
+        summary = run_backfill(dry_run=dry_run)
+        log.info("backfill_done", extra={
+            "updated_5d": summary.get("updated_5d", 0),
+            "updated_20d": summary.get("updated_20d", 0),
+            "dry_run": dry_run,
+        })
+    except Exception:
+        log.error("backfill_error", extra={"error": traceback.format_exc()[:300]})
+
+
 def _pre_run_checks(force: bool = False) -> bool:
     """前置质量门控：交易日检查。
     返回 True 表示可以继续，False 表示应跳过。
@@ -278,6 +292,7 @@ def main() -> None:
     _write_liveness(trade_date, attempted, succeeded, failures,
                     time.monotonic() - t_total)
     _backup_db()
+    _run_backfill(args.dry_run)
 
     print(f"\n[nightly_scan {_ts()}] 全部完成 ({succeeded}/{attempted} 成功)")
     log.info("nightly_scan_finished", extra={"succeeded": succeeded, "attempted": attempted})

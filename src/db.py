@@ -63,6 +63,9 @@ _MIGRATIONS: list[tuple[int, str, str]] = [
         "UNIQUE(date, source, code)"
         ")",
     ),
+    (5, "snapshots: add price column",  "ALTER TABLE snapshots ADD COLUMN price REAL"),
+    (6, "snapshots: add ret_5d column", "ALTER TABLE snapshots ADD COLUMN ret_5d REAL"),
+    (7, "snapshots: add ret_20d column","ALTER TABLE snapshots ADD COLUMN ret_20d REAL"),
 ]
 
 
