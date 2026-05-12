@@ -23,7 +23,12 @@ for name in TASKS:
         print(f"{name}: export failed - {r.stderr}")
         continue
 
-    xml = r.stdout.decode("utf-16-le", errors="replace")
+    # schtasks /query /xml 输出 UTF-16 LE with BOM；用 utf-16 自动剥离 BOM
+    raw = r.stdout
+    if raw[:2] in (b'\xff\xfe', b'\xfe\xff'):
+        xml = raw.decode("utf-16", errors="replace")
+    else:
+        xml = raw.decode("utf-16-le", errors="replace")
 
     if "-NoProfile" in xml:
         print(f"{name}: already has -NoProfile, skipped")
@@ -31,8 +36,9 @@ for name in TASKS:
 
     fixed = xml.replace("-NonInteractive", "-NoProfile -NonInteractive")
 
-    with open(TMP_FIXED, "w", encoding="utf-16") as f:
-        f.write(fixed)
+    # 写回 UTF-16 LE with BOM（schtasks /create /xml 要求）
+    with open(TMP_FIXED, "wb") as f:
+        f.write(fixed.encode("utf-16"))
 
     subprocess.run(["schtasks", "/delete", "/tn", name, "/f"], capture_output=True)
     r2 = subprocess.run(["schtasks", "/create", "/tn", name, "/xml", TMP_FIXED, "/f"], capture_output=True)
@@ -43,7 +49,8 @@ for name in TASKS:
 print("\n=== 验证 ===")
 for name in TASKS:
     r = subprocess.run(["schtasks", "/query", "/xml", "/tn", name], capture_output=True)
-    xml = r.stdout.decode("utf-16-le", errors="replace")
+    raw = r.stdout
+    xml = raw.decode("utf-16", errors="replace") if raw[:2] in (b'\xff\xfe', b'\xfe\xff') else raw.decode("utf-16-le", errors="replace")
     import re
     m = re.search(r"<Arguments>(.*?)</Arguments>", xml)
     args = m.group(1) if m else "?"
