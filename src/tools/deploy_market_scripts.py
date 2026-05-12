@@ -37,7 +37,7 @@ today = date.today().strftime("%Y%m%d")
 try:
     import akshare as ak
     zt = ak.stock_zt_pool_em(date=today)
-    dt = ak.stock_dt_pool_em(date=today)
+    dt = ak.stock_zt_pool_dtgc_em(date=today)
     if zt is not None:
         out["limit_up"] = int(len(zt))
     if dt is not None:
@@ -45,16 +45,16 @@ try:
 except Exception:
     pass
 
-# --- sector movers ---
+# --- sector movers (THS, accessible from overseas) ---
 try:
     import akshare as ak
     import pandas as pd
-    df = ak.stock_board_industry_name_em()
+    df = ak.stock_board_industry_summary_ths()
     if df is not None and not df.empty:
         df["涨跌幅"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
         df = df.dropna(subset=["涨跌幅"]).sort_values("涨跌幅", ascending=False)
         def _row(r):
-            return {"name": r["板块名称"], "pct": round(float(r["涨跌幅"]), 2)}
+            return {"name": r["板块"], "pct": round(float(r["涨跌幅"]), 2)}
         out["sectors_top"] = [_row(r) for _, r in df.head(3).iterrows()]
         out["sectors_bot"] = [_row(r) for _, r in df.tail(3).iloc[::-1].iterrows()]
 except Exception:
