@@ -170,7 +170,7 @@ def _run_strategy(
                 artifacts = res.get("artifacts")
                 if ok and not artifacts:
                     artifacts = []
-                if ok and not any(a.startswith("signals=") for a in (artifacts or [])):
+                if ok and any(a == "signals=0" for a in (artifacts or [])):
                     log.warning("strategy_zero_signals", extra={"strategy": job_name, "trade_date": trade_date})
                 if not ok:
                     log.error("strategy_failed", extra={"strategy": job_name, "error": (err_msg or "")[:300]})
