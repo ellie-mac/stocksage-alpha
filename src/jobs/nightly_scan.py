@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
+import subprocess
 import sys
 import os
 import socket
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -38,10 +39,75 @@ log = get_logger("nightly_scan")
 
 _STRATEGY_TIMEOUT_SEC = 3600   # 每个策略最长 60 分钟
 _SOCKET_TIMEOUT_SEC   = 120    # 单次 akshare HTTP 调用最长 2 分钟
+_BACKFILL_TIMEOUT_SEC = 300    # backfill 最长 5 分钟
 
 
 def _ts() -> str:
     return datetime.now().strftime("%H:%M:%S")
+
+
+def _strategy_worker(
+    strategy_name: str,
+    config: dict,
+    dry_run: bool,
+    run_id: int,
+    trade_date: str,
+    result_q: "multiprocessing.Queue",
+) -> None:
+    """Runs in a child process. Returns result via Queue so the parent can kill()
+    the entire process tree on timeout — unlike threads, which cannot be forcibly
+    stopped and would keep the nightly_scan process alive for hours."""
+    _src_dir = Path(__file__).resolve().parent.parent
+    for _p in [str(_src_dir), str(_src_dir / "jobs"), str(_src_dir / "strategies")]:
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+
+    import traceback as _tb
+    ok = False
+    err_msg = None
+    artifacts = None
+
+    try:
+        from logger import bind_run_id as _bind
+        _bind(run_id)
+
+        from strategies.base import get_strategy
+        strategy = get_strategy(strategy_name)
+        result = strategy.run(config, dry_run=dry_run)
+
+        ok = not result.metadata.get("failed", False)
+        if not ok:
+            err_msg = result.metadata.get("error", "strategy reported failed")
+        else:
+            signal_count = len(result.signals)
+            artifacts = [
+                f"signals={signal_count}",
+                f"regime={result.regime_label or '?'}",
+            ]
+            if not dry_run:
+                try:
+                    from snapshot_store import save_snapshot
+                    snap_count = save_snapshot(
+                        date=trade_date,
+                        source=strategy_name,
+                        signals=result.signals,
+                        run_id=run_id,
+                        regime_score=result.regime_score,
+                        regime_label=result.regime_label,
+                    )
+                    artifacts.append(f"snapshot={snap_count}")
+                except Exception:
+                    artifacts.append("snapshot=failed")
+            try:
+                strategy.publish(result, config, dry_run=dry_run)
+            except Exception:
+                artifacts.append("publish=failed")
+                print(f"[strategy_worker] publish failed:\n{_tb.format_exc()}")
+    except Exception:
+        err_msg = _tb.format_exc()
+        print(f"[strategy_worker] exception:\n{err_msg}")
+
+    result_q.put({"ok": ok, "err_msg": err_msg, "artifacts": artifacts})
 
 
 def _load_config() -> dict:
@@ -74,57 +140,43 @@ def _run_strategy(
     artifacts: list[str] | None = None
 
     try:
-        from strategies.base import get_strategy
-        strategy = get_strategy(strategy_name)
-        _ex = ThreadPoolExecutor(max_workers=1)
-        _fut = _ex.submit(strategy.run, config, dry_run=dry_run)
-        try:
-            result = _fut.result(timeout=_STRATEGY_TIMEOUT_SEC)
-        except _FuturesTimeout:
-            _ex.shutdown(wait=False)
+        result_q: multiprocessing.Queue = multiprocessing.Queue()
+        proc = multiprocessing.Process(
+            target=_strategy_worker,
+            args=(strategy_name, config, dry_run, run_id, trade_date, result_q),
+            daemon=False,
+        )
+        proc.start()
+        proc.join(timeout=_STRATEGY_TIMEOUT_SEC)
+
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(10)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(5)
             raise TimeoutError(
                 f"{label} 运行超时 ({_STRATEGY_TIMEOUT_SEC // 60} 分钟)"
             )
-        _ex.shutdown(wait=False)
 
-        ok = not result.metadata.get("failed", False)
-        if not ok:
-            err_msg = result.metadata.get("error", "strategy reported failed")
-            log.error("strategy_failed", extra={"strategy": job_name, "error": (err_msg or "")[:300]})
+        if proc.exitcode != 0:
+            err_msg = f"{label} subprocess 退出码 {proc.exitcode}"
+            log.error("strategy_error", extra={"strategy": job_name, "error": err_msg})
         else:
-            signal_count = len(result.signals)
-            if signal_count == 0:
-                log.warning("strategy_zero_signals", extra={"strategy": job_name, "trade_date": trade_date})
-            artifacts = [
-                f"signals={signal_count}",
-                f"regime={result.regime_label or '?'}",
-            ]
-            # snapshot save: best-effort, skipped in dry-run
-            if not dry_run:
-                try:
-                    from snapshot_store import save_snapshot
-                    snap_count = save_snapshot(
-                        date=trade_date,
-                        source=strategy_name,
-                        signals=result.signals,
-                        run_id=run_id,
-                        regime_score=result.regime_score,
-                        regime_label=result.regime_label,
-                    )
-                    artifacts.append(f"snapshot={snap_count}")
-                    log.info("snapshot_saved", extra={"strategy": job_name, "rows": snap_count})
-                except Exception:
-                    snap_err = traceback.format_exc()
-                    log.error("snapshot_failed", extra={"strategy": job_name, "error": snap_err[:200]})
-                    artifacts.append("snapshot=failed")
-            # publish() is best-effort: push failure doesn't mark the run as failed
             try:
-                strategy.publish(result, config, dry_run=dry_run)
+                res = result_q.get_nowait()
+                ok = res.get("ok", False)
+                err_msg = res.get("err_msg")
+                artifacts = res.get("artifacts")
+                if ok and not artifacts:
+                    artifacts = []
+                if ok and not any(a.startswith("signals=") for a in (artifacts or [])):
+                    log.warning("strategy_zero_signals", extra={"strategy": job_name, "trade_date": trade_date})
+                if not ok:
+                    log.error("strategy_failed", extra={"strategy": job_name, "error": (err_msg or "")[:300]})
             except Exception:
-                pub_err = traceback.format_exc()
-                print(f"[nightly_scan] {label} 推送失败:\n{pub_err}")
-                log.error("publish_failed", extra={"strategy": job_name, "error": pub_err[:300]})
-                artifacts.append("publish=failed")
+                err_msg = "subprocess 未返回结果"
+                log.error("strategy_error", extra={"strategy": job_name, "error": err_msg})
 
     except Exception:
         err_msg = traceback.format_exc()
@@ -219,15 +271,28 @@ def _backup_db(backup_dir: Path | None = None) -> None:
 
 
 def _run_backfill(dry_run: bool) -> None:
-    """回填 forward return；best-effort，失败不影响主流程。"""
+    """回填 forward return；best-effort，失败不影响主流程。
+    用子进程运行，_BACKFILL_TIMEOUT_SEC 到期后强制终止，避免 baostock 锁竞争导致无限阻塞。
+    """
     try:
-        from backfill_returns import run_backfill
-        summary = run_backfill(dry_run=dry_run)
-        log.info("backfill_done", extra={
-            "updated_5d": summary.get("updated_5d", 0),
-            "updated_20d": summary.get("updated_20d", 0),
-            "dry_run": dry_run,
-        })
+        script = str(_ROOT / "src" / "jobs" / "backfill_returns.py")
+        cmd = [sys.executable, "-X", "utf8", script]
+        if dry_run:
+            cmd.append("--dry-run")
+        result = subprocess.run(
+            cmd,
+            timeout=_BACKFILL_TIMEOUT_SEC,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if result.returncode == 0:
+            log.info("backfill_done", extra={"output": result.stdout.strip()[:200], "dry_run": dry_run})
+        else:
+            log.error("backfill_error", extra={"returncode": result.returncode,
+                                                "stderr": result.stderr.strip()[:300]})
+    except subprocess.TimeoutExpired:
+        log.error("backfill_timeout", extra={"timeout_sec": _BACKFILL_TIMEOUT_SEC})
     except Exception:
         log.error("backfill_error", extra={"error": traceback.format_exc()[:300]})
 
