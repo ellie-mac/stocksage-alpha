@@ -102,10 +102,19 @@ def _strategy_worker(
                 strategy.publish(result, config, dry_run=dry_run)
             except Exception:
                 artifacts.append("publish=failed")
-                print(f"[strategy_worker] publish failed:\n{_tb.format_exc()}")
+                _sys_stderr = sys.stderr
+                try:
+                    _sys_stderr.buffer.write(f"[strategy_worker] publish failed:\n{_tb.format_exc()}\n".encode("utf-8", errors="replace"))
+                    _sys_stderr.buffer.flush()
+                except Exception:
+                    pass
     except Exception:
         err_msg = _tb.format_exc()
-        print(f"[strategy_worker] exception:\n{err_msg}")
+        try:
+            sys.stderr.buffer.write(f"[strategy_worker] exception:\n{err_msg}\n".encode("utf-8", errors="replace"))
+            sys.stderr.buffer.flush()
+        except Exception:
+            pass
 
     result_q.put({"ok": ok, "err_msg": err_msg, "artifacts": artifacts})
 
@@ -376,6 +385,8 @@ def main() -> None:
 
     print(f"\n[nightly_scan {_ts()}] 全部完成 ({succeeded}/{attempted} 成功)")
     log.info("nightly_scan_finished", extra={"succeeded": succeeded, "attempted": attempted})
+    if failures:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
