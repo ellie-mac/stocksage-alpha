@@ -130,6 +130,8 @@ _hot_rank_cache_lock = threading.Lock()
 # calls are safe.  Use an Event to signal that V8 is ready after the first call.
 _v8_lock = threading.Lock()
 _v8_initialised = threading.Event()
+_v8_em_fail_count = 0   # circuit breaker: skip EM fundflow after 3 consecutive failures
+_EM_FAIL_THRESHOLD = 3
 
 _bs_module = None        # baostock module, None if unavailable
 _bs_lock = threading.Lock()
@@ -1135,22 +1137,27 @@ def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
     if cached is not None:
         return cached.tail(days).reset_index(drop=True)
     df = None
-    try:
-        market = _market_from_code(code)
-        if not _v8_initialised.is_set():
-            with _v8_lock:
-                df = _call_with_timeout(ak.stock_individual_fund_flow, 25.0, stock=code, market=market)
-                if df is not None:
-                    _v8_initialised.set()
-        else:
-            df = _call_with_timeout(ak.stock_individual_fund_flow, 25.0, stock=code, market=market)
-        if df is not None and not df.empty:
-            df.columns = [c.strip() for c in df.columns]
-        else:
+    global _v8_em_fail_count
+    if _v8_em_fail_count < _EM_FAIL_THRESHOLD:
+        try:
+            market = _market_from_code(code)
+            if not _v8_initialised.is_set():
+                with _v8_lock:
+                    df = _call_with_timeout(ak.stock_individual_fund_flow, 5.0, stock=code, market=market)
+                    if df is not None:
+                        _v8_initialised.set()
+            else:
+                df = _call_with_timeout(ak.stock_individual_fund_flow, 5.0, stock=code, market=market)
+            if df is not None and not df.empty:
+                df.columns = [c.strip() for c in df.columns]
+                _v8_em_fail_count = 0
+            else:
+                df = None
+                _v8_em_fail_count += 1
+        except Exception:
+            log.warning("src_degraded", extra={"source": "fundflow_em", "code": code, "error": _traceback.format_exc()[:200]})
+            _v8_em_fail_count += 1
             df = None
-    except Exception:
-        log.warning("src_degraded", extra={"source": "fundflow_em", "code": code, "error": _traceback.format_exc()[:200]})
-        df = None
     if df is None or df.empty:
         return None
     df = df.tail(_FUND_FLOW_MAX_DAYS).reset_index(drop=True)
