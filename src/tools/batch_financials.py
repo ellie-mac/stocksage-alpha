@@ -34,7 +34,7 @@ _TS_FIELDS = "ts_code,ann_date,end_date,roe,grossprofit_margin,debt_to_assets,re
 def _get_pro():
     try:
         import tushare as ts
-        cfg_path = os.path.join(os.path.dirname(__file__), "..", "alert_config.json")
+        cfg_path = os.path.join(os.path.dirname(__file__), "..", "..", "alert_config.json")
         with open(cfg_path, encoding="utf-8") as f:
             token = json.load(f).get("tushare", {}).get("token", "")
         if not token:
