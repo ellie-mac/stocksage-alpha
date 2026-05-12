@@ -12,6 +12,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional
 import cache
+import traceback as _traceback
+from logger import get_logger as _get_logger
+
+log = _get_logger("fetcher")
 
 _quality_warned: set[str] = set()   # (code, date_str) pairs already warned today
 
@@ -232,10 +236,10 @@ def normalize_code(code: str) -> str:
 
 
 def _market_from_code(code: str) -> str:
-    """Infer exchange from code prefix: 6xx -> sh, 8xx/43xxxx -> bj, others -> sz."""
+    """Infer exchange from code prefix: 6xx -> sh, 8xx/43xx/92xx -> bj, others -> sz."""
     if code.startswith("6"):
         return "sh"
-    if code.startswith("8") or code.startswith("43"):
+    if code.startswith("8") or code.startswith("43") or code.startswith("92"):
         return "bj"
     return "sz"
 
@@ -682,8 +686,10 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                     return df
         except ImportError:
             _src_fail["hist_tdx"][1] = _time.time(); _src_fail["hist_tdx"][0] = True
+            log.warning("src_degraded", extra={"source": "hist_tdx", "code": code, "reason": "ImportError"})
         except Exception:
             _src_fail["hist_tdx"][1] = _time.time(); _src_fail["hist_tdx"][0] = True
+            log.warning("src_degraded", extra={"source": "hist_tdx", "code": code})
 
     # ── Source 2: East Money ─────────────────────────────────────────────
     if not _src_fail["hist_em"][0]:
@@ -713,6 +719,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                 return df
             except Exception:
                 _src_fail["hist_em"][1] = _time.time(); _src_fail["hist_em"][0] = True
+                log.warning("src_degraded", extra={"source": "hist_em", "code": code})
 
     # ── Source 3: Tushare Pro daily (adj=qfq) ────────────────────────────
     # Basic tier (120pts), 500 calls/min, data available ~15:00-16:00 each day.
@@ -750,6 +757,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                             return df
             except Exception:
                 _src_fail["hist_ts"][1] = _time.time(); _src_fail["hist_ts"][0] = True
+                log.warning("src_degraded", extra={"source": "hist_ts", "code": code})
 
     # ── Source 4: Tencent Finance (stock_zh_a_hist_tx) ─────────────────────
     # Fully concurrent (no global lock), independent server (qq.com/gtimg.cn).
@@ -782,6 +790,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                         return df
         except Exception:
             _src_fail["hist_tx"][1] = _time.time(); _src_fail["hist_tx"][0] = True
+            log.warning("src_degraded", extra={"source": "hist_tx", "code": code})
 
     # ── Source 5: BaoStock (free, no V8, reliable; serialised by _bs_lock) ──
     # BaoStock's Python client is NOT thread-safe: all concurrent callers share
@@ -867,7 +876,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                             return df.tail(days).reset_index(drop=True)
                         return df
     except Exception:
-        pass
+        log.warning("src_degraded", extra={"source": "hist_bs_outer", "code": code, "error": _traceback.format_exc()[:200]})
 
     # ── Source 6: 163/Netease via stock_zh_a_daily (V8 — last resort) ───
     # Note: 163/Netease does not carry BJ exchange stocks; they will 404 silently.
@@ -900,8 +909,9 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
         cache.set_df(cache_key, df)
         return df
     except Exception:
-        pass
+        log.warning("src_degraded", extra={"source": "hist_163", "code": code, "error": _traceback.format_exc()[:200]})
 
+    log.warning("price_fetch_all_failed", extra={"code": code})
     return None
 
 
@@ -1001,7 +1011,7 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
             cache.set_df(cache_key, df)
             return df
     except Exception:
-        pass
+        log.warning("src_degraded", extra={"source": "financial_em", "code": code, "error": _traceback.format_exc()[:200]})
 
     # ── Source 2: akshare THS abstract (fallback) ────────────────────────
     try:
@@ -1029,7 +1039,7 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
             cache.set_df(cache_key, df)
             return df
     except Exception:
-        pass
+        log.warning("src_degraded", extra={"source": "financial_ths", "code": code, "error": _traceback.format_exc()[:200]})
 
     # ── Stale cache fallback (all sources down) ───────────────────────────
     # Financial reports change quarterly; 30-day-old data is still valid for scoring.
@@ -1139,6 +1149,7 @@ def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
         else:
             df = None
     except Exception:
+        log.warning("src_degraded", extra={"source": "fundflow_em", "code": code, "error": _traceback.format_exc()[:200]})
         df = None
     if df is None or df.empty:
         return None

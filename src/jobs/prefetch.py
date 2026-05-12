@@ -69,7 +69,8 @@ def prefetch_price(force: bool = False) -> None:
     t0 = time.time()
 
     def _warm_one(code: str) -> str:
-        cached = _cache.get_df(f"price_{code}_550", ttl)
+        norm = fetcher.normalize_code(code)
+        cached = _cache.get_df(f"price_{norm}_550", ttl)
         if cached is not None:
             return "skip"
         df = fetcher.get_price_history(code, days=365)
