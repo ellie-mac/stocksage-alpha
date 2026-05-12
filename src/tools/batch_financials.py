@@ -5,21 +5,15 @@ Nightly batch job: pre-compute key financial metrics for all A-share stocks.
 Output : .cache/batch_financials.csv
 Columns: code, roe, gross_margin, debt_ratio, revenue_growth, profit_growth
 
-Usage:
-  python batch_financials.py              # full run, resumes if interrupted
-  python batch_financials.py --max 200    # process first 200 stocks (testing)
-  python batch_financials.py --no-resume  # reprocess everything from scratch
-
-Recommended schedule (Windows Task Scheduler or cron):
-  22:30 daily via main_Night — tushare fina_indicator works from non-CN IPs
+Data source: baostock (free, accessible from non-CN IPs)
+Runs via main_Night at 22:30 daily.
 """
 
 import sys
 import os
-import json
 import time
 import argparse
-from datetime import datetime
+from datetime import datetime, date
 
 import pandas as pd
 
@@ -27,48 +21,35 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 BATCH_FILE = os.path.join(os.path.dirname(__file__), ".cache", "batch_financials.csv")
-RATE_DELAY = 0.35  # seconds between tushare calls
-_TS_FIELDS = "ts_code,ann_date,end_date,roe,grossprofit_margin,debt_to_assets,revenue_yoy,netprofit_yoy"
+RATE_DELAY = 0.05   # seconds between baostock calls; it's a TCP socket, not HTTP, so fast
 
 
-def _get_pro():
-    try:
-        import tushare as ts
-        cfg_path = os.path.join(os.path.dirname(__file__), "..", "..", "alert_config.json")
-        with open(cfg_path, encoding="utf-8") as f:
-            token = json.load(f).get("tushare", {}).get("token", "")
-        if not token:
-            return None
-        ts.set_token(token)
-        return ts.pro_api()
-    except Exception:
-        return None
+def _latest_quarter() -> tuple[int, int]:
+    """Return (year, quarter) of the most recently available quarterly report."""
+    today = date.today()
+    y, m = today.year, today.month
+    if m >= 10:
+        return y, 3
+    elif m >= 8:
+        return y, 2
+    elif m >= 5:
+        return y, 1
+    else:
+        return y - 1, 4
 
 
-def _code_to_ts(code: str) -> str:
-    return code + (".SH" if code.startswith("6") else ".SZ")
+def _code_to_bs(code: str) -> str:
+    return ("sh." if code.startswith("6") else "sz.") + code
 
 
 def _safe_float(v) -> float | None:
+    if v is None or v == "":
+        return None
     try:
         f = float(v)
         return None if (f != f) else f
     except Exception:
         return None
-
-
-def _fetch_one(pro, ts_code: str) -> dict | None:
-    df = pro.fina_indicator(ts_code=ts_code, start_date="20220101", fields=_TS_FIELDS)
-    if df is None or df.empty:
-        return None
-    row = df.iloc[0]
-    return {
-        "roe":            _safe_float(row.get("roe")),
-        "gross_margin":   _safe_float(row.get("grossprofit_margin")),
-        "debt_ratio":     _safe_float(row.get("debt_to_assets")),
-        "revenue_growth": _safe_float(row.get("revenue_yoy")),
-        "profit_growth":  _safe_float(row.get("netprofit_yoy")),
-    }
 
 
 def _flush(rows: list[dict], path: str, append: bool) -> None:
@@ -80,10 +61,17 @@ def _flush(rows: list[dict], path: str, append: bool) -> None:
 
 def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
     """Return number of stocks successfully written."""
-    pro = _get_pro()
-    if pro is None:
-        print("[error] tushare Pro not available — check alert_config.json token", flush=True)
+    try:
+        import baostock as bs
+    except ImportError:
+        print("[error] baostock not installed — pip install baostock", flush=True)
         return 0
+
+    lg = bs.login()
+    if lg.error_code != "0":
+        print(f"[error] baostock login failed: {lg.error_msg}", flush=True)
+        return 0
+    print("baostock login ok", flush=True)
 
     os.makedirs(os.path.dirname(BATCH_FILE), exist_ok=True)
 
@@ -100,7 +88,8 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
     from common import get_spot_em
     spot = get_spot_em()
     if spot is None or spot.empty or "代码" not in spot.columns:
-        print("[error] Cannot fetch market list — EM spot data unavailable")
+        print("[error] Cannot fetch market list")
+        bs.logout()
         sys.exit(1)
     all_codes: list[str] = spot["代码"].astype(str).str.zfill(6).tolist()
 
@@ -113,35 +102,70 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
 
     if total == 0:
         print("Cache is up to date, nothing to do.")
+        bs.logout()
         return 0
 
-    PROBE_N = 3
+    year, quarter = _latest_quarter()
+    print(f"Querying {year}Q{quarter} financial data", flush=True)
+
+    # Probe: try first 3 stocks
     probe_ok = 0
-    for probe_code in pending[:PROBE_N]:
+    for probe_code in pending[:3]:
         try:
-            r = _fetch_one(pro, _code_to_ts(probe_code))
-            if r is not None:
+            rs = bs.query_profit_data(code=_code_to_bs(probe_code), year=year, quarter=quarter)
+            data = []
+            while rs.error_code == "0" and rs.next():
+                data.append(rs.get_row_data())
+            if data:
                 probe_ok += 1
         except Exception:
             pass
         time.sleep(RATE_DELAY)
     if probe_ok == 0:
-        print(f"[warn] Network probe failed ({PROBE_N}/{PROBE_N} stocks) — "
-              f"tushare fina_indicator unreachable. Skipping batch.", flush=True)
+        print("[warn] baostock probe failed — no financial data available. Skipping batch.", flush=True)
+        bs.logout()
         return 0
 
     buffer: list[dict] = []
     n_done = 0
-    flush_every = 100
+    flush_every = 200
 
     for i, code in enumerate(pending):
+        bs_code = _code_to_bs(code)
         try:
-            metrics = _fetch_one(pro, _code_to_ts(code))
-            if metrics is None:
+            rs_p = bs.query_profit_data(code=bs_code, year=year, quarter=quarter)
+            p_rows = []
+            while rs_p.error_code == "0" and rs_p.next():
+                p_rows.append(rs_p.get_row_data())
+
+            rs_g = bs.query_growth_data(code=bs_code, year=year, quarter=quarter)
+            g_rows = []
+            while rs_g.error_code == "0" and rs_g.next():
+                g_rows.append(rs_g.get_row_data())
+
+            rs_b = bs.query_balance_data(code=bs_code, year=year, quarter=quarter)
+            b_rows = []
+            while rs_b.error_code == "0" and rs_b.next():
+                b_rows.append(rs_b.get_row_data())
+
+            if not p_rows and not g_rows and not b_rows:
                 continue
-            row = {"code": code, "updated_at": datetime.now().strftime("%Y-%m-%d"), **metrics}
-            buffer.append(row)
+
+            p = dict(zip(rs_p.fields, p_rows[0])) if p_rows else {}
+            g = dict(zip(rs_g.fields, g_rows[0])) if g_rows else {}
+            b = dict(zip(rs_b.fields, b_rows[0])) if b_rows else {}
+
+            buffer.append({
+                "code":           code,
+                "updated_at":     datetime.now().strftime("%Y-%m-%d"),
+                "roe":            _safe_float(p.get("roeAvg")),
+                "gross_margin":   _safe_float(p.get("gpMargin")),
+                "debt_ratio":     _safe_float(b.get("liabilityToAsset")),
+                "revenue_growth": None,
+                "profit_growth":  _safe_float(g.get("YOYNI")),
+            })
             n_done += 1
+
         except Exception as e:
             print(f"  [skip] {code}: {type(e).__name__}: {e}")
 
@@ -151,11 +175,12 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
             _flush(buffer, BATCH_FILE, append=True)
             buffer = []
             pct = (i + 1) / total * 100
-            print(f"  {i+1}/{total} ({pct:.1f}%)  [{datetime.now():%H:%M:%S}]")
+            print(f"  {i+1}/{total} ({pct:.1f}%)  [{datetime.now():%H:%M:%S}]", flush=True)
 
     if buffer:
         _flush(buffer, BATCH_FILE, append=True)
 
+    bs.logout()
     print(f"\nDone. {n_done}/{total} stocks written. Output: {BATCH_FILE}")
     return n_done
 
