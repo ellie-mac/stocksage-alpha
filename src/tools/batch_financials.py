@@ -11,66 +11,67 @@ Usage:
   python batch_financials.py --no-resume  # reprocess everything from scratch
 
 Recommended schedule (Windows Task Scheduler or cron):
-  02:00 AM daily  — market is closed, API load is low
+  22:30 daily via main_Night — tushare fina_indicator works from non-CN IPs
 """
 
 import sys
 import os
-import threading
+import json
 import time
 import argparse
 from datetime import datetime
 
 import pandas as pd
-import akshare as ak
-
-
-def _call_with_timeout(fn, timeout: float, *args, **kwargs):
-    """Run fn(*args, **kwargs) in a daemon thread; raise TimeoutError if it doesn't finish in time."""
-    result: list = [None]
-    exc:    list = [None]
-    def _run():
-        try:
-            result[0] = fn(*args, **kwargs)
-        except Exception as e:
-            exc[0] = e
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    t.join(timeout=timeout)
-    if t.is_alive():
-        raise TimeoutError(f"{getattr(fn, '__name__', str(fn))} timed out after {timeout}s")
-    if exc[0]:
-        raise exc[0]
-    return result[0]
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 BATCH_FILE = os.path.join(os.path.dirname(__file__), ".cache", "batch_financials.csv")
-RATE_DELAY = 0.35   # seconds between API calls to avoid rate-limiting
-
-# Map output column name -> list of possible source column names in akshare
-METRIC_COLUMNS: dict[str, list[str]] = {
-    "roe":            ["净资产收益率(%)", "加权净资产收益率(%)"],
-    "gross_margin":   ["销售毛利率(%)", "毛利率(%)"],
-    "debt_ratio":     ["资产负债率(%)", "负债率(%)"],
-    "revenue_growth": ["营业收入增长率(%)", "营收增长率", "总营收同比增长率(%)"],
-    "profit_growth":  ["净利润增长率(%)", "净利润同比增长率(%)", "归母净利润增长率(%)"],
-}
+RATE_DELAY = 0.35  # seconds between tushare calls
+_TS_FIELDS = "ts_code,ann_date,end_date,roe,grossprofit_margin,debt_to_assets,revenue_yoy,netprofit_yoy"
 
 
-def _extract(df: pd.DataFrame, col_candidates: list[str]) -> float | None:
-    """Return the most recent non-null value for the first matching column."""
-    for col in col_candidates:
-        if col in df.columns:
-            vals = pd.to_numeric(df[col], errors="coerce").dropna()
-            if not vals.empty:
-                return float(vals.iloc[0])
-    return None
+def _get_pro():
+    try:
+        import tushare as ts
+        cfg_path = os.path.join(os.path.dirname(__file__), "..", "alert_config.json")
+        with open(cfg_path, encoding="utf-8") as f:
+            token = json.load(f).get("tushare", {}).get("token", "")
+        if not token:
+            return None
+        ts.set_token(token)
+        return ts.pro_api()
+    except Exception:
+        return None
+
+
+def _code_to_ts(code: str) -> str:
+    return code + (".SH" if code.startswith("6") else ".SZ")
+
+
+def _safe_float(v) -> float | None:
+    try:
+        f = float(v)
+        return None if (f != f) else f
+    except Exception:
+        return None
+
+
+def _fetch_one(pro, ts_code: str) -> dict | None:
+    df = pro.fina_indicator(ts_code=ts_code, start_date="20220101", fields=_TS_FIELDS)
+    if df is None or df.empty:
+        return None
+    row = df.iloc[0]
+    return {
+        "roe":            _safe_float(row.get("roe")),
+        "gross_margin":   _safe_float(row.get("grossprofit_margin")),
+        "debt_ratio":     _safe_float(row.get("debt_to_assets")),
+        "revenue_growth": _safe_float(row.get("revenue_yoy")),
+        "profit_growth":  _safe_float(row.get("netprofit_yoy")),
+    }
 
 
 def _flush(rows: list[dict], path: str, append: bool) -> None:
-    """Append or write rows to the CSV output file."""
     df = pd.DataFrame(rows)
     mode = "a" if append and os.path.exists(path) else "w"
     header = not (append and os.path.exists(path))
@@ -79,9 +80,13 @@ def _flush(rows: list[dict], path: str, append: bool) -> None:
 
 def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
     """Return number of stocks successfully written."""
+    pro = _get_pro()
+    if pro is None:
+        print("[error] tushare Pro not available — check alert_config.json token", flush=True)
+        return 0
+
     os.makedirs(os.path.dirname(BATCH_FILE), exist_ok=True)
 
-    # Optionally resume from a previous interrupted run
     already_done: set[str] = set()
     if resume and os.path.exists(BATCH_FILE):
         try:
@@ -91,7 +96,6 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
         except Exception:
             pass
 
-    # Full market quote to get the list of all codes
     print("Fetching full market quote list...")
     from common import get_spot_em
     spot = get_spot_em()
@@ -111,38 +115,33 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
         print("Cache is up to date, nothing to do.")
         return 0
 
-    # Network probe: try first 5 stocks before committing to the full run.
-    # If all probe attempts fail, the API endpoint is likely unreachable from this VM.
-    PROBE_N = 5
+    PROBE_N = 3
     probe_ok = 0
     for probe_code in pending[:PROBE_N]:
         try:
-            df = _call_with_timeout(ak.stock_financial_analysis_indicator, 15, symbol=probe_code, start_year="2022")
-            if df is not None and not df.empty:
+            r = _fetch_one(pro, _code_to_ts(probe_code))
+            if r is not None:
                 probe_ok += 1
         except Exception:
             pass
+        time.sleep(RATE_DELAY)
     if probe_ok == 0:
-        print(f"[warn] Network probe failed ({PROBE_N}/{PROBE_N} stocks unreachable) — "
-              f"ak.stock_financial_analysis_indicator not accessible from this host. Skipping batch.", flush=True)
+        print(f"[warn] Network probe failed ({PROBE_N}/{PROBE_N} stocks) — "
+              f"tushare fina_indicator unreachable. Skipping batch.", flush=True)
         return 0
 
     buffer: list[dict] = []
     n_done = 0
-    flush_every = 100   # write to disk every N stocks
+    flush_every = 100
 
     for i, code in enumerate(pending):
         try:
-            df = _call_with_timeout(ak.stock_financial_analysis_indicator, 30, symbol=code, start_year="2022")
-            if df is None or df.empty:
+            metrics = _fetch_one(pro, _code_to_ts(code))
+            if metrics is None:
                 continue
-
-            row: dict = {"code": code, "updated_at": datetime.now().strftime("%Y-%m-%d")}
-            for out_col, candidates in METRIC_COLUMNS.items():
-                row[out_col] = _extract(df, candidates)
+            row = {"code": code, "updated_at": datetime.now().strftime("%Y-%m-%d"), **metrics}
             buffer.append(row)
             n_done += 1
-
         except Exception as e:
             print(f"  [skip] {code}: {type(e).__name__}: {e}")
 

@@ -1117,13 +1117,13 @@ def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
     Fetch per-stock order-flow breakdown (large / medium / small orders).
     Used as an institutional money-flow proxy.
     Always fetches _FUND_FLOW_MAX_DAYS rows so the cache key is days-agnostic.
-    Primary source: EastMoney (ak). Fallback: tushare moneyflow_ths.
+    Source: EastMoney (ak). Returns None on cache miss if EM unreachable; use fundflow_Prefetch to warm cache.
+    Per-stock tushare fallback removed — it shared the 2/day moneyflow_ths quota with fundflow_Prefetch.
     """
     cache_key = f"fundflow_{code}"
     cached = cache.get_df(cache_key, cache.smart_price_ttl())
     if cached is not None:
         return cached.tail(days).reset_index(drop=True)
-    # Source 1: EastMoney (full large/medium/small breakdown)
     df = None
     try:
         market = _market_from_code(code)
@@ -1140,9 +1140,6 @@ def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
             df = None
     except Exception:
         df = None
-    # Source 2: tushare moneyflow_ths (fallback when EM is unreachable)
-    if df is None:
-        df = _fetch_fund_flow_ts(code)
     if df is None or df.empty:
         return None
     df = df.tail(_FUND_FLOW_MAX_DAYS).reset_index(drop=True)
