@@ -91,7 +91,8 @@ def run_batch(max_stocks: int | None = None, resume: bool = True) -> int:
         print("[error] Cannot fetch market list")
         bs.logout()
         sys.exit(1)
-    all_codes: list[str] = spot["代码"].astype(str).str.zfill(6).tolist()
+    raw = spot["代码"].astype(str).tolist()
+    all_codes = [c.zfill(6) for c in raw if c.isdigit() and len(c) <= 6]
 
     if max_stocks:
         all_codes = all_codes[:max_stocks]
