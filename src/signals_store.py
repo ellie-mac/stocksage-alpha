@@ -95,6 +95,7 @@ def _json_append(entry: dict) -> None:
             existing = []
     existing.append(entry)
     tmp = _JSON.with_suffix(".tmp")
+    tmp.parent.mkdir(parents=True, exist_ok=True)
     tmp.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(_JSON)
 
