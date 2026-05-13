@@ -297,33 +297,38 @@ _CHIP_TIERS = {
 
 # (name, sched_time, desc) — 按调度时间排序
 _TASK_LIST = [
-    ("weekly_PerfReport",      "00:00", "周度绩效报告 📱"),
-    ("sync_Knowledge",         "02:00", "知识库同步"),
-    ("factor_Analysis",        "03:00", "因子IC分析"),
-    ("marketcap_Scan",         "04:00", "市值策略扫盘 📱"),
-    ("chip_Premarket",         "07:00", "盘前筹码兜底"),
-    ("main_Morning",           "07:10", "主监控早盘"),
-    ("integrity_Check",        "08:00", "数据完整性"),
-    ("concept_Warm",           "08:30", "概念map预热"),
-    ("institution_Scan",       "08:30", "机构扫盘 📱"),
+    # ── 推送微信 ────────────────────────────────────────────────────────────────
+    ("__SEP__",                "",      "── 推送微信 ──"),
+    ("institution_Scan",       "04:00", "机构扫盘 📱"),
+    ("main_Morning",           "07:10", "多策略晨报 📱"),
     ("watchlist_Monitor",      "09:15", "自选股监控 📱"),
     ("report_Morning",         "09:25", "早盘报告 📱"),
     ("watchlist_Scan",         "09:30", "自选股扫描 📱"),
     ("report_Midday",          "11:35", "午间报告 📱"),
-    ("closing_Batch",          "15:05", "收盘批处理"),
     ("report_Evening",         "15:30", "收盘推送 📱"),
-    ("market_Warm",            "15:35", "市场数据预热"),
     ("daily_PerfLog",          "16:05", "胜率统计 📱"),
+    ("hot_Scan",               "19:00", "热榜扫描 📱"),
+    ("golden_Scan",            "19:30", "金叉扫描 📱"),
+    ("chip_CadScan",           "21:00", "筹码扫描 📱"),
+    ("main_Scan",              "22:10", "主策略夜扫 📱"),
+    ("small_Scan",             "22:40", "小盘策略夜扫 📱"),
+    ("marketcap_Scan",         "22:55", "市值策略扫盘 📱"),
+    ("etf_Scan",               "23:10", "ETF策略夜扫 📱"),
+    ("weekly_PerfReport",      "00:00", "周度绩效报告 📱"),
+    # ── 不推微信 ────────────────────────────────────────────────────────────────
+    ("__SEP__",                "",      "── 不推微信 ──"),
+    ("sync_Knowledge",         "02:00", "知识库同步"),
+    ("factor_Analysis",        "03:00", "因子IC分析"),
+    ("integrity_Check",        "08:00", "数据完整性"),
+    ("concept_Warm",           "08:30", "概念map预热"),
+    ("closing_Batch",          "15:05", "收盘批处理"),
+    ("market_Warm",            "15:35", "市场数据预热"),
     ("price_Prefetch",         "17:00", "价格缓存预热"),
     ("fundflow_Prefetch",      "17:30", "资金流向预取"),
     ("chip_Night",             "18:00", "筹码缓存"),
-    ("hot_Scan",               "19:00", "热榜扫描 📱"),
     ("merge_Sessions",         "19:14", "Lark会话合并"),
-    ("golden_Scan",            "19:30", "金叉扫描 📱"),
-    ("watchlist_Updater",      "20:00", "自选股更新"),
-    ("chip_CadScan",           "21:00", "筹码扫描 📱"),
-    ("nightly_Scan",           "22:10", "夜间选股 📱"),
-    ("main_Night",             "22:30", "夜间预热"),
+    ("watchlist_Updater",      "23:40", "自选股更新"),
+    ("main_Night",             "00:00", "财务缓存预热"),
 ]
 
 _HOT_RANK_NAMES = [
@@ -623,7 +628,7 @@ def h_logs(n: int = 20) -> str:
 
 
 def h_tasks() -> str:
-    all_names = [n for n, _, _ in _TASK_LIST] + _HOT_RANK_NAMES
+    all_names = [n for n, _, _ in _TASK_LIST if n != "__SEP__"] + _HOT_RANK_NAMES
     names_list = "','".join(all_names)
     ps = (
         f"$today = (Get-Date).Date;"
@@ -666,6 +671,9 @@ def h_tasks() -> str:
 
         lines = []
         for name, sched_time, desc in _TASK_LIST:
+            if name == "__SEP__":
+                lines.append(f"\n{desc}")
+                continue
             status, _, next_run = by_name.get(name, ("--", "--", "--"))
             t = sched_time if sched_time else "--:--"
             lines.append(f"{_tick(status, next_run)} {t} {name} / {desc}")

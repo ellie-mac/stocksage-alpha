@@ -96,10 +96,15 @@ class BaseStrategy(ABC):
     def _run(self, config: dict, *, dry_run: bool = False) -> StrategyResult:
         ...
 
+    def save(self, result: StrategyResult, *, dry_run: bool = False) -> None:
+        """持久化 JSON 副作用（可选实现）。
+        nightly_scan 在 strategy.run() 成功后、publish() 之前调用。
+        与 publish() 解耦，确保 JSON 无论是否推送都被写出。
+        """
+
     def publish(self, result: StrategyResult, config: dict, *, dry_run: bool = False) -> None:
-        """推送/写文件等副作用步骤（可选实现）。
-        子类覆盖此方法时只处理推送，不做计算。
-        nightly_scan 在 strategy.run() 成功后调用。
+        """仅推送微信（可选实现）。不做 JSON 写文件，由 save() 负责。
+        nightly_scan --no-push 时跳过此步骤；nightly_push.py 可独立重跑。
         """
 
     def _result(
@@ -148,6 +153,17 @@ class MainStrategyAdapter(BaseStrategy):
             _raw_buys=buy_alerts, _raw_scored=scored,
         )
 
+    def save(self, result: "StrategyResult", *, dry_run: bool = False) -> None:
+        if dry_run:
+            return
+        import main_strategy
+        main_strategy.save_picks(
+            result.metadata.get("_raw_buys", []),
+            result.regime_label or "unknown",
+            scored=result.metadata.get("_raw_scored", []),
+            regime_score=result.regime_score,
+        )
+
     def publish(self, result: "StrategyResult", config: dict, *, dry_run: bool = False) -> None:
         import main_strategy
         main_strategy._push_results(
@@ -178,6 +194,16 @@ class SmallStrategyAdapter(BaseStrategy):
         return self._result(
             signals, regime_score=regime_score, regime_label=regime_label,
             _raw_candidates=picks,
+        )
+
+    def save(self, result: "StrategyResult", *, dry_run: bool = False) -> None:
+        if dry_run:
+            return
+        import small_strategy
+        small_strategy.save_picks(
+            result.metadata.get("_raw_candidates", []),
+            result.regime_label or "unknown",
+            regime_score=result.regime_score,
         )
 
     def publish(self, result: "StrategyResult", config: dict, *, dry_run: bool = False) -> None:
@@ -213,6 +239,18 @@ class EtfStrategyAdapter(BaseStrategy):
             sell_signals=[s.to_dict() for s in sell_signals],
             etf_count=len(etf_list),
             _raw_buys=buys, _raw_sells=sells, _raw_all_scores=all_scores,
+        )
+
+    def save(self, result: "StrategyResult", *, dry_run: bool = False) -> None:
+        if dry_run:
+            return
+        import etf_strategy
+        etf_strategy.save_json(
+            result.metadata.get("_raw_buys", []),
+            result.metadata.get("_raw_sells", []),
+            result.metadata.get("_raw_all_scores", []),
+            result.regime_score or 5.0,
+            result.regime_label or "unknown",
         )
 
     def publish(self, result: "StrategyResult", config: dict, *, dry_run: bool = False) -> None:

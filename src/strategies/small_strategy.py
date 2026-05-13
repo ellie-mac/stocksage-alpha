@@ -109,7 +109,7 @@ def scan(
 
 # ── 持久化 ────────────────────────────────────────────────────────────────────
 
-def save_picks(candidates: list[dict], regime_signal: str) -> None:
+def save_picks(candidates: list[dict], regime_signal: str, regime_score: float | None = None) -> None:
     """写 latest_picks.json["smallcap"]，保留当天已有的 results 字段。"""
     def _pick(b):
         return {"code": b["code"], "name": b.get("name", b["code"]),
@@ -133,11 +133,12 @@ def save_picks(candidates: list[dict], regime_signal: str) -> None:
             pass
 
     payload = {
-        "timestamp": existing_timestamp,
-        "source":    existing_source,
-        "results":   existing_results,
-        "smallcap":  [_pick(b) for b in candidates],
-        "regime":    existing_source,
+        "timestamp":    existing_timestamp,
+        "source":       existing_source,
+        "results":      existing_results,
+        "smallcap":     [_pick(b) for b in candidates],
+        "regime":       existing_source,
+        "regime_score": regime_score,
     }
     tmp = LATEST_PICKS_PATH + ".tmp"
     try:
@@ -161,11 +162,8 @@ def _push_results(
     config: dict,
     dry_run: bool = False,
 ) -> None:
-    """save_picks + WeChat 推送。与 scan() 完全分离。"""
+    """WeChat 推送。JSON 写文件由 save_picks() 独立调用。"""
     sendkey = setup_push(config)
-
-    if not dry_run:
-        save_picks(candidates, regime_signal)
 
     if not candidates:
         print("[small_strategy] 无候选，跳过推送")
@@ -191,8 +189,30 @@ def _push_results(
             print("[small_strategy] 微信推送完成")
         except Exception as e:
             print(f"[small_strategy] 微信推送失败: {e}")
+            raise
     else:
         print(f"[small_strategy] dry-run:\n{title}\n{desp}")
+
+
+def push_from_json(config: dict, dry_run: bool = False) -> None:
+    """从 latest_picks.json 读取今日小盘数据并推送微信（不重新扫描）。"""
+    if not os.path.exists(LATEST_PICKS_PATH):
+        raise FileNotFoundError("latest_picks.json 不存在")
+    d = json.load(open(LATEST_PICKS_PATH, encoding="utf-8"))
+    today = datetime.now().strftime("%Y-%m-%d")
+    ts = d.get("timestamp", "")
+    if ts[:10] != today:
+        print(f"[small_strategy] latest_picks.json 非今日数据({ts[:10]})，跳过推送")
+        return
+    candidates = d.get("smallcap", [])
+    _push_results(
+        candidates=candidates,
+        regime_score=d.get("regime_score") or 5.0,
+        regime_signal=d.get("regime", "unknown"),
+        run_time=ts[:16].replace("T", " "),
+        config=config,
+        dry_run=dry_run,
+    )
 
 
 # ── 入口 ──────────────────────────────────────────────────────────────────────

@@ -45,12 +45,16 @@ def _load_cached_marketcap() -> dict[str, float]:
         raw = json.loads(_MARKETCAP_CACHE.read_text(encoding="utf-8"))
         from datetime import date, timedelta
         cache_date = raw.get("date", "")
+        data = raw.get("data", {})
         if cache_date:
             cutoff = (date.today() - timedelta(days=_CACHE_MAX_DAYS)).strftime("%Y%m%d")
             if cache_date < cutoff:
-                print(f"[marketcap] 市值缓存过期({cache_date})，跳过")
+                if data:
+                    print(f"[marketcap] 市值缓存已过期({cache_date})，使用旧数据({len(data)}只)继续")
+                    return data
+                print(f"[marketcap] 市值缓存过期({cache_date})且为空，跳过")
                 return {}
-        return raw.get("data", {})
+        return data
     except Exception as e:
         print(f"[marketcap] 读取市值缓存失败: {e}")
         return {}
@@ -95,7 +99,11 @@ def get_spot_with_marketcap() -> tuple[pd.DataFrame, bool]:
     cached = _load_cached_marketcap()
     if cached and spot is not None and not spot.empty:
         spot = spot.copy()
-        spot["总市值"] = spot["代码"].map(cached)
+        # 缓存 key 是 6 位纯数字；Sina spot 代码带 sh/sz 前缀，需先规一化
+        norm_codes = spot["代码"].astype(str).apply(
+            lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
+        )
+        spot["总市值"] = norm_codes.map(cached)
         print(f"[marketcap] 使用磁盘缓存市值 ({len(cached)} 只)")
         return spot, False
 
@@ -143,7 +151,7 @@ def _get_marketcap_from_baostock(spot: pd.DataFrame) -> dict[str, float]:
     price_col = pd.to_numeric(df["最新价"], errors="coerce")
     df = df[price_col > MIN_PRICE]
 
-    # 构建 BaoStock 格式代码列表（最多 500 只）
+    # 构建 BaoStock 格式代码列表（按价格升序，低价≈小市值，最多 1500 只）
     def _to_bs(c6):
         if c6.startswith("6") and not c6.startswith("688"):
             return f"sh.{c6}"
@@ -151,8 +159,11 @@ def _get_marketcap_from_baostock(spot: pd.DataFrame) -> dict[str, float]:
             return f"sz.{c6}"
         return None
 
-    cands = [(row["_code6"], _to_bs(row["_code6"])) for _, row in df.iterrows() if _to_bs(row["_code6"])]
-    cands = cands[:500]
+    df_sorted = df.copy()
+    df_sorted["_price"] = pd.to_numeric(df_sorted["最新价"], errors="coerce")
+    df_sorted = df_sorted.sort_values("_price", ascending=True)
+    cands = [(row["_code6"], _to_bs(row["_code6"])) for _, row in df_sorted.iterrows() if _to_bs(row["_code6"])]
+    cands = cands[:1500]
     if not cands:
         return {}
 

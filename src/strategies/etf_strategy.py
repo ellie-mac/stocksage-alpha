@@ -93,6 +93,63 @@ def scan(
 
 # ── 推送/副作用（与 scan 分离，供适配器复用）──────────────────────────────────
 
+def save_json(
+    buys: list[dict],
+    sells: list[dict],
+    all_scores: list[dict],
+    regime_score: float,
+    regime_signal: str,
+) -> None:
+    """保存 ETF 评分文件和当日买入 picks 文件。与推送解耦，由 nightly_scan 在扫描后直接调用。"""
+    _out_path = os.path.join(_ROOT, "data", "etf_scan_latest.json")
+    try:
+        _out_data = {
+            "date":         datetime.now().strftime("%Y%m%d"),
+            "timestamp":    datetime.now().isoformat(),
+            "regime_score": regime_score,
+            "regime":       regime_signal,
+            "buys":  [{"code": s["code"], "name": s.get("name", s["code"]),
+                       "buy_score": round(s.get("buy_score") or 0, 1),
+                       "price": s.get("price"), "reasons": s.get("reasons", [])}
+                      for s in buys],
+            "sells": [{"code": s["code"], "name": s.get("name", s["code"]),
+                       "sell_score": round(s.get("sell_score") or 0, 1),
+                       "pnl_pct": s.get("pnl_pct", 0), "reasons": s.get("reasons", [])}
+                      for s in sells],
+            "scores": [
+                {"code": s["code"], "name": s.get("name", s["code"]),
+                 "buy_score": round(s.get("buy_score") or 0, 1),
+                 "sell_score": round(s.get("sell_score") or 0, 1),
+                 "price": s.get("price"), "pnl_pct": s.get("pnl_pct", 0)}
+                for s in all_scores if not s.get("error")
+            ],
+        }
+        _tmp = _out_path + ".tmp"
+        with open(_tmp, "w", encoding="utf-8") as f:
+            json.dump(_out_data, f, ensure_ascii=False, indent=2)
+        os.replace(_tmp, _out_path)
+        print(f"[etf_strategy] 已保存 {len(_out_data['scores'])} 只评分 → etf_scan_latest.json")
+    except Exception as e:
+        print(f"[etf_strategy] 保存评分失败: {e}")
+
+    if buys:
+        _picks_path = os.path.join(_ROOT, "data", f"etf_picks_{datetime.now().strftime('%Y%m%d')}.json")
+        try:
+            _picks_data = {
+                "date":      datetime.now().strftime("%Y%m%d"),
+                "timestamp": datetime.now().isoformat(),
+                "picks": [{"code": s["code"], "name": s.get("name", s["code"]),
+                           "buy_score": round(s.get("buy_score") or 0, 1)}
+                          for s in buys],
+            }
+            _tmp = _picks_path + ".tmp"
+            with open(_tmp, "w", encoding="utf-8") as f:
+                json.dump(_picks_data, f, ensure_ascii=False, indent=2)
+            os.replace(_tmp, _picks_path)
+        except Exception as e:
+            print(f"[etf_strategy] 保存买入信号失败: {e}")
+
+
 def _push_results(
     buys: list[dict],
     sells: list[dict],
@@ -102,51 +159,9 @@ def _push_results(
     config: dict,
     dry_run: bool = False,
 ) -> None:
-    """保存评分文件 + ETF picks 文件 + WeChat 推送。与 scan() 完全分离。"""
+    """WeChat 推送。JSON 写文件由 save_json() 独立调用。"""
     sendkey = setup_push(config)
     thresholds = config.get("thresholds", {})
-
-    # 无论有无信号，始终保存评分结果供 reporter 午间/收盘快报使用
-    _out_path = os.path.join(_ROOT, "data", "etf_scan_latest.json")
-    if not dry_run:
-        try:
-            _out_data = {
-                "date":      datetime.now().strftime("%Y%m%d"),
-                "timestamp": datetime.now().isoformat(),
-                "scores": [
-                    {"code": s["code"], "name": s.get("name", s["code"]),
-                     "buy_score": round(s.get("buy_score") or 0, 1),
-                     "sell_score": round(s.get("sell_score") or 0, 1),
-                     "price": s.get("price"), "pnl_pct": s.get("pnl_pct", 0)}
-                    for s in all_scores if not s.get("error")
-                ],
-            }
-            _tmp = _out_path + ".tmp"
-            with open(_tmp, "w", encoding="utf-8") as f:
-                json.dump(_out_data, f, ensure_ascii=False, indent=2)
-            os.replace(_tmp, _out_path)
-            print(f"[etf_strategy] 已保存 {len(_out_data['scores'])} 只评分 → etf_scan_latest.json")
-        except Exception as e:
-            print(f"[etf_strategy] 保存评分失败: {e}")
-
-        # 保存当日买入信号供 daily_perf_log 追踪胜率
-        if buys:
-            _picks_path = os.path.join(_ROOT, "data", f"etf_picks_{datetime.now().strftime('%Y%m%d')}.json")
-            try:
-                _picks_data = {
-                    "date":      datetime.now().strftime("%Y%m%d"),
-                    "timestamp": datetime.now().isoformat(),
-                    "picks": [{"code": s["code"], "name": s.get("name", s["code"]),
-                               "buy_score": round(s.get("buy_score") or 0, 1)}
-                              for s in buys],
-                }
-                _tmp = _picks_path + ".tmp"
-                with open(_tmp, "w", encoding="utf-8") as f:
-                    json.dump(_picks_data, f, ensure_ascii=False, indent=2)
-                os.replace(_tmp, _picks_path)
-                print(f"[etf_strategy] 已保存 {len(buys)} 只买入信号 → etf_picks_{datetime.now().strftime('%Y%m%d')}.json")
-            except Exception as e:
-                print(f"[etf_strategy] 保存买入信号失败: {e}")
 
     if not buys and not sells:
         print("[etf_strategy] 无信号，跳过推送")
@@ -184,8 +199,30 @@ def _push_results(
             print("[etf_strategy] 微信推送完成")
         except Exception as e:
             print(f"[etf_strategy] 微信推送失败: {e}")
+            raise
     else:
         print(f"[etf_strategy] dry-run:\n{title}\n{desp}")
+
+
+def push_from_json(config: dict, dry_run: bool = False) -> None:
+    """从 etf_scan_latest.json 读取今日数据并推送微信（不重新扫描）。"""
+    _path = os.path.join(_ROOT, "data", "etf_scan_latest.json")
+    if not os.path.exists(_path):
+        raise FileNotFoundError("etf_scan_latest.json 不存在")
+    d = json.load(open(_path, encoding="utf-8"))
+    today = datetime.now().strftime("%Y%m%d")
+    if d.get("date", "") != today:
+        print(f"[etf_strategy] etf_scan_latest.json 非今日数据({d.get('date')})，跳过推送")
+        return
+    _push_results(
+        buys=d.get("buys", []),
+        sells=d.get("sells", []),
+        all_scores=d.get("scores", []),
+        regime_score=d.get("regime_score") or 5.0,
+        regime_signal=d.get("regime", "unknown"),
+        config=config,
+        dry_run=dry_run,
+    )
 
 
 def main() -> None:

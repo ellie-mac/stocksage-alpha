@@ -53,6 +53,7 @@ def _strategy_worker(
     run_id: int,
     trade_date: str,
     result_q: "multiprocessing.Queue",
+    no_push: bool = False,
 ) -> None:
     """Runs in a child process. Returns result via Queue so the parent can kill()
     the entire process tree on timeout — unlike threads, which cannot be forcibly
@@ -99,15 +100,20 @@ def _strategy_worker(
                 except Exception:
                     artifacts.append("snapshot=failed")
             try:
-                strategy.publish(result, config, dry_run=dry_run)
+                strategy.save(result, dry_run=dry_run)
             except Exception:
-                artifacts.append("publish=failed")
-                _sys_stderr = sys.stderr
+                artifacts.append("save_json=failed")
+            if not no_push:
                 try:
-                    _sys_stderr.buffer.write(f"[strategy_worker] publish failed:\n{_tb.format_exc()}\n".encode("utf-8", errors="replace"))
-                    _sys_stderr.buffer.flush()
+                    strategy.publish(result, config, dry_run=dry_run)
                 except Exception:
-                    pass
+                    artifacts.append("publish=failed")
+                    ok = False  # push 失败 → run_manifest 记 failed → 允许重跑
+                    try:
+                        sys.stderr.buffer.write(f"[strategy_worker] publish failed:\n{_tb.format_exc()}\n".encode("utf-8", errors="replace"))
+                        sys.stderr.buffer.flush()
+                    except Exception:
+                        pass
     except Exception:
         err_msg = _tb.format_exc()
         try:
@@ -117,6 +123,14 @@ def _strategy_worker(
             pass
 
     result_q.put({"ok": ok, "err_msg": err_msg, "artifacts": artifacts})
+    try:
+        result_q.close()
+        result_q.join_thread()  # flush queue buffer to pipe before force-exit
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    os._exit(0)  # bypass Python thread-join cleanup; avoids hang when strategy used ThreadPoolExecutor
 
 
 def _load_config() -> dict:
@@ -130,6 +144,7 @@ def _run_strategy(
     strategy_name: str,
     config: dict,
     dry_run: bool,
+    no_push: bool = False,
 ) -> bool:
     """运行单个策略。返回 True 表示成功。"""
     trade_date = datetime.now().strftime("%Y-%m-%d")
@@ -152,7 +167,7 @@ def _run_strategy(
         result_q: multiprocessing.Queue = multiprocessing.Queue()
         proc = multiprocessing.Process(
             target=_strategy_worker,
-            args=(strategy_name, config, dry_run, run_id, trade_date, result_q),
+            args=(strategy_name, config, dry_run, run_id, trade_date, result_q, no_push),
             daemon=False,
         )
         proc.start()
@@ -279,6 +294,35 @@ def _backup_db(backup_dir: Path | None = None) -> None:
         log.error("db_backup_failed", extra={"error": traceback.format_exc()[:300]})
 
 
+def _cleanup_data_json(retain_days: int = 30) -> None:
+    """将 data/ 下超过 retain_days 天的日期型 JSON 文件移至 archive/ 子目录。
+    匹配模式: *_YYYYMMDD.json，*_latest.json 不受影响。best-effort，失败不中断主流程。
+    """
+    try:
+        import re, shutil
+        cutoff = datetime.now() - timedelta(days=retain_days)
+        data_dir = _ROOT / "data"
+        archive = data_dir / "archive"
+        _date_pattern = re.compile(r"_(\d{8})\.json$")
+        moved = 0
+        for f in data_dir.glob("*_????????.json"):
+            m = _date_pattern.search(f.name)
+            if not m:
+                continue
+            try:
+                file_date = datetime.strptime(m.group(1), "%Y%m%d")
+            except ValueError:
+                continue
+            if file_date < cutoff:
+                archive.mkdir(exist_ok=True)
+                shutil.move(str(f), str(archive / f.name))
+                moved += 1
+        if moved:
+            log.info("data_json_archived", extra={"count": moved, "retain_days": retain_days})
+    except Exception:
+        log.error("data_json_cleanup_failed", extra={"error": traceback.format_exc()[:300]})
+
+
 def _run_backfill(dry_run: bool) -> None:
     """回填 forward return；best-effort，失败不影响主流程。
     用子进程运行，_BACKFILL_TIMEOUT_SEC 到期后强制终止，避免 baostock 锁竞争导致无限阻塞。
@@ -326,22 +370,23 @@ def _pre_run_checks(force: bool = False) -> bool:
     return True
 
 
-def run_main(config: dict, dry_run: bool) -> bool:
-    return _run_strategy("主策略", "nightly_scan/main_strategy", "main", config, dry_run)
+def run_main(config: dict, dry_run: bool, job_prefix: str = "nightly_scan", no_push: bool = False) -> bool:
+    return _run_strategy("主策略", f"{job_prefix}/main_strategy", "main", config, dry_run, no_push)
 
 
-def run_small(config: dict, dry_run: bool) -> bool:
-    return _run_strategy("小盘策略", "nightly_scan/small_strategy", "small", config, dry_run)
+def run_small(config: dict, dry_run: bool, job_prefix: str = "nightly_scan", no_push: bool = False) -> bool:
+    return _run_strategy("小盘策略", f"{job_prefix}/small_strategy", "small", config, dry_run, no_push)
 
 
-def run_etf(config: dict, dry_run: bool) -> bool:
-    return _run_strategy("ETF策略", "nightly_scan/etf_strategy", "etf", config, dry_run)
+def run_etf(config: dict, dry_run: bool, job_prefix: str = "nightly_scan", no_push: bool = False) -> bool:
+    return _run_strategy("ETF策略", f"{job_prefix}/etf_strategy", "etf", config, dry_run, no_push)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--force", action="store_true", help="非交易日也强制运行")
+    parser.add_argument("--force",    action="store_true", help="非交易日也强制运行")
+    parser.add_argument("--no-push",  action="store_true", help="只扫描存 JSON，跳过微信推送")
     parser.add_argument(
         "--only", choices=["main", "small", "etf"],
         help="只运行指定策略"
@@ -361,17 +406,18 @@ def main() -> None:
 
     config = _load_config()
 
+    no_push = args.no_push
     results: dict[str, bool] = {}
     if args.only == "main":
-        results["main"] = run_main(config, args.dry_run)
+        results["main"] = run_main(config, args.dry_run, job_prefix="main_scan", no_push=no_push)
     elif args.only == "small":
-        results["small"] = run_small(config, args.dry_run)
+        results["small"] = run_small(config, args.dry_run, job_prefix="small_scan", no_push=no_push)
     elif args.only == "etf":
-        results["etf"] = run_etf(config, args.dry_run)
+        results["etf"] = run_etf(config, args.dry_run, job_prefix="etf_scan", no_push=no_push)
     else:
-        results["main"]  = run_main(config, args.dry_run)
-        results["small"] = run_small(config, args.dry_run)
-        results["etf"]   = run_etf(config, args.dry_run)
+        results["main"]  = run_main(config, args.dry_run, no_push=no_push)
+        results["small"] = run_small(config, args.dry_run, no_push=no_push)
+        results["etf"]   = run_etf(config, args.dry_run, no_push=no_push)
 
     attempted  = len(results)
     succeeded  = sum(1 for v in results.values() if v)
@@ -381,6 +427,7 @@ def main() -> None:
     _write_liveness(trade_date, attempted, succeeded, failures,
                     time.monotonic() - t_total)
     _backup_db()
+    _cleanup_data_json()
     _run_backfill(args.dry_run)
 
     print(f"\n[nightly_scan {_ts()}] 全部完成 ({succeeded}/{attempted} 成功)")
