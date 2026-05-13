@@ -1114,6 +1114,7 @@ def prefetch_fund_flow_by_date(trade_date: str) -> int:
         if existing is not None and not existing.empty:
             merged = pd.concat([existing, row_df], ignore_index=True)
             if "trade_date" in merged.columns:
+                merged["trade_date"] = merged["trade_date"].astype(str)
                 merged = merged.drop_duplicates(subset=["trade_date"]).sort_values("trade_date")
             merged = merged.tail(_FUND_FLOW_MAX_DAYS).reset_index(drop=True)
             cache.set_df(cache_key, merged)
