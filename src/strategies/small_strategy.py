@@ -33,6 +33,26 @@ from report.utils import (
 
 _ROOT             = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 LATEST_PICKS_PATH = os.path.join(_ROOT, "data", "latest_picks.json")
+_MARKETCAP_CACHE  = os.path.join(_ROOT, "data", "marketcap_cache.json")
+
+
+def _inject_marketcap(spot_df: pd.DataFrame) -> pd.DataFrame:
+    """Sina fallback 缺少总市值列时，从磁盘缓存注入。"""
+    try:
+        raw = json.loads(open(_MARKETCAP_CACHE, encoding="utf-8").read())
+        cached: dict[str, float] = raw.get("data", {})
+    except Exception:
+        cached = {}
+    if not cached:
+        return spot_df
+    spot_df = spot_df.copy()
+    # Sina codes may have sh/sz prefix; cache keys are 6-digit
+    norm = spot_df["代码"].astype(str).apply(
+        lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
+    )
+    spot_df["总市值"] = norm.map(cached)
+    print(f"[small_strategy] 已从缓存注入总市值（{len(cached)}只）")
+    return spot_df
 
 
 # ── 核心扫描 ───────────────────────────────────────────────────────────────────
@@ -59,9 +79,13 @@ def scan(
     if spot_df is None or spot_df.empty:
         print("[small_strategy] spot_df unavailable")
         return []
-    required = {"名称", "总市值", "代码"}
-    if not required.issubset(spot_df.columns):
-        print(f"[small_strategy] spot_df missing columns: {required - set(spot_df.columns)}")
+    if not {"名称", "代码"}.issubset(spot_df.columns):
+        print(f"[small_strategy] spot_df missing essential columns")
+        return []
+    if "总市值" not in spot_df.columns:
+        spot_df = _inject_marketcap(spot_df)
+    if "总市值" not in spot_df.columns:
+        print("[small_strategy] 无总市值数据（EM不可用且缓存为空），跳过")
         return []
 
     try:
