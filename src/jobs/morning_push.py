@@ -97,6 +97,21 @@ def _load_chip() -> list[dict]:
     return picks
 
 
+def _load_marketcap() -> list[dict]:
+    """Returns [{code, name, price, marketcap_yi}, ...] from marketcap_latest.json."""
+    d = _load(DATA / "marketcap_latest.json")
+    if not d:
+        return []
+    if not _is_fresh(d.get("date", ""), "%Y%m%d"):
+        print("[morning_push] marketcap_latest.json 数据已过期，跳过市值策略")
+        return []
+    return [
+        {"code": p["code"], "name": p.get("name", ""), "score": 0,
+         "price": p.get("price"), "marketcap_yi": p.get("marketcap_yi")}
+        for p in d.get("picks", []) if p.get("code")
+    ]
+
+
 # ── Merge & tag ───────────────────────────────────────────────────────────────
 
 def _merge(
@@ -104,10 +119,11 @@ def _merge(
     small: list[dict],
     gc: list[dict],
     chip: list[dict],
+    marketcap: list[dict],
 ) -> dict[str, dict]:
     """
     Returns registry: {code: {name, tags: list[str], details: {tag: pick_dict}}}.
-    Tag order: 主 小 叉 筹
+    Tag order: 主 小 叉 筹 市
     """
     registry: dict[str, dict] = {}
 
@@ -124,6 +140,7 @@ def _merge(
     _add("小", small)
     _add("叉", gc)
     _add("筹", chip)
+    _add("市", marketcap)
 
     return registry
 
@@ -139,13 +156,16 @@ def _fmt_pick(code: str, entry: dict) -> str:
     tags = _tag_str(entry["tags"])
     details = entry["details"]
 
-    # Price: prefer 叉 then 筹 (both carry close field)
+    # Price: prefer 市 then 叉 then 筹
     price = None
-    for tag in ("叉", "筹"):
-        close = details.get(tag, {}).get("close")
-        if close:
-            price = float(close)
-            break
+    if "市" in details and details["市"].get("price"):
+        price = float(details["市"]["price"])
+    else:
+        for tag in ("叉", "筹"):
+            close = details.get(tag, {}).get("close")
+            if close:
+                price = float(close)
+                break
 
     price_str = f"  ¥{price:.2f}" if price else ""
 
@@ -167,14 +187,21 @@ def _fmt_pick(code: str, entry: dict) -> str:
         t = details["筹"].get("tier", "")
         s = details["筹"].get("score", 0)
         annotations.append(f"筹{t}({s:.0f}%)")
+    if "市" in details:
+        mv = details["市"].get("marketcap_yi")
+        if mv:
+            annotations.append(f"市值{mv:.1f}亿")
 
     ann_str = "  " + "  ".join(annotations) if annotations else ""
     return f"**{code} {name}** {tags}{price_str}{ann_str}"
 
 
+MAX_SINGLE = 20  # per-strategy section cap (single-strategy stocks only)
+
+
 def _build_message(registry: dict[str, dict]) -> tuple[str, str]:
     if not registry:
-        return "多策略晨报", "今日三路策略均无信号"
+        return "多策略晨报", "今日四路策略均无信号"
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     title = f"多策略晨报 | {now_str}"
@@ -191,30 +218,31 @@ def _build_message(registry: dict[str, dict]) -> tuple[str, str]:
 
     parts: list[str] = [f"*{now_str}*"]
 
-    # ── Multi-strategy resonance block ────────────────────────────────────────
+    # ── Multi-strategy resonance block (no truncation) ────────────────────────
     if multi:
         parts.append(f"**【多策略共振】{len(multi)}只**")
         for code in multi:
             parts.append(_fmt_pick(code, registry[code]))
 
-    # ── Per-strategy sections ─────────────────────────────────────────────────
-    tag_order = ["主", "小", "叉", "筹"]
-    tag_label = {"主": "主策略", "小": "小盘策略", "叉": "金叉", "筹": "筹码"}
+    # ── Per-strategy sections (capped at MAX_SINGLE each) ────────────────────
+    tag_order = ["主", "小", "叉", "筹", "市"]
+    tag_label = {"主": "主策略", "小": "小盘策略", "叉": "金叉", "筹": "筹码", "市": "低市值"}
 
     for tag in tag_order:
         tag_codes = [c for c in single if registry[c]["tags"] == [tag]]
-        # Also include multi codes that aren't already covered above in per-section
-        # (we show multi only in the top block, not repeated below)
         if not tag_codes:
-            # Check if any multi codes belong to this tag
             in_multi_with_tag = [c for c in multi if tag in registry[c]["tags"]]
             if not in_multi_with_tag:
                 continue
             else:
                 continue  # already shown in multi block
+        shown = tag_codes[:MAX_SINGLE]
+        omitted = len(tag_codes) - len(shown)
         parts.append(f"<br>**【{tag_label[tag]}】{len(tag_codes)}只**")
-        for code in tag_codes:
+        for code in shown:
             parts.append(_fmt_pick(code, registry[code]))
+        if omitted:
+            parts.append(f"_...还有{omitted}只_")
 
     parts.append("<br>> 仅供参考，不构成投资建议")
     body = "<br>".join(parts)
@@ -233,16 +261,17 @@ def main() -> None:
     main_picks, small_picks = _load_main()
     gc_picks   = _load_gc()
     chip_picks = _load_chip()
+    mc_picks   = _load_marketcap()
 
-    total = len(main_picks) + len(small_picks) + len(gc_picks) + len(chip_picks)
+    total = len(main_picks) + len(small_picks) + len(gc_picks) + len(chip_picks) + len(mc_picks)
     print(f"[morning_push] 主{len(main_picks)} 小{len(small_picks)} "
-          f"叉{len(gc_picks)} 筹{len(chip_picks)}  共{total}只信号")
+          f"叉{len(gc_picks)} 筹{len(chip_picks)} 市{len(mc_picks)}  共{total}只信号")
 
     if total == 0:
         print("[morning_push] 无信号，退出")
         sys.exit(0)
 
-    registry = _merge(main_picks, small_picks, gc_picks, chip_picks)
+    registry = _merge(main_picks, small_picks, gc_picks, chip_picks, mc_picks)
     unique = len(registry)
     multi_count = sum(1 for e in registry.values() if len(e["tags"]) >= 2)
     print(f"[morning_push] 去重后 {unique} 只（多策略共振 {multi_count} 只）")
