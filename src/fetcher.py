@@ -239,6 +239,7 @@ def normalize_code(code: str) -> str:
 
 def _market_from_code(code: str) -> str:
     """Infer exchange from code prefix: 6xx -> sh, 8xx/43xx/92xx -> bj, others -> sz."""
+    code = normalize_code(code)
     if code.startswith("6"):
         return "sh"
     if code.startswith("8") or code.startswith("43") or code.startswith("92"):
@@ -607,6 +608,7 @@ def get_realtime_quote(code: str) -> Optional[dict]:
 
 def get_stock_info(code: str) -> Optional[dict]:
     """Fetch stock meta: industry, listing date, share counts.  Cached for 7 days."""
+    code = normalize_code(code)
     cache_key = f"stock_info_{code}"
     cached = cache.get(cache_key, cache.TTL_FINANCIAL)
     if cached is not None:
@@ -923,6 +925,7 @@ def get_valuation_history(code: str) -> Optional[pd.DataFrame]:
     Source priority:
       1. BaoStock  (peTTM, pbMRQ, psTTM — free, permanent)
     """
+    code = normalize_code(code)
     cache_key = f"valuation_{code}"
     cached = cache.get_df(cache_key, cache.smart_valuation_ttl())
     if cached is not None:
@@ -1000,6 +1003,7 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
       1. akshare EM  (stock_financial_analysis_indicator)
       2. akshare THS (stock_financial_abstract_ths) — columns renamed to match score_growth keys
     """
+    code = normalize_code(code)
     cache_key = f"financial_{code}"
     cached = cache.get_df(cache_key, cache.TTL_FINANCIAL)
     if cached is not None:
@@ -1133,6 +1137,7 @@ def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
     Source: EastMoney (ak). Returns None on cache miss if EM unreachable; use fundflow_Prefetch to warm cache.
     Per-stock tushare fallback removed — it shared the 2/day moneyflow_ths quota with fundflow_Prefetch.
     """
+    code = normalize_code(code)
     cache_key = f"fundflow_{code}"
     cached = cache.get_df(cache_key, cache.smart_price_ttl())
     if cached is not None:
@@ -1172,6 +1177,7 @@ def get_margin_data(code: str) -> Optional[pd.DataFrame]:
     Supports both SSE (6xx) and SZSE codes.
     Cached for 24 hours.
     """
+    code = normalize_code(code)
     cache_key = f"margin_{code}"
     cached = cache.get_df(cache_key, cache.TTL_VALUATION)
     if cached is not None:
@@ -1198,6 +1204,7 @@ def get_cyq(code: str) -> Optional[pd.DataFrame]:
     Cached for 4 hours (14400 seconds) — chip distribution is slow-moving intraday.
     Returns the DataFrame or None on any error.
     """
+    code = normalize_code(code)
     cache_key = f"cyq_{code}"
     cached = cache.get_df(cache_key, 14400)
     if cached is not None:
@@ -1315,6 +1322,7 @@ def get_lhb_flow(code: str, days: int = 90) -> Optional[pd.DataFrame]:
 
 def get_lockup_pressure(code: str) -> Optional[pd.DataFrame]:
     """Fetch upcoming lock-up expiry (解禁) schedule. Cached for 24h."""
+    code = normalize_code(code)
     cache_key = f"lockup_{code}"
     cached = cache.get_df(cache_key, cache.TTL_VALUATION)
     if cached is not None:
@@ -1333,6 +1341,7 @@ def get_lockup_pressure(code: str) -> Optional[pd.DataFrame]:
 
 def get_insider_transactions(code: str) -> Optional[pd.DataFrame]:
     """Fetch major shareholder buy/sell transactions (增减持). Cached for 24h."""
+    code = normalize_code(code)
     cache_key = f"insider_{code}"
     cached = cache.get_df(cache_key, cache.TTL_VALUATION)
     if cached is not None:
@@ -1351,6 +1360,7 @@ def get_insider_transactions(code: str) -> Optional[pd.DataFrame]:
 
 def get_institutional_visits(code: str) -> Optional[pd.DataFrame]:
     """Fetch institutional research visit records (机构调研). Cached for 24h."""
+    code = normalize_code(code)
     cache_key = f"visits_{code}"
     cached = cache.get_df(cache_key, cache.TTL_VALUATION)
     if cached is not None:
@@ -1428,6 +1438,7 @@ def get_market_return_1m() -> Optional[float]:
 
 def get_northbound_holdings(code: str) -> Optional[pd.DataFrame]:
     """Fetch per-stock 沪深港通 northbound holding history. Cached for 24h."""
+    code = normalize_code(code)
     cache_key = f"nb_hold_{code}"
     cached = cache.get_df(cache_key, cache.TTL_VALUATION)
     if cached is not None:
@@ -1447,6 +1458,7 @@ def get_northbound_holdings(code: str) -> Optional[pd.DataFrame]:
 
 def get_earnings_revision(code: str) -> Optional[pd.DataFrame]:
     """Fetch analyst EPS forecast revision history. Cached for 24h."""
+    code = normalize_code(code)
     cache_key = f"revision_{code}"
     cached = cache.get_df(cache_key, cache.TTL_VALUATION)
     if cached is not None:

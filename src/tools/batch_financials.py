@@ -39,6 +39,7 @@ def _latest_quarter() -> tuple[int, int]:
 
 
 def _code_to_bs(code: str) -> str:
+    code = code[2:] if len(code) > 6 and code[:2].isalpha() else code
     return ("sh." if code.startswith("6") else "sz.") + code
 
 

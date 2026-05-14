@@ -374,6 +374,7 @@ def _fetch_stock_hist_ak(code: str, start_date: str, end_date: str) -> pd.DataFr
 
 
 def _ts_code_suffix(code: str) -> str:
+    code = code[2:] if len(code) > 6 and code[:2].isalpha() else code
     if code.startswith("6") or code.startswith("5"):
         return code + ".SH"
     if code.startswith("4") or code.startswith("8") or code.startswith("9"):
