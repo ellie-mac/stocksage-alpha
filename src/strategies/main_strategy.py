@@ -61,6 +61,9 @@ def scan(
     else:
         bear_sell_cap = None
 
+    # universe_main.json may have sh/sz/bj prefixes; strip to 6-digit before any cache lookup
+    universe = [fetcher.normalize_code(c) for c in universe]
+
     try:
         suspended = fetcher.get_suspended_codes()
         universe = [c for c in universe if c not in suspended]
