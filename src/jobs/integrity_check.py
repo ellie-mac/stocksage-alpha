@@ -205,10 +205,11 @@ def check_concept_map() -> tuple[bool, str]:
         return False, "concept_reverse 缓存不存在"
     newest = max(files, key=lambda p: p.stat().st_mtime)
     age_h = _mtime_age_h(newest)
-    # Concept reverse map TTL is 6h; warn if stale beyond 7h (1h grace)
-    if age_h > 7:
-        return False, f"缓存过旧: {age_h:.1f}h（TTL=6h）"
-    return True, f"{age_h:.1f}h 前更新"
+    # TTL=7天（VM从新加坡EM不可达时复用旧缓存）；周末宽限到9天
+    max_age = _max_stale_h(daily_h=7 * 24, weekend_h=9 * 24)
+    if age_h > max_age:
+        return False, f"缓存过旧: {age_h / 24:.1f} 天（TTL=7天）"
+    return True, f"{age_h / 24:.1f} 天前更新"
 
 
 def fix_concept_map() -> bool:

@@ -142,7 +142,7 @@ def prefetch_market() -> None:
 # ── concept map prefetch ──────────────────────────────────────────────────────
 
 def prefetch_concept() -> None:
-    """预热概念板块反查 map（~30s 冷启动，缓存 6h）。"""
+    """预热概念板块反查 map（~30s 冷启动，缓存 7天）。"""
     import fetcher
 
     print(f"[prefetch/concept] 开始预热概念 map  {_now_str()}", flush=True)
