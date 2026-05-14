@@ -252,7 +252,8 @@ def check_price_cache() -> tuple[bool, str]:
     fresh = 0
     max_age = _max_stale_h(daily_h=25, weekend_h=72)
     for code in sample:
-        p = price_dir / f"price_{code}_550.json"
+        norm = code[2:] if len(code) > 6 and code[:2].isalpha() else code
+        p = price_dir / f"price_{norm}_550.json"
         if p.exists():
             try:
                 entry = json.loads(p.read_text(encoding="utf-8"))
