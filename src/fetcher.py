@@ -1142,33 +1142,35 @@ def get_fund_flow(code: str, days: int = 10) -> Optional[pd.DataFrame]:
     cached = cache.get_df(cache_key, cache.smart_price_ttl())
     if cached is not None:
         return cached.tail(days).reset_index(drop=True)
-    df = None
-    global _v8_em_fail_count
-    if _v8_em_fail_count < _EM_FAIL_THRESHOLD:
-        try:
-            market = _market_from_code(code)
-            if not _v8_initialised.is_set():
-                with _v8_lock:
-                    df = _call_with_timeout(ak.stock_individual_fund_flow, 5.0, stock=code, market=market)
-                    if df is not None:
-                        _v8_initialised.set()
-            else:
-                df = _call_with_timeout(ak.stock_individual_fund_flow, 5.0, stock=code, market=market)
-            if df is not None and not df.empty:
-                df.columns = [c.strip() for c in df.columns]
-                _v8_em_fail_count = 0
-            else:
-                df = None
-                _v8_em_fail_count += 1
-        except Exception:
-            log.warning("src_degraded", extra={"source": "fundflow_em", "code": code, "error": _traceback.format_exc()[:200]})
-            _v8_em_fail_count += 1
-            df = None
-    if df is None or df.empty:
-        return None
-    df = df.tail(_FUND_FLOW_MAX_DAYS).reset_index(drop=True)
-    cache.set_df(cache_key, df)
-    return df.tail(days).reset_index(drop=True)
+    # fundflow_em (akshare EM) 调用一直失败导致 main_scan 整体失败，先禁用；缓存未命中直接返回 None
+    return None
+    # df = None
+    # global _v8_em_fail_count
+    # if _v8_em_fail_count < _EM_FAIL_THRESHOLD:
+    #     try:
+    #         market = _market_from_code(code)
+    #         if not _v8_initialised.is_set():
+    #             with _v8_lock:
+    #                 df = _call_with_timeout(ak.stock_individual_fund_flow, 5.0, stock=code, market=market)
+    #                 if df is not None:
+    #                     _v8_initialised.set()
+    #         else:
+    #             df = _call_with_timeout(ak.stock_individual_fund_flow, 5.0, stock=code, market=market)
+    #         if df is not None and not df.empty:
+    #             df.columns = [c.strip() for c in df.columns]
+    #             _v8_em_fail_count = 0
+    #         else:
+    #             df = None
+    #             _v8_em_fail_count += 1
+    #     except Exception:
+    #         log.warning("src_degraded", extra={"source": "fundflow_em", "code": code, "error": _traceback.format_exc()[:200]})
+    #         _v8_em_fail_count += 1
+    #         df = None
+    # if df is None or df.empty:
+    #     return None
+    # df = df.tail(_FUND_FLOW_MAX_DAYS).reset_index(drop=True)
+    # cache.set_df(cache_key, df)
+    # return df.tail(days).reset_index(drop=True)
 
 
 def get_margin_data(code: str) -> Optional[pd.DataFrame]:
