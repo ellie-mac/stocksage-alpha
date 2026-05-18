@@ -63,7 +63,7 @@ def _load_main() -> tuple[list[dict], list[dict]]:
 
 
 def _load_gc() -> list[dict]:
-    """Returns [{code, name, score, tier, close}, ...] for G0/G1/G2."""
+    """Returns [{code, name, score, tier, close}, ...] for all tiers in tiers dict."""
     d = _load(DATA / "golden_cross_latest.json")
     if not d:
         return []
@@ -71,8 +71,8 @@ def _load_gc() -> list[dict]:
         print("[morning_push] golden_cross_latest.json 数据已过期，跳过金叉策略")
         return []
     picks = []
-    for tier in ("G0", "G1", "G2"):
-        for p in d.get("tiers", {}).get(tier, []):
+    for tier, tier_picks in d.get("tiers", {}).items():
+        for p in tier_picks:
             if p.get("code"):
                 picks.append({"code": p["code"], "name": p.get("name", ""),
                                "score": p.get("gc_score", 0), "tier": tier,
@@ -81,7 +81,7 @@ def _load_gc() -> list[dict]:
 
 
 def _load_chip() -> list[dict]:
-    """Returns [{code, name, score, tier, close}, ...] from chip_scan_latest.json."""
+    """Returns [{code, name, score, tier, close}, ...] for all tiers in all_picks."""
     d = _load(DATA / "chip_scan_latest.json")
     if not d:
         return []
@@ -198,6 +198,8 @@ def _fmt_pick(code: str, entry: dict) -> str:
 
 MAX_SINGLE = 20  # per-strategy section cap (single-strategy stocks only)
 
+_TIER_ORDER = {"G0": 0, "G1": 1, "G2": 2, "C0": 0, "C1": 1, "C2": 2}
+
 
 def _build_message(registry: dict[str, dict]) -> tuple[str, str]:
     if not registry:
@@ -236,6 +238,15 @@ def _build_message(registry: dict[str, dict]) -> tuple[str, str]:
                 continue
             else:
                 continue  # already shown in multi block
+        if tag in ("叉", "筹"):
+            tag_codes.sort(key=lambda c, _t=tag: (
+                _TIER_ORDER.get(registry[c]["details"][_t].get("tier", ""), 99),
+                -registry[c]["details"][_t].get("score", 0),
+            ))
+        elif tag in ("主", "小"):
+            tag_codes.sort(key=lambda c, _t=tag: -registry[c]["details"][_t].get("score", 0))
+        elif tag == "市":
+            tag_codes.sort(key=lambda c: registry[c]["details"]["市"].get("marketcap_yi") or float("inf"))
         shown = tag_codes[:MAX_SINGLE]
         omitted = len(tag_codes) - len(shown)
         parts.append(f"<br>**【{tag_label[tag]}】{len(tag_codes)}只**")
