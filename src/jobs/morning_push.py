@@ -43,6 +43,18 @@ def _is_fresh(date_str: str, fmt: str = "%Y%m%d", max_days: int = 1) -> bool:
         return False
 
 
+def _norm_code(code: str) -> str:
+    """Strip sh/sz exchange prefix; keep last 6 digits.
+
+    gc_scan emits 'sh603486' / 'sz301377' while chip/hot/marketcap use pure 6-digit
+    codes. Without normalization, set intersections silently return 0.
+    """
+    if not code:
+        return code
+    s = str(code)
+    return s.lower().lstrip("shz")[-6:] if any(c.isalpha() for c in s) else s
+
+
 # ── Data loaders ──────────────────────────────────────────────────────────────
 
 def _load_main() -> tuple[list[dict], list[dict]]:
@@ -56,14 +68,15 @@ def _load_main() -> tuple[list[dict], list[dict]]:
         return [], []
 
     def _extract(lst: list) -> list[dict]:
-        return [{"code": p["code"], "name": p.get("name", ""), "score": p.get("score", 0)}
+        return [{"code": _norm_code(p["code"]), "name": p.get("name", ""), "score": p.get("score", 0)}
                 for p in lst if p.get("code")]
 
     return _extract(d.get("results", [])), _extract(d.get("smallcap", []))
 
 
 def _load_gc() -> list[dict]:
-    """Returns [{code, name, score, tier, close}, ...] for all tiers in tiers dict."""
+    """Returns [{code, name, score, tier, close}, ...] for all tiers in tiers dict.
+    Codes are normalized to 6-digit form (gc_scan emits sh/sz prefixes)."""
     d = _load(DATA / "golden_cross_latest.json")
     if not d:
         return []
@@ -73,8 +86,9 @@ def _load_gc() -> list[dict]:
     picks = []
     for tier, tier_picks in d.get("tiers", {}).items():
         for p in tier_picks:
-            if p.get("code"):
-                picks.append({"code": p["code"], "name": p.get("name", ""),
+            raw = p.get("code")
+            if raw:
+                picks.append({"code": _norm_code(raw), "name": p.get("name", ""),
                                "score": p.get("gc_score", 0), "tier": tier,
                                "close": p.get("close")})
     return picks
