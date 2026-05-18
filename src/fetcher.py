@@ -135,6 +135,7 @@ _EM_FAIL_THRESHOLD = 3
 
 _bs_module = None        # baostock module, None if unavailable
 _bs_lock = threading.Lock()
+_bs_login_failed = False  # fail-fast: once login fails, skip all subsequent attempts for this process
 
 # Rate-limit concurrent East Money price-history requests to avoid triggering
 # the global _src_fail["hist_em"] flag that would force all 5000+ stocks onto BaoStock.
@@ -144,20 +145,30 @@ _ts_hist_sem = threading.Semaphore(3)   # Tushare price-history concurrency cap
 
 
 def _get_baostock():
-    """Return the logged-in baostock module, logging in once per process."""
-    global _bs_module
+    """Return the logged-in baostock module, logging in once per process.
+
+    Fail-fast: once a login attempt fails (server unreachable, TCP refused, etc.),
+    subsequent calls return None immediately instead of paying another 5s+ retry.
+    """
+    global _bs_module, _bs_login_failed
     if _bs_module is not None:
         return _bs_module
+    if _bs_login_failed:
+        return None
     # Use a timeout so a stalled daemon thread holding _bs_lock doesn't deadlock us.
     if not _bs_lock.acquire(timeout=5.0):
         return None
     try:
         if _bs_module is not None:
             return _bs_module
+        if _bs_login_failed:
+            return None
         try:
             import baostock as bs
             lg = bs.login()
             if lg.error_code != "0":
+                _bs_login_failed = True
+                log.warning("src_degraded", extra={"source": "baostock_login", "error_code": lg.error_code, "error_msg": getattr(lg, "error_msg", "")[:120]})
                 return None
             # Best-effort: set a 30s recv timeout on the underlying socket so
             # rs.next() raises socket.timeout rather than blocking forever when
@@ -178,6 +189,8 @@ def _get_baostock():
             _bs_module = bs
             return bs
         except Exception:
+            _bs_login_failed = True
+            log.warning("src_degraded", extra={"source": "baostock_login", "error": _traceback.format_exc()[:200]})
             return None
     finally:
         _bs_lock.release()
