@@ -37,7 +37,7 @@ from logger import get_logger, bind_run_id                       # noqa: E402
 _ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 log = get_logger("nightly_scan")
 
-_STRATEGY_TIMEOUT_SEC = 3600   # 每个策略最长 60 分钟
+_STRATEGY_TIMEOUT_SEC = 7200   # 每个策略最长 120 分钟（5084 票 × ~6s/票 ÷ 16 workers ≈ 30min，留 4× buffer）
 _SOCKET_TIMEOUT_SEC   = 120    # 单次 akshare HTTP 调用最长 2 分钟
 _BACKFILL_TIMEOUT_SEC = 300    # backfill 最长 5 分钟
 

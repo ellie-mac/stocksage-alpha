@@ -71,7 +71,7 @@ def scan(
         pass
 
     scored: list[dict] = []
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=16) as ex:
         futs = {ex.submit(_score, code): code for code in universe}
         for fut in as_completed(futs):
             scored.append(fut.result())
