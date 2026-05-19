@@ -55,6 +55,45 @@ def _norm_code(code: str) -> str:
     return s.lower().lstrip("shz")[-6:] if any(c.isalpha() for c in s) else s
 
 
+# 科技 (TMT) 行业关键词 — 与 src/strategies/sideways_scan.py 保持同步
+_TECH_KEYWORDS = (
+    "半导体", "集成电路", "芯片",
+    "软件", "计算机", "互联网", "信息",
+    "通信",
+    "元器件", "电子", "光电",
+    "网络", "数据", "云", "操作系统",
+    "智能", "人工智", "IT",
+)
+
+
+def _is_tech(industry: str) -> bool:
+    if not industry:
+        return False
+    return any(kw in industry for kw in _TECH_KEYWORDS)
+
+
+def _load_industry_map() -> dict[str, str]:
+    """从 stock_names.json 读取 {6位code: industry}。"""
+    p = DATA / "stock_names.json"
+    if not p.exists():
+        print(f"[morning_push] stock_names.json 不存在，无法过滤科技行业")
+        return {}
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        return {ts.split(".")[0]: (info.get("industry", "") if isinstance(info, dict) else "")
+                for ts, info in raw.items()}
+    except Exception as e:
+        print(f"[morning_push] 读取 stock_names.json 失败: {e}")
+        return {}
+
+
+def _filter_tech(picks: list[dict], ind_map: dict[str, str]) -> list[dict]:
+    """只保留 industry 在 _TECH_KEYWORDS 中匹配的 picks。"""
+    if not ind_map:
+        return picks
+    return [p for p in picks if _is_tech(ind_map.get(p["code"], ""))]
+
+
 # ── Data loaders ──────────────────────────────────────────────────────────────
 
 def _load_main() -> tuple[list[dict], list[dict]]:
@@ -272,12 +311,13 @@ _TIER_ORDER = {
 }
 
 
-def _build_message(registry: dict[str, dict]) -> tuple[str, str]:
+def _build_message(registry: dict[str, dict], tech_only: bool = True) -> tuple[str, str]:
+    label = "多策略晨报（科技）" if tech_only else "多策略晨报"
     if not registry:
-        return "多策略晨报", "今日七路策略均无信号"
+        return label, "今日七路策略均无信号"
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    title = f"多策略晨报 | {now_str}"
+    title = f"{label} | {now_str}"
 
     # Sort by tag count desc, then by tag combination alphabetically
     sorted_codes = sorted(
@@ -341,6 +381,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--push",    action="store_true", help="推送微信")
     parser.add_argument("--dry-run", action="store_true", help="打印不推送")
+    parser.add_argument("--no-tech-filter", action="store_true",
+                        help="关闭科技行业过滤（默认仅展示科技/TMT 票）")
     args = parser.parse_args()
 
     main_picks, small_picks = _load_main()
@@ -349,6 +391,24 @@ def main() -> None:
     mc_picks       = _load_marketcap()
     hot_picks      = _load_hot()
     sideways_picks = _load_sideways()
+
+    if not args.no_tech_filter:
+        ind_map = _load_industry_map()
+        if ind_map:
+            before = (len(main_picks), len(small_picks), len(gc_picks),
+                      len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
+            main_picks     = _filter_tech(main_picks, ind_map)
+            small_picks    = _filter_tech(small_picks, ind_map)
+            gc_picks       = _filter_tech(gc_picks, ind_map)
+            chip_picks     = _filter_tech(chip_picks, ind_map)
+            mc_picks       = _filter_tech(mc_picks, ind_map)
+            hot_picks      = _filter_tech(hot_picks, ind_map)
+            sideways_picks = _filter_tech(sideways_picks, ind_map)
+            after = (len(main_picks), len(small_picks), len(gc_picks),
+                     len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
+            print(f"[morning_push] 科技过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
+                  f"叉{before[2]}→{after[2]} 筹{before[3]}→{after[3]} "
+                  f"市{before[4]}→{after[4]} 热{before[5]}→{after[5]} 横{before[6]}→{after[6]}")
 
     total = (len(main_picks) + len(small_picks) + len(gc_picks) + len(chip_picks)
              + len(mc_picks) + len(hot_picks) + len(sideways_picks))
@@ -366,7 +426,7 @@ def main() -> None:
     multi_count = sum(1 for e in registry.values() if len(e["tags"]) >= 2)
     print(f"[morning_push] 去重后 {unique} 只（多策略共振 {multi_count} 只）")
 
-    title, body = _build_message(registry)
+    title, body = _build_message(registry, tech_only=not args.no_tech_filter)
 
     print(f"\n{'='*40}")
     print(f"{title}")
