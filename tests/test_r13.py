@@ -15,6 +15,7 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+from conftest import InlineProcess, SyncQueue
 
 
 # ── _pre_run_checks ───────────────────────────────────────────────────────────
@@ -79,6 +80,8 @@ def test_zero_signals_emits_warning(tmp_path, caplog):
         with patch("jobs.nightly_scan.start_run", return_value=1), \
              patch("jobs.nightly_scan.finish_run"), \
              patch("strategies.base.get_strategy", return_value=mock_strategy), \
+             patch.object(ns.multiprocessing, "Process", InlineProcess), \
+             patch.object(ns.multiprocessing, "Queue", SyncQueue), \
              caplog.at_level(logging.WARNING, logger="nightly_scan"):
             ns._run_strategy("test", "test_job", "main", {}, dry_run=True)
 

@@ -14,6 +14,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
+from conftest import InlineProcess as _InlineProcess, SyncQueue as _SyncQueue
+
+
 def _make_strategy(fail=False, signals_count=3):
     """返回假 BaseStrategy：run() 按需返回 failed 或成功结果。"""
     from strategies.schemas import StrategyResult
@@ -59,7 +62,7 @@ def test_strategy_exception_marks_run_failed(tmp_path):
 
 def test_strategy_success_calls_publish(tmp_path):
     """run() 成功 → run 标记 succeeded，artifacts 含 signals 数。
-    注：publish() 在子进程执行，父进程 mock 无法断言调用次数。"""
+    用 _InlineProcess 在同一进程内执行 worker，确保 mock 生效。"""
     db_file = tmp_path / "ss.db"
     fake_strategy = _make_strategy(fail=False, signals_count=5)
     trade_date = datetime.now().strftime("%Y-%m-%d")
@@ -72,7 +75,9 @@ def test_strategy_success_calls_publish(tmp_path):
         importlib.reload(rm)
         importlib.reload(ns)
 
-        ok = ns._run_strategy("测试", "test/job2", "test", {}, dry_run=True)
+        with patch.object(ns.multiprocessing, "Process", _InlineProcess), \
+             patch.object(ns.multiprocessing, "Queue", _SyncQueue):
+            ok = ns._run_strategy("测试", "test/job2", "test", {}, dry_run=True)
 
         assert ok is True
 

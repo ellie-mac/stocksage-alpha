@@ -13,6 +13,7 @@ import importlib
 import json
 from datetime import datetime
 from unittest.mock import patch, MagicMock
+from conftest import InlineProcess, SyncQueue
 
 
 def _make_signal(code: str, score: float, factors: dict | None = None):
@@ -132,7 +133,9 @@ def test_nightly_scan_saves_snapshot_on_success(tmp_path):
 
         with patch("jobs.nightly_scan.start_run", return_value=42), \
              patch("jobs.nightly_scan.finish_run", side_effect=capture_finish), \
-             patch("strategies.base.get_strategy", return_value=mock_strategy):
+             patch("strategies.base.get_strategy", return_value=mock_strategy), \
+             patch.object(ns.multiprocessing, "Process", InlineProcess), \
+             patch.object(ns.multiprocessing, "Queue", SyncQueue):
             ns._run_strategy("test", "test_job", "main", {}, dry_run=False)
 
     assert any(a.startswith("snapshot=") for a in artifacts_captured)
@@ -157,7 +160,9 @@ def test_nightly_scan_skips_snapshot_on_dry_run(tmp_path):
 
         with patch("jobs.nightly_scan.start_run", return_value=42), \
              patch("jobs.nightly_scan.finish_run", side_effect=capture_finish), \
-             patch("strategies.base.get_strategy", return_value=mock_strategy):
+             patch("strategies.base.get_strategy", return_value=mock_strategy), \
+             patch.object(ns.multiprocessing, "Process", InlineProcess), \
+             patch.object(ns.multiprocessing, "Queue", SyncQueue):
             ns._run_strategy("test", "test_job", "main", {}, dry_run=True)
 
     assert not any(a.startswith("snapshot=") for a in artifacts_captured)
