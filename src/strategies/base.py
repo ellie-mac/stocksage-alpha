@@ -28,8 +28,9 @@ from strategies.schemas import Signal, StrategyResult  # noqa: E402
 # ── 公共工具 ──────────────────────────────────────────────────────────────────
 
 def _load_config() -> dict:
-    cfg = _ROOT / "alert_config.json"
-    return json.loads(cfg.read_text(encoding="utf-8")) if cfg.exists() else {}
+    """Delegate to common.load_alert_config (lru_cached, repo-wide single source)."""
+    from common import load_alert_config
+    return load_alert_config()
 
 
 def _get_regime(fetcher_mod: Any) -> tuple[float, str]:

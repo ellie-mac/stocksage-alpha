@@ -114,8 +114,13 @@ def send_wechat(title: str, desp: str, sendkey: str, dry_run: bool = False) -> N
         print(f"[WARN] 未配置推送渠道（pushplus.token / serverchan.sendkey），跳过: {title}")
 
 
+@functools.lru_cache(maxsize=1)
 def load_alert_config() -> dict:
-    """Load alert_config.json from repo root. Returns {} on failure."""
+    """Load alert_config.json from repo root. Returns {} on failure.
+
+    lru_cache(1) — alert_config 只在启动时读，进程内复用，避免 24+ callers 重复 IO。
+    config 改动需要重启进程（已通过 watchdog / setup_scheduler 重新生成 bat 实现）。
+    """
     cfg_path = Path(__file__).resolve().parent.parent / "alert_config.json"
     return read_json(cfg_path, default={})
 

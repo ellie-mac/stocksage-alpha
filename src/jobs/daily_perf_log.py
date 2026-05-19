@@ -101,10 +101,10 @@ def _fetch_market_data(
     # fallback：tushare daily
     print("[daily_perf] spot_em 不可用，改用 tushare daily fallback", flush=True)
     try:
-        import json as _json, tushare as _ts
+        import tushare as _ts
         from datetime import date as _date, timedelta as _td
-        _cfg = _json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-        _token = _cfg.get("tushare", {}).get("token", "")
+        from common import load_alert_config
+        _token = load_alert_config().get("tushare", {}).get("token", "")
         _ts.set_token(_token)
         _pro = _ts.pro_api()
         for _delta in range(3):

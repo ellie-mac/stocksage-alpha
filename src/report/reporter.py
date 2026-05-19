@@ -1019,7 +1019,9 @@ def _resolve_styles(style_arg: str, streak: dict, alpha: Optional[float] = None)
 
 
 def _load_alert_config() -> dict:
-    return _load_json_safe(REPO_ROOT / "alert_config.json")
+    """Delegate to common.load_alert_config (lru_cached, repo-wide single source)."""
+    from common import load_alert_config
+    return load_alert_config()
 
 
 def _load_holdings() -> list:

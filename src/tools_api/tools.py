@@ -52,8 +52,8 @@ def run_strategy_scan(strategy_name: str = "main", dry_run: bool = True) -> dict
     if strategy_name not in _STRATEGY_CLASSES:
         return {"error": f"未知策略: {strategy_name}。可选: {list(_STRATEGY_CLASSES)}"}
 
-    cfg_path = _ROOT / "alert_config.json"
-    config = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+    from common import load_alert_config
+    config = load_alert_config()
 
     result = get_strategy(strategy_name).run(config, dry_run=dry_run)
     d = result.to_dict()
@@ -496,11 +496,8 @@ def get_chip_profile(code: str) -> dict:
     },
 )
 def query_watchlist(with_scores: bool = False) -> dict:
-    cfg_path = _ROOT / "alert_config.json"
-    if not cfg_path.exists():
-        return {"error": "alert_config.json 不存在"}
-
-    config   = json.loads(cfg_path.read_text(encoding="utf-8"))
+    from common import load_alert_config
+    config = load_alert_config()
     watchlist = config.get("watchlist", config.get("screener_universe", []))
 
     if not watchlist:

@@ -29,8 +29,8 @@ from run_manifest import start_run, finish_run  # noqa: E402
 
 
 def _load_config() -> dict:
-    cfg = ROOT / "alert_config.json"
-    return json.loads(cfg.read_text(encoding="utf-8")) if cfg.exists() else {}
+    from common import load_alert_config
+    return load_alert_config()
 
 
 def main() -> None:

@@ -222,9 +222,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    config_path = os.path.join(_ROOT, "alert_config.json")
-    with open(config_path, encoding="utf-8") as f:
-        config = json.load(f)
+    from common import load_alert_config
+    config = load_alert_config()
     thresholds = config.get("thresholds", {})
 
     etf_list = config.get("etf_watchlist", [])

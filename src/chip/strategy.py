@@ -54,8 +54,9 @@ _NAMES_TTL  = 7 * 24 * 3600               # refresh weekly
 def _get_pro():
     try:
         import tushare as ts
-        cfg = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
-        token = cfg.get("tushare", {}).get("token", "")
+        sys.path.insert(0, str(ROOT / "src"))
+        from common import load_alert_config
+        token = load_alert_config().get("tushare", {}).get("token", "")
         if not token:
             raise RuntimeError("alert_config.json 未配置 tushare.token")
         ts.set_token(token)

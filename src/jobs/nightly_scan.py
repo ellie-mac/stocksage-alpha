@@ -134,8 +134,8 @@ def _strategy_worker(
 
 
 def _load_config() -> dict:
-    cfg = _ROOT / "alert_config.json"
-    return json.loads(cfg.read_text(encoding="utf-8")) if cfg.exists() else {}
+    from common import load_alert_config
+    return load_alert_config()
 
 
 def _run_strategy(

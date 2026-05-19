@@ -131,10 +131,8 @@ def _get_tushare_pro():
         return _ts_pro
     try:
         import tushare as ts
-        import json, os
-        cfg_path = os.path.join(os.path.dirname(__file__), "..", "alert_config.json")
-        with open(cfg_path, encoding="utf-8") as _f:
-            token = json.load(_f).get("tushare", {}).get("token", "")
+        from common import load_alert_config
+        token = load_alert_config().get("tushare", {}).get("token", "")
         if not token:
             return None
         ts.set_token(token)

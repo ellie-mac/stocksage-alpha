@@ -164,10 +164,9 @@ def _backfill_holding_names(scored_holdings: list[dict]) -> None:
 
 
 def load_config() -> dict:
-    if not os.path.exists(CONFIG_PATH):
-        raise FileNotFoundError(f"alert_config.json not found at {CONFIG_PATH}")
-    with open(CONFIG_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    """Delegate to common.load_alert_config (lru_cached)."""
+    from common import load_alert_config
+    return load_alert_config()
 
 
 

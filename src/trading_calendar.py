@@ -48,12 +48,9 @@ def get_trade_dates(year: str | None = None) -> set[str]:
     if cached:
         return set(cached)
     try:
-        import json as _json
-        from pathlib import Path as _Path
         import tushare as ts
-        _root = _Path(__file__).resolve().parent.parent
-        cfg = _json.loads((_root / "alert_config.json").read_text(encoding="utf-8"))
-        token = cfg.get("tushare", {}).get("token", "")
+        from common import load_alert_config
+        token = load_alert_config().get("tushare", {}).get("token", "")
         if not token:
             return set()
         ts.set_token(token)
