@@ -12,7 +12,8 @@
 归属规则：取最强档（窗口越长越强；同窗口严格 > 宽松）。一只股只归一档。
 
 用法：
-    python -X utf8 src/strategies/sideways_scan.py            # 不推送
+    python -X utf8 src/strategies/sideways_scan.py            # 落盘不推送
+    python -X utf8 src/strategies/sideways_scan.py --push     # 落盘+推微信
     python -X utf8 src/strategies/sideways_scan.py --dry-run  # 打印不落盘
 """
 from __future__ import annotations
@@ -97,7 +98,65 @@ def _classify(closes: np.ndarray) -> Optional[dict]:
     return None
 
 
-def run_scan(dry_run: bool = False) -> dict:
+_TIER_LABEL = {
+    "HX0": "30天严格", "HS0": "30天宽松",
+    "HX1": "20天严格", "HS1": "20天宽松",
+    "HX2": "10天严格", "HS2": "10天宽松",
+    "HX3": "5天严格",  "HS3": "5天宽松",
+}
+_TIER_CAP = {"HX0": 12, "HS0": 8, "HX1": 12, "HS1": 8,
+             "HX2": 6,  "HS2": 5, "HX3": 5,  "HS3": 5}
+
+
+def _push_results(data: dict) -> None:
+    from common import push_wechat
+
+    date  = data.get("date", "?")
+    tiers = data.get("tiers", {})
+    total = sum(len(v) for v in tiers.values())
+    date_s = f"{date[4:6]}/{date[6:]}" if len(date) == 8 else date
+    title = f"📐 横盘策略 {date_s}  {total}只"
+
+    if total == 0:
+        push_wechat(title, "今日无横盘信号")
+        print("[sideways] 微信推送完成（无信号）", flush=True)
+        return
+
+    sections: list[str] = []
+    for tier in _TIER_ORDER:
+        picks = tiers.get(tier, [])
+        if not picks:
+            continue
+        cap = _TIER_CAP.get(tier, 5)
+        shown = picks[:cap]
+        omitted = len(picks) - len(shown)
+        lines = []
+        for p in shown:
+            close = p.get("close", 0) or 0
+            rp = p.get("range_pct") or 0
+            amt = p.get("avg_amt_5d_yi") or 0
+            ind = p.get("industry", "")
+            lines.append(
+                f"**{p['code']} {p['name']}** ({ind}) ¥{close:.2f}  振幅{rp:.1f}% / 额{amt:.1f}亿  "
+            )
+        section = f"**【{tier} {_TIER_LABEL[tier]}】{len(picks)}只**  \n" + "\n".join(lines)
+        if omitted > 0:
+            section += f"\n_...还有{omitted}只_"
+        sections.append(section)
+
+    legend = (
+        "```\n"
+        "HX 严格：窗口内 max/min 相对中价都在 ±5% 以内（全程稳定）\n"
+        "HS 宽松：窗口首尾两点涨跌幅 ≤5%（仅首尾偶合，中段可能波动）\n"
+        "归属：取最强档（窗口越长越强，同窗口严格优先）\n"
+        "```"
+    )
+    body = legend + "\n\n" + "\n\n".join(sections)
+    push_wechat(title, body)
+    print("[sideways] 微信推送完成", flush=True)
+
+
+def run_scan(push: bool = False, dry_run: bool = False) -> dict:
     import fetcher as _fetcher
     try:
         from jobs.prefetch import wait_for_fresh_prices
@@ -178,6 +237,12 @@ def run_scan(dry_run: bool = False) -> dict:
             json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"[sideways] 已保存 → sideways_latest.json")
 
+    if push and not dry_run:
+        try:
+            _push_results(output)
+        except Exception as e:
+            print(f"[sideways] 微信推送失败: {e}", flush=True)
+
     try:
         import event_log as _elog
         _rows = [{"date": date, "strategy": "sideways", "code": r["code"],
@@ -200,9 +265,10 @@ def run_scan(dry_run: bool = False) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--push",    action="store_true", help="推送微信")
     parser.add_argument("--dry-run", action="store_true", help="打印不落盘")
     args = parser.parse_args()
-    run_scan(dry_run=args.dry_run)
+    run_scan(push=args.push, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
