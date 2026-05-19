@@ -66,16 +66,23 @@ def _macd(closes: np.ndarray, fast=12, slow=26, sig=9):
 
 
 def _kdj(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, n=9):
-    """Return (K, D)."""
+    """Return (K, D). 向量化 rolling hi/lo + RSV，EMA 仍 Python 递推（依赖前值）。"""
     total = len(closes)
     K = np.full(total, np.nan)
     D = np.full(total, np.nan)
+    if total < n:
+        return K, D
+
+    # Rolling hi/lo 向量化（pandas C 实现一遍扫，省 O(n*window) Python max/min）
+    s_hi = pd.Series(highs).rolling(n, min_periods=n).max().values
+    s_lo = pd.Series(lows).rolling(n, min_periods=n).min().values
+    denom = s_hi - s_lo
+    rsv = np.where(denom > 0, (closes - s_lo) / np.where(denom > 0, denom, 1) * 100, 50.0)
+
+    # EMA 部分 alpha=1/3，必须按序递推
     kp = dp = 50.0
     for i in range(n - 1, total):
-        hi = np.max(highs[i - n + 1 : i + 1])
-        lo = np.min(lows[i - n + 1 : i + 1])
-        rsv = (closes[i] - lo) / (hi - lo) * 100 if hi != lo else 50.0
-        kp = 2 / 3 * kp + 1 / 3 * rsv
+        kp = 2 / 3 * kp + 1 / 3 * rsv[i]
         dp = 2 / 3 * dp + 1 / 3 * kp
         K[i] = kp
         D[i] = dp
