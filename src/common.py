@@ -117,10 +117,41 @@ def send_wechat(title: str, desp: str, sendkey: str, dry_run: bool = False) -> N
 def load_alert_config() -> dict:
     """Load alert_config.json from repo root. Returns {} on failure."""
     cfg_path = Path(__file__).resolve().parent.parent / "alert_config.json"
+    return read_json(cfg_path, default={})
+
+
+def read_json(path, default=None):
+    """从 JSON 文件读取。失败返回 default（默认 None，传 {} 或 [] 适应 dict/list 期望）。
+
+    替代散落各处的 `json.loads(path.read_text(encoding="utf-8"))` 模板，统一错误处理。
+    """
+    p = Path(path)
+    if not p.exists():
+        return default
     try:
-        return json.loads(cfg_path.read_text(encoding="utf-8"))
+        return json.loads(p.read_text(encoding="utf-8"))
     except Exception:
-        return {}
+        return default
+
+
+def write_json(path, data, *, indent: int | None = 2, ensure_ascii: bool = False, atomic: bool = True) -> bool:
+    """原子写入 JSON。atomic=True 时先写 .tmp 再 replace，避免半残文件。
+
+    Returns True on success.
+    """
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        text = json.dumps(data, ensure_ascii=ensure_ascii, indent=indent)
+        if atomic:
+            tmp = p.with_suffix(p.suffix + ".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            tmp.replace(p)
+        else:
+            p.write_text(text, encoding="utf-8")
+        return True
+    except Exception:
+        return False
 
 
 def push_wechat(title: str, body: str, dry_run: bool = False) -> None:

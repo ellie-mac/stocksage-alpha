@@ -108,9 +108,7 @@ def _get_marketcap_from_baostock(spot: pd.DataFrame) -> dict[str, float]:
 
     # 筛选候选（和 scan() 相同过滤）
     df = spot.copy()
-    df["_code6"] = df["代码"].astype(str).apply(
-        lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
-    )
+    df["_code6"] = df["代码"].astype(str).apply(fetcher.normalize_code)
     df = df[~df["名称"].str.contains("ST|退", na=False)]
     df = df[~df["_code6"].str.startswith("688")]
     df = df[~(df["_code6"].str.startswith("8") | df["_code6"].str.startswith("43") | df["_code6"].str.startswith("9"))]
@@ -180,9 +178,7 @@ def scan() -> list[dict]:
 
     df = spot.copy()
     # 规一化代码：Sina 数据带 sh/sz/bj 前缀，EM 数据是纯 6 位
-    df["代码"] = df["代码"].astype(str).apply(
-        lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
-    )
+    df["代码"] = df["代码"].astype(str).apply(fetcher.normalize_code)
 
     # 过滤 ST / 退市
     df = df[~df["名称"].str.contains("ST|退", na=False)]

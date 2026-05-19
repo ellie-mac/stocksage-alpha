@@ -159,9 +159,11 @@ def inject_marketcap(spot_df, cache: Optional[dict[str, float]] = None, verbose:
     if not cache or spot_df is None or len(spot_df) == 0:
         return spot_df
     spot_df = spot_df.copy()
-    norm = spot_df["代码"].astype(str).apply(
-        lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
-    )
+    # 代码规一化（"sh603486" / "sz301377" → "603486"）— 复用 fetcher.normalize_code 避免散落
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "src"))
+    import fetcher as _f
+    norm = spot_df["代码"].astype(str).apply(_f.normalize_code)
     spot_df["总市值"] = norm.map(cache)
     if verbose:
         print(f"[marketcap_cache] 已注入 {len(cache)} 只市值")

@@ -47,7 +47,9 @@ STOP_LOSS = -8.0
 
 
 def _clean(code: str) -> str:
-    return code[-6:] if len(code) > 6 else code
+    """Normalize 6-digit code; delegates to fetcher.normalize_code for SH/SZ/BJ-prefix handling."""
+    import fetcher as _f
+    return _f.normalize_code(code)
 
 
 def _today() -> str:

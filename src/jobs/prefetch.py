@@ -78,7 +78,7 @@ def prefetch_price(force: bool = False) -> None:
             return "fail"
         return "ok"
 
-    with ThreadPoolExecutor(max_workers=5) as ex:
+    with ThreadPoolExecutor(max_workers=16) as ex:
         futures = {ex.submit(_warm_one, c): c for c in codes}
         for fut in as_completed(futures):
             try:

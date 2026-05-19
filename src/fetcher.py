@@ -82,6 +82,8 @@ _HIST_RETRY_SEC = 1800        # retry failed price-history sources after 30 min
 
 # Source failure tracker: {source_key: [failed_bool, failed_at_float]}
 # Using list (mutable) so dict values can be updated without global declarations.
+# Thread-safety: multiple scanner threads can hit get_price_history simultaneously
+# and race on "check stale + reset" pattern. Use _src_fail_lock helpers below.
 _src_fail: dict[str, list] = {
     "hist_em":  [False, 0.0],   # East Money daily
     "hist_ts":  [False, 0.0],   # Tushare daily
@@ -90,6 +92,34 @@ _src_fail: dict[str, list] = {
     "hist_tdx": [False, 0.0],   # TDX
     "rt_tdx":   [False, 0.0],   # TDX real-time
 }
+_src_fail_lock = threading.Lock()
+
+
+def _src_skip(k: str, retry_sec: float = 0) -> bool:
+    """检查源 k 是否处于 fail 状态（应跳过）。retry_sec 用于自动重置过期 fail。
+
+    Returns True if source is currently 'failed' (caller should skip this source).
+    Atomically resets the failed flag when the retry window has elapsed.
+    """
+    import time as _t
+    with _src_fail_lock:
+        st = _src_fail.get(k)
+        if not st or not st[0]:
+            return False
+        if retry_sec > 0 and (_t.time() - st[1]) > retry_sec:
+            st[0] = False
+            return False
+        return True
+
+
+def _src_mark_fail(k: str) -> None:
+    """原子标记源 k 失败。"""
+    import time as _t
+    with _src_fail_lock:
+        st = _src_fail.get(k)
+        if st is not None:
+            st[1] = _t.time()
+            st[0] = True
 
 _ts_pro = None           # Tushare Pro API handle; initialised lazily from alert_config token
 
