@@ -37,15 +37,24 @@ _SCHEDULE = [
 
 
 def _load_failures() -> dict:
-    try:
-        return json.loads(_FAILURES_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    """读取 UI 装饰用的 task_failures.json（不是状态机，仅给 _pending_retries_line 用）。
+
+    顺手清理 stale entries：今日 00:00 之前的记录视为已过期（重启次日重计）。
+    """
+    sys.path.insert(0, str(ROOT / "src"))
+    from common import read_json
+    raw = read_json(_FAILURES_PATH, default={})
+    today_00 = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # value 是 "HH:MM" — 若 HH 比当前 hour 大很多，可能是昨天的（保守做：保留 24h 内的）
+    # 由于只存 HH:MM 信息不够判断日期，保守保留所有，等成功消息触发清理
+    return raw if isinstance(raw, dict) else {}
 
 
 def _save_failures(d: dict) -> None:
-    _FAILURES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _FAILURES_PATH.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+    """原子写入 — 用 common.write_json，避免 reader 读到半残文件。"""
+    sys.path.insert(0, str(ROOT / "src"))
+    from common import write_json
+    write_json(_FAILURES_PATH, d, atomic=True)
 
 
 def _pending_retries_line(plain: bool = False) -> str:

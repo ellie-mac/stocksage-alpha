@@ -139,6 +139,54 @@ def read_json(path, default=None):
         return default
 
 
+from contextlib import contextmanager as _contextmanager
+
+
+@_contextmanager
+def file_lock(path, timeout: float = 30.0, stale_after: float = 120.0):
+    """简单的 lock-file 互斥（跨进程，跨平台）。
+
+    用于保护对同一文件的 read-modify-write —— 例如 main/small_strategy.save_picks
+    都读改写 latest_picks.json。
+
+    实现：在 path.lock 路径创建标记文件；等待最多 timeout 秒；超 stale_after 的
+    锁文件视为僵尸（前一个进程崩了），强制清理。
+
+    用法：
+        with file_lock(LATEST_PICKS_PATH):
+            data = read_json(LATEST_PICKS_PATH, default={})
+            data["xxx"] = "yyy"
+            write_json(LATEST_PICKS_PATH, data)
+    """
+    lock_path = Path(str(path) + ".lock")
+    start = time.time()
+    while True:
+        try:
+            # O_EXCL: 文件已存在时失败 — 原子 claim
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            break  # 拿到锁
+        except FileExistsError:
+            # 检查 stale
+            try:
+                age = time.time() - lock_path.stat().st_mtime
+                if age > stale_after:
+                    lock_path.unlink(missing_ok=True)
+                    continue
+            except FileNotFoundError:
+                continue
+            if time.time() - start > timeout:
+                raise TimeoutError(f"file_lock({path}) timeout after {timeout}s")
+            time.sleep(0.1)
+    try:
+        yield
+    finally:
+        try:
+            lock_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def write_json(path, data, *, indent: int | None = 2, ensure_ascii: bool = False, atomic: bool = True) -> bool:
     """原子写入 JSON。atomic=True 时先写 .tmp 再 replace，避免半残文件。
 

@@ -114,38 +114,28 @@ def save_picks(candidates: list[dict], regime_signal: str, regime_score: float |
                 "bullish": b.get("bullish", []), "bearish": b.get("bearish", []),
                 "market_cap_b": b.get("market_cap_b")}
 
+    from common import file_lock, read_json, write_json
     today = datetime.now().strftime("%Y-%m-%d")
-    existing_results: list = []
-    existing_timestamp = datetime.now().isoformat()
-    existing_source = regime_signal
-    if os.path.exists(LATEST_PICKS_PATH):
-        try:
-            existing = json.load(open(LATEST_PICKS_PATH, encoding="utf-8"))
-            if existing.get("timestamp", "")[:10] == today:
-                existing_results   = existing.get("results", [])
-                existing_timestamp = existing.get("timestamp", existing_timestamp)
-                existing_source    = existing.get("source", regime_signal)
-        except Exception:
-            pass
-
-    payload = {
-        "timestamp":    existing_timestamp,
-        "source":       existing_source,
-        "results":      existing_results,
-        "smallcap":     [_pick(b) for b in candidates],
-        "regime":       existing_source,
-        "regime_score": regime_score,
-    }
-    tmp = LATEST_PICKS_PATH + ".tmp"
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, LATEST_PICKS_PATH)
-    except Exception:
-        try:
-            os.remove(tmp)
-        except Exception:
-            pass
+    # 互斥 read-modify-write，防止与 main_strategy.save_picks 并发覆盖 results
+    with file_lock(LATEST_PICKS_PATH):
+        existing = read_json(LATEST_PICKS_PATH, default={}) or {}
+        if existing.get("timestamp", "")[:10] == today:
+            existing_results   = existing.get("results", [])
+            existing_timestamp = existing.get("timestamp", datetime.now().isoformat())
+            existing_source    = existing.get("source", regime_signal)
+        else:
+            existing_results   = []
+            existing_timestamp = datetime.now().isoformat()
+            existing_source    = regime_signal
+        payload = {
+            "timestamp":    existing_timestamp,
+            "source":       existing_source,
+            "results":      existing_results,
+            "smallcap":     [_pick(b) for b in candidates],
+            "regime":       existing_source,
+            "regime_score": regime_score,
+        }
+        write_json(LATEST_PICKS_PATH, payload, atomic=True)
 
 
 # ── 推送/副作用（与 scan 分离，供适配器复用）──────────────────────────────────

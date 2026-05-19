@@ -84,36 +84,24 @@ def save_picks(
                 "buy_score": b.get("buy_score"), "sell_score": b.get("sell_score"),
                 "bullish": b.get("bullish", []), "bearish": b.get("bearish", [])}
 
+    from common import file_lock, read_json, write_json
     today = datetime.now().strftime("%Y-%m-%d")
-    existing_smallcap: list = []
-    if os.path.exists(LATEST_PICKS_PATH):
-        try:
-            existing = json.load(open(LATEST_PICKS_PATH, encoding="utf-8"))
-            if existing.get("timestamp", "")[:10] == today:
-                existing_smallcap = existing.get("smallcap", [])
-        except Exception:
-            pass
-
-    payload = {
-        "timestamp":    datetime.now().isoformat(),
-        "source":       regime_signal,
-        "results":      [_pick(b) for b in buy_alerts],
-        "smallcap":     existing_smallcap,
-        "regime":       regime_signal,
-        "regime_score": regime_score,
-        "candidates":   [_pick(s) for s in (scored or [])[:15]
-                         if not s.get("error") and s.get("buy_score", 0) > 0],
-    }
-    tmp = LATEST_PICKS_PATH + ".tmp"
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, LATEST_PICKS_PATH)
-    except Exception:
-        try:
-            os.remove(tmp)
-        except Exception:
-            pass
+    # 互斥 read-modify-write，防止与 small_strategy.save_picks 并发覆盖 smallcap
+    with file_lock(LATEST_PICKS_PATH):
+        existing = read_json(LATEST_PICKS_PATH, default={}) or {}
+        existing_smallcap = (existing.get("smallcap", [])
+                             if existing.get("timestamp", "")[:10] == today else [])
+        payload = {
+            "timestamp":    datetime.now().isoformat(),
+            "source":       regime_signal,
+            "results":      [_pick(b) for b in buy_alerts],
+            "smallcap":     existing_smallcap,
+            "regime":       regime_signal,
+            "regime_score": regime_score,
+            "candidates":   [_pick(s) for s in (scored or [])[:15]
+                             if not s.get("error") and s.get("buy_score", 0) > 0],
+        }
+        write_json(LATEST_PICKS_PATH, payload, atomic=True)
 
 
 def append_signals_log(buy_alerts: list[dict], run_time: str,
