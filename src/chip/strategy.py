@@ -811,13 +811,12 @@ def _cad_run_one(df_all, mods: str, trade_date: str, pro) -> tuple[dict, int]:
     """Run one mods variant. Returns (tiers_dict, total_count). Does NOT push."""
     mods = mods.lower()
     boll_near   = "b" in mods
-    cheap       = "e" in mods
     no_kcb      = "k" in mods
     high_filter = "h" in mods
     macd_conv   = "m" in mods
     macd_zero   = "z" in mods
 
-    max_price    = 50.0 if cheap else None
+    max_price    = None   # 不再按价格过滤（之前 'e' mods 触发 ≤50，已弃用）
     max_6m_ratio = 0.9  if high_filter else None
 
     total = 0

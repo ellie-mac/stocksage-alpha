@@ -11,14 +11,15 @@
 
 归属规则：取最强档（窗口越长越强；同窗口严格 > 宽松）。一只股只归一档。
 
-行业范围：默认仅扫描科技 (TMT) — 半导体/软件/计算机/通信/电子/互联网 等。
-         加 --include-non-tech 可不限行业扫全市场。
+质量过滤（默认开启，排除"死水股"）：
+  · 5 日均成交额 ≥ 0.5 亿  — 排除无人气、无成交的僵尸票
+  · 量比 (5日量/60日量) ≥ 0.5 — 排除越来越冷的票
 
 用法：
-    python -X utf8 src/strategies/sideways_scan.py                    # 科技 only 落盘
-    python -X utf8 src/strategies/sideways_scan.py --push             # 科技 + 推微信
-    python -X utf8 src/strategies/sideways_scan.py --include-non-tech # 全市场
-    python -X utf8 src/strategies/sideways_scan.py --dry-run          # 打印不落盘
+    python -X utf8 src/strategies/sideways_scan.py             # 全市场 + 质量过滤
+    python -X utf8 src/strategies/sideways_scan.py --push      # + 推微信
+    python -X utf8 src/strategies/sideways_scan.py --tech-only # 仅科技 TMT
+    python -X utf8 src/strategies/sideways_scan.py --dry-run   # 打印不落盘
 """
 from __future__ import annotations
 
@@ -47,8 +48,8 @@ _TIER_SPEC: dict[str, tuple[int, str]] = {
     "HX2": (10, "strict"), "HS2": (10, "loose"),
     "HX3": (5,  "strict"), "HS3": (5,  "loose"),
 }
-_PCT = 0.05      # ±5%
-_MIN_BARS = 35
+_PCT = 0.05            # ±5%
+_MIN_BARS = 65         # 拉 65 天，含 60 天 volume 用于量比
 
 # 科技 (TMT) 行业关键词 — substring 匹配 industry 字段
 _TECH_KEYWORDS = (
@@ -154,10 +155,11 @@ def _push_results(data: dict) -> None:
         for p in shown:
             close = p.get("close", 0) or 0
             rp = p.get("range_pct") or 0
-            amt = p.get("avg_amt_5d_yi") or 0
+            amt = p.get("amt_5d_yi") or 0
+            vr = p.get("vol_ratio") or 0
             ind = p.get("industry", "")
             lines.append(
-                f"**{p['code']} {p['name']}** ({ind}) ¥{close:.2f}  振幅{rp:.1f}% / 额{amt:.1f}亿  "
+                f"**{p['code']} {p['name']}** ({ind}) ¥{close:.2f}  振幅{rp:.1f}% / 额{amt:.1f}亿 / 量比{vr:.2f}  "
             )
         section = f"**【{tier} {_TIER_LABEL[tier]}】{len(picks)}只**  \n" + "\n".join(lines)
         if omitted > 0:
@@ -167,8 +169,9 @@ def _push_results(data: dict) -> None:
     legend = (
         "```\n"
         "HX 严格：窗口内 max/min 相对中价都在 ±5% 以内（全程稳定）\n"
-        "HS 宽松：窗口首尾两点涨跌幅 ≤5%（仅首尾偶合，中段可能波动）\n"
+        "HS 宽松：窗口首尾两点涨跌幅 ≤5%（仅首尾偶合）\n"
         "归属：取最强档（窗口越长越强，同窗口严格优先）\n"
+        "已过滤死水股：5日均额≥0.5亿 + 量比(5日/60日)≥0.5\n"
         "```"
     )
     body = legend + "\n\n" + "\n\n".join(sections)
@@ -176,7 +179,7 @@ def _push_results(data: dict) -> None:
     print("[sideways] 微信推送完成", flush=True)
 
 
-def run_scan(push: bool = False, dry_run: bool = False, include_non_tech: bool = False) -> dict:
+def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False) -> dict:
     import fetcher as _fetcher
     try:
         from jobs.prefetch import wait_for_fresh_prices
@@ -188,10 +191,12 @@ def run_scan(push: bool = False, dry_run: bool = False, include_non_tech: bool =
     name_map, ind_map = _build_name_maps()
     date = datetime.now().strftime("%Y%m%d")
 
-    if not include_non_tech:
+    if tech_only:
         before = len(universe)
         universe = [c for c in universe if _is_tech(ind_map.get(c[-6:], ""))]
         print(f"[sideways] 科技行业过滤: {before} → {len(universe)} 只", flush=True)
+
+    from strategies._quality import compute_metrics, passes_quality
 
     def _fetch_and_classify(code: str) -> Optional[dict]:
         try:
@@ -202,34 +207,28 @@ def run_scan(push: bool = False, dry_run: bool = False, include_non_tech: bool =
             name = name_map.get(code6, code6)
             if "ST" in name.upper():
                 return None
-            closes = df["close"].values
-            close = float(closes[-1])
+            close = float(df["close"].iloc[-1])
             if not (3.0 <= close <= 500.0):
                 return None
-            if len(df) >= 2:
-                prev = float(closes[-2])
-                if prev > 0 and abs(close - prev) / prev * 100 >= 9.5:
-                    return None
-            if "high" in df.columns and "low" in df.columns and \
-                    float(df["high"].iloc[-1]) == float(df["low"].iloc[-1]):
+            metrics = compute_metrics(df)
+            if not passes_quality(metrics):
                 return None
-            metrics = _classify(closes)
-            if not metrics:
+            sw = _classify(df["close"].values)
+            if not sw:
                 return None
-            avg_vol_5d = float(df["volume"].tail(5).mean()) if "volume" in df.columns else 0.0
-            avg_amt_5d_yi = avg_vol_5d * close * 100 / 1e8   # 手→股 ×100，元→亿 /1e8
             return {
-                "code":          code6,
-                "name":          name,
-                "industry":      ind_map.get(code6, ""),
-                "close":         round(close, 2),
-                "tier":          metrics["tier"],
-                "window":        metrics["window"],
-                "mode":          metrics["mode"],
-                "range_pct":     metrics["range_pct"],
-                "hi":            metrics["hi"],
-                "lo":            metrics["lo"],
-                "avg_amt_5d_yi": round(avg_amt_5d_yi, 2),
+                "code":       code6,
+                "name":       name,
+                "industry":   ind_map.get(code6, ""),
+                "close":      round(close, 2),
+                "tier":       sw["tier"],
+                "window":     sw["window"],
+                "mode":       sw["mode"],
+                "range_pct":  sw["range_pct"],
+                "hi":         sw["hi"],
+                "lo":         sw["lo"],
+                "amt_5d_yi":  metrics["amt_5d_yi"],
+                "vol_ratio":  metrics["vol_ratio"],
             }
         except Exception:
             return None
@@ -277,7 +276,8 @@ def run_scan(push: bool = False, dry_run: bool = False, include_non_tech: bool =
                   "details": {"name": r.get("name"), "tier": r.get("tier"),
                               "window": r.get("window"), "mode": r.get("mode"),
                               "range_pct": r.get("range_pct"),
-                              "avg_amt_5d_yi": r.get("avg_amt_5d_yi"),
+                              "amt_5d_yi": r.get("amt_5d_yi"),
+                              "vol_ratio": r.get("vol_ratio"),
                               "industry": r.get("industry", "")}}
                  for r in results]
         if _rows:
@@ -290,13 +290,12 @@ def run_scan(push: bool = False, dry_run: bool = False, include_non_tech: bool =
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--push",    action="store_true", help="推送微信")
-    parser.add_argument("--dry-run", action="store_true", help="打印不落盘")
-    parser.add_argument("--include-non-tech", action="store_true",
-                        help="不限科技行业，扫全市场（默认仅扫描科技/TMT）")
+    parser.add_argument("--push",      action="store_true", help="推送微信")
+    parser.add_argument("--dry-run",   action="store_true", help="打印不落盘")
+    parser.add_argument("--tech-only", action="store_true",
+                        help="仅扫描科技 TMT（默认扫全市场，靠流动性+量比过滤死水股）")
     args = parser.parse_args()
-    run_scan(push=args.push, dry_run=args.dry_run,
-             include_non_tech=args.include_non_tech)
+    run_scan(push=args.push, dry_run=args.dry_run, tech_only=args.tech_only)
 
 
 if __name__ == "__main__":

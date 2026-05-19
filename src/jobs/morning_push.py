@@ -94,6 +94,46 @@ def _filter_tech(picks: list[dict], ind_map: dict[str, str]) -> list[dict]:
     return [p for p in picks if _is_tech(ind_map.get(p["code"], ""))]
 
 
+# 流动性过滤 — 复用 _quality.compute_metrics 口径（amt_5d_yi 亿）
+_LIQUIDITY_MIN_AMT_YI = 0.5
+
+
+def _lookup_amt_yi(code: str, cache: dict[str, float | None]) -> float | None:
+    """从 fetcher.get_price_history 拉 5 日均成交额（亿）。命中价格缓存几乎免费。"""
+    if code in cache:
+        return cache[code]
+    try:
+        sys.path.insert(0, str(ROOT / "src"))
+        import fetcher as _f
+        df = _f.get_price_history(code, days=10)
+        if df is None or "volume" not in df.columns or len(df) < 5:
+            cache[code] = None
+            return None
+        closes = df["close"].tail(5).values
+        vols   = df["volume"].tail(5).values
+        amt = float((closes * vols).mean()) * 100 / 1e8
+        cache[code] = amt
+        return amt
+    except Exception:
+        cache[code] = None
+        return None
+
+
+def _filter_liquid(picks: list[dict], min_amt_yi: float,
+                   cache: dict[str, float | None]) -> list[dict]:
+    """按 5 日均成交额下限过滤。若 pick 本身没有 amt_5d_yi 字段，从 fetcher 现算。"""
+    out: list[dict] = []
+    for p in picks:
+        amt = p.get("amt_5d_yi")
+        if amt is None:
+            amt = _lookup_amt_yi(p["code"], cache)
+        if amt is not None and amt >= min_amt_yi:
+            if "amt_5d_yi" not in p:
+                p = dict(p, amt_5d_yi=amt)
+            out.append(p)
+    return out
+
+
 # ── Data loaders ──────────────────────────────────────────────────────────────
 
 def _load_main() -> tuple[list[dict], list[dict]]:
@@ -311,7 +351,7 @@ _TIER_ORDER = {
 }
 
 
-def _build_message(registry: dict[str, dict], tech_only: bool = True) -> tuple[str, str]:
+def _build_message(registry: dict[str, dict], tech_only: bool = False) -> tuple[str, str]:
     label = "多策略晨报（科技）" if tech_only else "多策略晨报"
     if not registry:
         return label, "今日七路策略均无信号"
@@ -381,8 +421,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--push",    action="store_true", help="推送微信")
     parser.add_argument("--dry-run", action="store_true", help="打印不推送")
-    parser.add_argument("--no-tech-filter", action="store_true",
-                        help="关闭科技行业过滤（默认仅展示科技/TMT 票）")
+    parser.add_argument("--tech-only", action="store_true",
+                        help="仅展示科技 TMT（默认覆盖全行业）")
+    parser.add_argument("--no-liquidity-filter", action="store_true",
+                        help="关闭流动性下限过滤（默认 5 日均成交额 ≥ 0.5 亿）")
     args = parser.parse_args()
 
     main_picks, small_picks = _load_main()
@@ -392,7 +434,8 @@ def main() -> None:
     hot_picks      = _load_hot()
     sideways_picks = _load_sideways()
 
-    if not args.no_tech_filter:
+    # 1) 可选：tech-only 行业过滤（默认 off）
+    if args.tech_only:
         ind_map = _load_industry_map()
         if ind_map:
             before = (len(main_picks), len(small_picks), len(gc_picks),
@@ -410,6 +453,24 @@ def main() -> None:
                   f"叉{before[2]}→{after[2]} 筹{before[3]}→{after[3]} "
                   f"市{before[4]}→{after[4]} 热{before[5]}→{after[5]} 横{before[6]}→{after[6]}")
 
+    # 2) 默认：流动性下限过滤（amt_5d_yi ≥ 0.5 亿）
+    if not args.no_liquidity_filter:
+        amt_cache: dict[str, float | None] = {}
+        before = (len(main_picks), len(small_picks), len(gc_picks),
+                  len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
+        main_picks     = _filter_liquid(main_picks,     _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        small_picks    = _filter_liquid(small_picks,    _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        gc_picks       = _filter_liquid(gc_picks,       _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        chip_picks     = _filter_liquid(chip_picks,     _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        mc_picks       = _filter_liquid(mc_picks,       _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        hot_picks      = _filter_liquid(hot_picks,      _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        sideways_picks = _filter_liquid(sideways_picks, _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        after = (len(main_picks), len(small_picks), len(gc_picks),
+                 len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
+        print(f"[morning_push] 流动性过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
+              f"叉{before[2]}→{after[2]} 筹{before[3]}→{after[3]} "
+              f"市{before[4]}→{after[4]} 热{before[5]}→{after[5]} 横{before[6]}→{after[6]}")
+
     total = (len(main_picks) + len(small_picks) + len(gc_picks) + len(chip_picks)
              + len(mc_picks) + len(hot_picks) + len(sideways_picks))
     print(f"[morning_push] 主{len(main_picks)} 小{len(small_picks)} "
@@ -426,7 +487,7 @@ def main() -> None:
     multi_count = sum(1 for e in registry.values() if len(e["tags"]) >= 2)
     print(f"[morning_push] 去重后 {unique} 只（多策略共振 {multi_count} 只）")
 
-    title, body = _build_message(registry, tech_only=not args.no_tech_filter)
+    title, body = _build_message(registry, tech_only=args.tech_only)
 
     print(f"\n{'='*40}")
     print(f"{title}")

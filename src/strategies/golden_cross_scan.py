@@ -234,6 +234,8 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
     name_map, ind_map = _build_name_maps()
     date = as_of_date or datetime.now().strftime("%Y%m%d")
 
+    from strategies._quality import compute_metrics, passes_quality
+
     def _fetch_and_score(code: str) -> Optional[dict]:
         try:
             df = _fetcher.get_price_history(code, days=90)
@@ -252,12 +254,9 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
             close = float(df["close"].iloc[-1])
             if not (3.0 <= close <= 500.0):
                 return None
-            # P0-L: 涨跌停/一字板过滤 — 无法成交，信号失真
-            if len(df) >= 2:
-                prev_c = float(df["close"].iloc[-2])
-                if prev_c > 0 and abs(close - prev_c) / prev_c * 100 >= 9.5:
-                    return None
-            if float(df["high"].iloc[-1]) == float(df["low"].iloc[-1]):
+            # 流动性 + 量能 + 涨跌停/一字板 综合过滤（涨跌停过滤原本就有，公共类一并处理）
+            metrics = compute_metrics(df)
+            if not passes_quality(metrics):
                 return None
             return {
                 "code":      code,
@@ -267,6 +266,8 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
                 "gc_score":  score,
                 "freshness": round(freshness, 3),
                 "signals":   signals,
+                "amt_5d_yi": metrics["amt_5d_yi"],
+                "vol_ratio": metrics["vol_ratio"],
             }
         except Exception:
             return None

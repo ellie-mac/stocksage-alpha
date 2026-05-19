@@ -113,8 +113,6 @@ def main() -> None:
                         help="强制使用 akshare 自算模式，不消耗 Tushare 额度")
     parser.add_argument("--boll",        action="store_true",
                         help="启用 BOLL中轨±8% 过滤（默认关闭）")
-    parser.add_argument("--max-price",   type=float, default=None,
-                        help="剔除股价高于此值的股票（如 --max-price 50）")
     parser.add_argument("--no-kcb",      action="store_true",
                         help="剔除科创板股票（688xxx）")
     parser.add_argument("--no-push",     action="store_true",
@@ -165,9 +163,23 @@ def main() -> None:
     parts = ["MACD近零"]
     if args.boll:        parts.insert(0, "BOLL中轨")
     if args.high_filter: parts.append("排半年高位")
-    if args.max_price:   parts.append(f"股价≤{args.max_price:.0f}")
     if args.no_kcb:      parts.append("排科创")
     filter_label = "＋".join(parts)
+
+    # 流动性 / 量能 enrichment — 用公共 _quality 模块统一字段（amt_5d_yi, vol_ratio）
+    import sys as _sys; _sys.path.insert(0, str(SCRIPTS))
+    from strategies._quality import compute_metrics, passes_quality
+    import fetcher as _f
+
+    def _enrich(pick: dict) -> dict | None:
+        code6 = pick["code"]
+        df = _f.get_price_history(code6, days=65)
+        m = compute_metrics(df)
+        if not passes_quality(m):
+            return None
+        pick["amt_5d_yi"] = m["amt_5d_yi"]
+        pick["vol_ratio"] = m["vol_ratio"]
+        return pick
 
     sections: list[str] = []
     tier_data: dict[str, list] = {}
@@ -180,7 +192,7 @@ def main() -> None:
             min_win        = tier["min_win"],
             max_win        = tier["max_win"],
             max_today_pct  = 5.0,
-            max_price      = args.max_price,
+            max_price      = None,
             exclude_kcb    = args.no_kcb,
             boll_near_mid  = args.boll,
             macd_near_zero = True,
@@ -205,12 +217,18 @@ def main() -> None:
             f"{r['_code']} {r['_name']} {r['_ind']} ¥{r['_close']:.2f}  "
             for r in result[["_code", "_name", "_ind", "_close"]].to_dict("records")
         ]
-        tier_picks = [
+        tier_picks_raw = [
             {"code": r["_code"], "name": r["_name"], "industry": r["_ind"],
              "close": r["_close"], "winner_rate": r["_wr"], "tier": tier_key}
             for r in result[["_code", "_name", "_ind", "_close", "_wr"]].to_dict("records")
         ]
+        # Enrich with amt_5d_yi / vol_ratio, drop those failing quality gate
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        with _TPE(max_workers=10) as _ex:
+            enriched = list(_ex.map(_enrich, tier_picks_raw))
+        tier_picks = [p for p in enriched if p is not None]
         all_picks.extend(tier_picks)
+        # rows still derived from the original screen() output (display 不变)
         sections.append(header + "  \n" + "\n".join(rows))
         tier_data[tier_key] = tier_picks
 
