@@ -113,6 +113,11 @@ _TIER_LABEL = {
 _TIER_CAP = {"HX0": 12, "HS0": 8, "HX1": 12, "HS1": 8,
              "HX2": 6,  "HS2": 5, "HX3": 5,  "HS3": 5}
 
+# 写盘前每 tier 容量上限：A 股横盘信号常态 1000+ 只，按 vol_ratio 降序保留
+# top N 给 evening / watchlist_updater 等下游消费。"成交量在放大"的票
+# 更接近"蓄势"语义，比仅振幅窄的更有信号价值。
+_TIER_OUTPUT_CAP = 50
+
 
 def _push_results(data: dict) -> None:
     from common import push_wechat
@@ -241,14 +246,23 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
 
     results.sort(key=lambda x: (_TIER_ORDER.index(x["tier"]), x["range_pct"], x["code"]))
 
-    tiers: dict[str, list] = {t: [] for t in _TIER_ORDER}
+    tiers_full: dict[str, list] = {t: [] for t in _TIER_ORDER}
     for r in results:
-        tiers[r["tier"]].append(r)
+        tiers_full[r["tier"]].append(r)
 
-    counts = " ".join(f"{t}={len(tiers[t])}" for t in _TIER_ORDER)
-    print(f"[sideways] 共 {len(results)} 只：{counts}", flush=True)
+    # 每 tier 按 vol_ratio 降序 cap _TIER_OUTPUT_CAP 只
+    tiers: dict[str, list] = {}
+    for t in _TIER_ORDER:
+        capped = sorted(tiers_full[t], key=lambda x: -(x.get("vol_ratio") or 0))[:_TIER_OUTPUT_CAP]
+        tiers[t] = capped
+    capped_results = [r for t in _TIER_ORDER for r in tiers[t]]
 
-    output = {"date": date, "tiers": tiers, "all_picks": results}
+    raw_counts = " ".join(f"{t}={len(tiers_full[t])}" for t in _TIER_ORDER)
+    cap_counts = " ".join(f"{t}={len(tiers[t])}" for t in _TIER_ORDER)
+    print(f"[sideways] 原始 {len(results)} 只: {raw_counts}", flush=True)
+    print(f"[sideways] cap 后 {len(capped_results)} 只 (vol_ratio top {_TIER_OUTPUT_CAP}/tier): {cap_counts}", flush=True)
+
+    output = {"date": date, "tiers": tiers, "all_picks": capped_results}
 
     if not dry_run:
         OUT_LATEST.write_text(
@@ -276,7 +290,7 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
                               "amt_5d_yi": r.get("amt_5d_yi"),
                               "vol_ratio": r.get("vol_ratio"),
                               "industry": r.get("industry", "")}}
-                 for r in results]
+                 for r in capped_results]
         if _rows:
             _elog.log_events(_rows)
     except Exception:

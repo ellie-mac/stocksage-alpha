@@ -415,6 +415,7 @@ def _fmt_pick(code: str, entry: dict) -> str:
 
 
 MAX_SINGLE = 20  # per-strategy section cap (single-strategy stocks only)
+MAX_MULTI  = 50  # 多策略共振块 cap — 防止爆量日（如横盘 2000+）让 push body 超出 PushPlus 限制
 
 _TIER_ORDER = {
     "G0": 0, "G1": 1, "G2": 2,
@@ -461,11 +462,16 @@ def _build_message(
                     detail_strs.append(f"{tag}缺")
             parts.append(f"⚠️ **源 {n_total - n_bad}/{n_total} 正常**，缺失/过期: {' '.join(detail_strs)}")
 
-    # ── Multi-strategy resonance block (no truncation) ────────────────────────
+    # ── Multi-strategy resonance block (cap to MAX_MULTI) ─────────────────────
+    # sorted_codes 已按 -len(tags) 降序，所以 multi 天然按命中策略数从多到少。
     if multi:
+        shown_multi = multi[:MAX_MULTI]
+        omitted_multi = len(multi) - len(shown_multi)
         parts.append(f"**【多策略共振】{len(multi)}只**")
-        for code in multi:
+        for code in shown_multi:
             parts.append(_fmt_pick(code, registry[code]))
+        if omitted_multi:
+            parts.append(f"_...还有{omitted_multi}只_")
 
     # ── Per-strategy sections (capped at MAX_SINGLE each) ────────────────────
     tag_order = ["主", "小", "叉", "筹", "市", "热", "横"]
