@@ -294,7 +294,8 @@ def _load_sideways() -> list[dict]:
                           "tier": p.get("tier", ""),
                           "close": p.get("close"),
                           "range_pct": p.get("range_pct"),
-                          "avg_amt_5d_yi": p.get("avg_amt_5d_yi")})
+                          "avg_amt_5d_yi": p.get("avg_amt_5d_yi"),
+                          "industry": p.get("industry", "")})
     return picks
 
 
@@ -431,10 +432,12 @@ def _fmt_pick(code: str, entry: dict) -> str:
         t = details["横"].get("tier", "")
         rp = details["横"].get("range_pct")
         amt = details["横"].get("avg_amt_5d_yi")
+        ind = details["横"].get("industry", "")
         if t and rp is not None:
             amt_s = f"/{amt:.1f}亿" if amt else ""
+            ind_s = f"·{ind}" if ind else ""
             spec = _SIDEWAYS_TIER_SHORT.get(t, t)
-            annotations.append(f"{spec}(振{rp:.1f}%{amt_s})")
+            annotations.append(f"{spec}(振{rp:.1f}%{amt_s}{ind_s})")
     if "扶" in details:
         t = details["扶"].get("tier", "")
         sp = details["扶"].get("slope_pct")
