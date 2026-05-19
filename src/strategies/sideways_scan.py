@@ -11,10 +11,14 @@
 
 归属规则：取最强档（窗口越长越强；同窗口严格 > 宽松）。一只股只归一档。
 
+行业范围：默认仅扫描科技 (TMT) — 半导体/软件/计算机/通信/电子/互联网 等。
+         加 --include-non-tech 可不限行业扫全市场。
+
 用法：
-    python -X utf8 src/strategies/sideways_scan.py            # 落盘不推送
-    python -X utf8 src/strategies/sideways_scan.py --push     # 落盘+推微信
-    python -X utf8 src/strategies/sideways_scan.py --dry-run  # 打印不落盘
+    python -X utf8 src/strategies/sideways_scan.py                    # 科技 only 落盘
+    python -X utf8 src/strategies/sideways_scan.py --push             # 科技 + 推微信
+    python -X utf8 src/strategies/sideways_scan.py --include-non-tech # 全市场
+    python -X utf8 src/strategies/sideways_scan.py --dry-run          # 打印不落盘
 """
 from __future__ import annotations
 
@@ -45,6 +49,22 @@ _TIER_SPEC: dict[str, tuple[int, str]] = {
 }
 _PCT = 0.05      # ±5%
 _MIN_BARS = 35
+
+# 科技 (TMT) 行业关键词 — substring 匹配 industry 字段
+_TECH_KEYWORDS = (
+    "半导体", "集成电路", "芯片",
+    "软件", "计算机", "互联网", "信息",
+    "通信",
+    "元器件", "电子", "光电",
+    "网络", "数据", "云", "操作系统",
+    "智能", "人工智", "IT",
+)
+
+
+def _is_tech(industry: str) -> bool:
+    if not industry:
+        return False
+    return any(kw in industry for kw in _TECH_KEYWORDS)
 
 
 def _load_universe() -> list[str]:
@@ -156,7 +176,7 @@ def _push_results(data: dict) -> None:
     print("[sideways] 微信推送完成", flush=True)
 
 
-def run_scan(push: bool = False, dry_run: bool = False) -> dict:
+def run_scan(push: bool = False, dry_run: bool = False, include_non_tech: bool = False) -> dict:
     import fetcher as _fetcher
     try:
         from jobs.prefetch import wait_for_fresh_prices
@@ -167,6 +187,11 @@ def run_scan(push: bool = False, dry_run: bool = False) -> dict:
     universe = _load_universe()
     name_map, ind_map = _build_name_maps()
     date = datetime.now().strftime("%Y%m%d")
+
+    if not include_non_tech:
+        before = len(universe)
+        universe = [c for c in universe if _is_tech(ind_map.get(c[-6:], ""))]
+        print(f"[sideways] 科技行业过滤: {before} → {len(universe)} 只", flush=True)
 
     def _fetch_and_classify(code: str) -> Optional[dict]:
         try:
@@ -267,8 +292,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--push",    action="store_true", help="推送微信")
     parser.add_argument("--dry-run", action="store_true", help="打印不落盘")
+    parser.add_argument("--include-non-tech", action="store_true",
+                        help="不限科技行业，扫全市场（默认仅扫描科技/TMT）")
     args = parser.parse_args()
-    run_scan(push=args.push, dry_run=args.dry_run)
+    run_scan(push=args.push, dry_run=args.dry_run,
+             include_non_tech=args.include_non_tech)
 
 
 if __name__ == "__main__":

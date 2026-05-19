@@ -146,7 +146,7 @@ TASKS = [
     ("main_Scan",       "18:30", "monitor_scan",    "主/ETF/小盘策略扫盘 📱",                         True),
     ("golden_Scan",     "19:30", "gc_scan",         "金叉策略扫描（全A股7项指标共振）推送 📱",         True),
     ("hot_Scan",        "19:00", "hot_scan",        "热榜策略扫描，更新 hot_scan_latest.json 推送 📱", True),
-    ("sideways_Scan",   "20:00", "sideways_scan",   "横盘策略扫描（30/20/10/5天±5%，HX严格/HS宽松）推送 📱", True),
+    ("sideways_Scan",   "20:00", "sideways_scan",   "横盘策略扫描（科技TMT，30/20/10/5天±5%，HX严格/HS宽松）推送 📱", True),
     ("chip_CadScan",    "21:00", "cad_scan",        "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱",    True),
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
     ("main_Night",      "22:30", "main_night",      "预热财务缓存（batch_financials），不推送",        False),
