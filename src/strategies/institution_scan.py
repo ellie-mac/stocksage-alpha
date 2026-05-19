@@ -250,7 +250,7 @@ def _push_results(data: dict) -> None:
     quarter    = data.get("scan_quarter", "?")
     min_funds  = data.get("min_funds", 2)
     fund_count = data.get("fund_count", 0)
-    title      = f"机构策略 {quarter[:10]}  {len(hits)}只被{min_funds}+家新增"
+    title      = f"[机构] {quarter[:10]}  {len(hits)}只被{min_funds}+家新增"
 
     # 季度标签简化：2026年1季度股票投资明细 → 26Q1
     def _fmt_q(q: str) -> str:

@@ -282,7 +282,7 @@ def main() -> None:
         rows.append(f"{i}. **{p['code']} {p['name']}**  ¥{p['price']:.2f}  {p['marketcap_yi']:.1f}亿{pct_s}")
     rows.append("<br>> 仅供参考，不构成投资建议")
     desp  = "<br>".join(rows)
-    title = f"市值策略 | 最低{TOP_N}只"
+    title = f"[市值] 最低{TOP_N}只"
 
     if args.dry_run:
         print(f"\n[dry-run]\n{title}\n{desp}")

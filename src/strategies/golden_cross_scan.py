@@ -360,7 +360,7 @@ def _push_results(data: dict) -> None:
 
     blocks.append("⚠️ 仅供参考，不构成投资建议")
 
-    title = f"金叉共振 {date_s}"
+    title = f"[金叉] 共振 {date_s}"
     body  = "\n\n".join(blocks)
     print(f"\n{title}\n{body}")
     push_wechat(title, body)

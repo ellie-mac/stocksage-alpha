@@ -79,7 +79,7 @@ def send_failure_alert(
             lines.append(f"  {err_snip}")
 
     count = len(new_runs)
-    title = f"⚠️ 夜跑失败 ({count} 个任务)"
+    title = f"[系统] ⚠️ 夜跑失败 ({count} 个任务)"
     body  = "\n".join(lines)
 
     push_wechat(title, body, dry_run=dry_run)
@@ -101,7 +101,7 @@ def main() -> None:
     task   = sys.argv[1] if len(sys.argv) > 1 else "未知任务"
     detail = sys.argv[2] if len(sys.argv) > 2 else ""
 
-    title = f"⚠️ 任务失败: {task}"
+    title = f"[系统] ⚠️ 任务失败: {task}"
     body  = f"任务 **{task}** 执行失败，请检查日志并考虑手动重跑。"
     if detail:
         body += f"\n\n{detail}"

@@ -630,7 +630,7 @@ def main() -> None:
         if _tv(hs)        is not None: parts.append(f"热{_tv(hs)}%")
         if _tv(wl_mon_stats) is not None: parts.append(f"监{_tv(wl_mon_stats)}%")
         if _tv(etf_stats) is not None: parts.append(f"ETF{_tv(etf_stats)}%")
-        title = f"今开胜率 {date_fmt} | {' / '.join(parts)}"
+        title = f"[胜率·日] {date_fmt} | {' / '.join(parts)}"
         push_wechat(title, push_body)
         print("[daily_perf] 微信推送成功")
     except Exception as e:

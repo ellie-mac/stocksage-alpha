@@ -144,7 +144,7 @@ def main() -> None:
     parts: list[str] = []
     if strong_b: parts.append(f"✅ {len(strong_b)} 强买")
     if add_b:    parts.append(f"💡 {len(add_b)} 买入")
-    title = f"自选池 {' | '.join(parts)}"
+    title = f"[自选池·30m] {' | '.join(parts)}"
 
     wechat_send_with_log(title, desp, sendkey, "watchlist_scan", args.dry_run)
 

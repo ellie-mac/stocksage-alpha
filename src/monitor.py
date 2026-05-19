@@ -888,7 +888,7 @@ def _check_opening_auction(
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     desp = f"*{now_str}*\n\n" + "\n\n".join(sections) + "\n\n> 仅供参考，不构成投资建议"
     try:
-        send_wechat("开盘竞价简报 🔔", desp, sendkey, dry_run=dry_run)
+        send_wechat("[监控] 开盘竞价简报 🔔", desp, sendkey, dry_run=dry_run)
         print(f"  [竞价检验] 推送完成（{len(verdicts)} 只）")
     except Exception as e:
         print(f"  [竞价检验] 推送失败: {e}")
@@ -1311,7 +1311,7 @@ def run(
         if smallcap_alerts: buy_parts.append(f"📊 {len(smallcap_alerts)} 小盘（{_names(smallcap_alerts)}）")
         if etf_alerts:     buy_parts.append(f"🏦 {len(etf_alerts)} ETF（{_names(etf_alerts)}）")
         if not buy_parts:  buy_parts.append("明日关注" if now.hour >= 15 else "今日关注")
-        buy_title = f"主策略 {' | '.join(buy_parts)}"
+        buy_title = f"[主策略·盘中] {' | '.join(buy_parts)}"
 
         _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
         buy_desp_parts = [f"*{run_time}*\n市场 {_re_emoji} {regime_score:.0f}/10 {_regime_key}\n"]
@@ -1506,7 +1506,7 @@ def run_loop(
         _error_notified[key] = datetime.now()
         try:
             send_wechat(
-                f"⚠️ 扫描异常",
+                f"[监控] ⚠️ 扫描异常",
                 f"**{key}** 发生错误:\n\n```\n{msg[:400]}\n```\n\n"
                 f"> {datetime.now().strftime('%Y-%m-%d %H:%M')}",
                 sendkey, dry_run=dry_run,
@@ -1568,7 +1568,7 @@ def run_loop(
                             _universe_refresh_done.set()
                             try:
                                 send_wechat(
-                                    "股票池已更新 🔄",
+                                    "[监控] 股票池已更新 🔄",
                                     f"今日 screener_universe 刷新完成\n\n"
                                     f"- 候选股票: **{n}** 只（全量扫描）\n"
                                     f"- 自选池（每30分钟扫描）:\n{_wl_lines(cfg)}\n\n"
@@ -1610,7 +1610,7 @@ def run_loop(
                 f"> {now.strftime('%Y-%m-%d')} 开盘前自检"
             )
             try:
-                send_wechat("今日监控在线 ✅", desp, sendkey, dry_run=dry_run)
+                send_wechat("[监控] 今日在线 ✅", desp, sendkey, dry_run=dry_run)
             except Exception as e:
                 print(f"  [WARN] Heartbeat push failed: {e}")
 

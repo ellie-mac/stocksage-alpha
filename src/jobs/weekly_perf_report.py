@@ -164,7 +164,7 @@ def main() -> None:
         import sys
         sys.path.insert(0, str(ROOT / "src"))
         from common import push_wechat
-        title = f"周胜率周报 {week_label}"
+        title = f"[胜率·周] {week_label}"
         push_wechat(title, body)
         print("[weekly_perf] 微信推送成功")
     except Exception as e:

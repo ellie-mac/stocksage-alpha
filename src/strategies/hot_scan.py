@@ -273,7 +273,7 @@ def _push_results(data: dict) -> None:
     snap_t   = data.get("snapshot_time", "")
     suffix   = "·排高位" if data.get("cah") else ""
     d        = f"{date_s[4:6]}/{date_s[6:]}" if len(date_s) == 8 else date_s
-    title    = f"🔥 热榜策略 {d}{suffix}  {len(picks)}只"
+    title    = f"[热榜] 🔥 {d}{suffix}  {len(picks)}只"
 
     # 微信
     if not picks:

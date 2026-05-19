@@ -761,7 +761,7 @@ def format_message(
     n = len(result)
     date_fmt = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
     win_range = f"{min_win:.0f}-{max_win:.0f}%" if max_win else f"≥{min_win:.0f}%"
-    title = f"T+1筹码 {date_fmt} 共{n}只"
+    title = f"[筹码·T+1] {date_fmt} 共{n}只"
 
     if n == 0:
         return title, f"**{date_fmt}** 无符合条件股票（获利盘 {win_range}）"
@@ -974,7 +974,7 @@ def _cad_merged_push(cah_saves: dict, cadm_saves: dict, cad_saves: dict, trade_d
                 sections.append(s)
 
     body  = "\n".join(sections) + "\n\n> ⚠️ 仅供参考，不构成投资建议" + (f"\n_{src_note}_" if src_note else "")
-    title = f"筹码驱动 {date_fmt} 三筛:{cadm_top_total} cah独有:{cah_only_total} cad独有:{cad_only_total}"
+    title = f"[筹码·驱动] {date_fmt} 三筛:{cadm_top_total} cah独有:{cah_only_total} cad独有:{cad_only_total}"
     print(f"\n{title}\n")
     push_wechat(title, body, dry_run=dry_run)
 
@@ -1020,7 +1020,7 @@ def cad_main(mods_list: list[str] | None = None, date: str = "", dry_run: bool =
                 _cad_build_section(t, saves.get(t, []), mods_str)
                 for t, _, _ in _TIER_ORDER[:3]
             ) + "\n\n> ⚠️ 仅供参考，不构成投资建议" + (f"\n_{_src_note}_" if _src_note else "")
-            title = f"筹码驱动 {date_fmt} ({mods_str}) 共{total}只"
+            title = f"[筹码·驱动] {date_fmt} ({mods_str}) 共{total}只"
             push_wechat(title, body, dry_run=dry_run)
 
 

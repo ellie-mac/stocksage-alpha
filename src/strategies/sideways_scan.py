@@ -126,7 +126,7 @@ def _push_results(data: dict) -> None:
     tiers = data.get("tiers", {})
     total = sum(len(v) for v in tiers.values())
     date_s = f"{date[4:6]}/{date[6:]}" if len(date) == 8 else date
-    title = f"📐 横盘策略 {date_s}  {total}只"
+    title = f"[横盘] 📐 {date_s}  {total}只"
 
     if total == 0:
         push_wechat(title, "今日无横盘信号")

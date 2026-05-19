@@ -178,7 +178,7 @@ def _push_results(
     if stall_s:  parts.append(f"⚠️ {len(stall_s)} 减仓（{_en(stall_s)}）")
     if strong_b: parts.append(f"✅ {len(strong_b)} 强买（{_en(strong_b)}）")
     if add_b:    parts.append(f"💡 {len(add_b)} 加仓（{_en(add_b)}）")
-    title = f"ETF {' | '.join(parts)}"
+    title = f"[ETF] {' | '.join(parts)}"
 
     rows = [regime_header_line(datetime.now().strftime("%Y-%m-%d %H:%M"), regime_score, regime_signal)]
     for a in sells:

@@ -149,7 +149,7 @@ def _push_results(
     if strong: parts.append(f"✅ {len(strong)} 强买")
     if add:    parts.append(f"💡 {len(add)} 加仓")
     if not parts: parts.append("明日关注")
-    title = f"主策略 {' | '.join(parts)}"
+    title = f"[主策略·夜] {' | '.join(parts)}"
 
     rows = [regime_header_line(run_time, regime_score, rk),
             "<br>**今日关注（低波动主策略）**"]

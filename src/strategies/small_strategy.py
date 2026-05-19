@@ -158,7 +158,7 @@ def _push_results(
     rk = _regime_key(regime_score)
     alerts = [s for s in candidates if s.get("_sc_signal")]
     parts  = [f"📊 {len(alerts)} 信号"] if alerts else ["明日关注"]
-    title  = f"小盘策略 {' | '.join(parts)}"
+    title  = f"[小盘] {' | '.join(parts)}"
 
     rows = [regime_header_line(run_time, regime_score, rk),
             "<br>**今日关注（小市值策略）**"]

@@ -438,7 +438,7 @@ def _build_message(
     tech_only: bool = False,
     source_status: dict[str, dict] | None = None,
 ) -> tuple[str, str]:
-    label = "多策略汇总·晚间（科技）" if tech_only else "多策略汇总·晚间"
+    label = "[多策略·晚间·科技]" if tech_only else "[多策略·晚间]"
     if not registry:
         return label, "今日七路策略均无信号"
 

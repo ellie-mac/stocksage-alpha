@@ -192,7 +192,7 @@ def _push(
     _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    title = f"🔔 强买 {name}({code}) {score:.0f}分 [{src_label}]"
+    title = f"[自选池·实时] 🔔 {name}({code}) {score:.0f}分 [{src_label}]"
     price_line = f"买入分 **{score:.0f}** | 现价 {price}"
     if chg_s:
         price_line += f" | {chg_s}"
