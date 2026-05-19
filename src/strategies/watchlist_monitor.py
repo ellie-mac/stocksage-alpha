@@ -222,7 +222,10 @@ def _push(
     # 飞书补发
     try:
         from notify.notify import push_feishu_content
-        text = f"🔔 强买 {name}({code})\n买入分 {score:.0f} | 现价 {price}\n来源: {src_label}\n因子: {' / '.join(factors) if factors else '-'}"
+        factor_names = [_FACTOR_ZH_REPORT.get(b["factor"], b["factor"])
+                        for b in (alert.get("bullish") or [])
+                        if isinstance(b, dict) and b.get("factor")]
+        text = f"🔔 强买 {name}({code})\n买入分 {score:.0f} | 现价 {price}\n来源: {src_label}\n因子: {' / '.join(factor_names) if factor_names else '-'}"
         push_feishu_content(text)
     except Exception:
         pass

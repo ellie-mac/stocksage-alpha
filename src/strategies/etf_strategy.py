@@ -23,7 +23,8 @@ from factors import weights_from_config_dict
 from factors.config import FACTOR_WEIGHTS_ETF
 from factors import score_market_regime
 import fetcher
-from common import send_wechat, setup_push, regime_emoji
+from common import setup_push
+from strategies._push import regime_header_line, wechat_send_with_log
 from report.utils import score_one_buy as _score_one
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -167,7 +168,6 @@ def _push_results(
         print("[etf_strategy] 无信号，跳过推送")
         return
 
-    _re_emoji = regime_emoji(regime_score)
     strong_s = [a for a in sells if a["sell_score"] >= thresholds.get("sell_score_trigger", 60)]
     stall_s  = [a for a in sells if a not in strong_s]
     strong_b = [a for a in buys  if a["buy_score"] >= 80]
@@ -180,7 +180,7 @@ def _push_results(
     if add_b:    parts.append(f"💡 {len(add_b)} 加仓（{_en(add_b)}）")
     title = f"ETF {' | '.join(parts)}"
 
-    rows = [f"*{datetime.now():%Y-%m-%d %H:%M}*<br>市场 {_re_emoji} {regime_score:.0f}/10 {regime_signal}"]
+    rows = [regime_header_line(datetime.now().strftime("%Y-%m-%d %H:%M"), regime_score, regime_signal)]
     for a in sells:
         rows.append(f"**{a['name']} ({a['code']})**<br>"
                     f"卖出分 **{a['sell_score']:.0f}** | 浮盈 **{a.get('pnl_pct', 0):+.1f}%**")
@@ -193,15 +193,7 @@ def _push_results(
     rows.append("<br>> T+0 / 仅供参考")
     desp = "<br>".join(rows)
 
-    if not dry_run:
-        try:
-            send_wechat(title, desp, sendkey, dry_run=False)
-            print("[etf_strategy] 微信推送完成")
-        except Exception as e:
-            print(f"[etf_strategy] 微信推送失败: {e}")
-            raise
-    else:
-        print(f"[etf_strategy] dry-run:\n{title}\n{desp}")
+    wechat_send_with_log(title, desp, sendkey, "etf_strategy", dry_run)
 
 
 def push_from_json(config: dict, dry_run: bool = False) -> None:

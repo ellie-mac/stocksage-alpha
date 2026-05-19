@@ -12,47 +12,25 @@ import argparse
 import json
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from functools import partial
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from factors import weights_from_config_dict
 from factors.config import REGIME_WEIGHTS_SMALLCAP, SMALLCAP_CONFIG
 from factors import score_market_regime
 import fetcher
 import pandas as pd
-from common import send_wechat, setup_push, regime_emoji
+from common import setup_push
+from strategies._push import regime_header_line, wechat_send_with_log, DISCLAIMER
+from strategies._scoring import score_universe
 from report.utils import (
     regime_key as _regime_key,
     compact_factor_scores as _compact_factor_scores,
-    score_one_buy as _score_one_buy,
 )
 
 _ROOT             = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 LATEST_PICKS_PATH = os.path.join(_ROOT, "data", "latest_picks.json")
-_MARKETCAP_CACHE  = os.path.join(_ROOT, "data", "marketcap_cache.json")
-
-
-def _inject_marketcap(spot_df: pd.DataFrame) -> pd.DataFrame:
-    """Sina fallback 缺少总市值列时，从磁盘缓存注入。"""
-    try:
-        raw = json.loads(open(_MARKETCAP_CACHE, encoding="utf-8").read())
-        cached: dict[str, float] = raw.get("data", {})
-    except Exception:
-        cached = {}
-    if not cached:
-        return spot_df
-    spot_df = spot_df.copy()
-    # Sina codes may have sh/sz prefix; cache keys are 6-digit
-    norm = spot_df["代码"].astype(str).apply(
-        lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
-    )
-    spot_df["总市值"] = norm.map(cached)
-    print(f"[small_strategy] 已从缓存注入总市值（{len(cached)}只）")
-    return spot_df
 
 
 # ── 核心扫描 ───────────────────────────────────────────────────────────────────
@@ -66,8 +44,6 @@ def scan(
     """扫描全市场小市值候选，返回 top_n picks。"""
     held_codes = held_codes or set()
     rk = _regime_key(regime_score)
-    fw = weights_from_config_dict(REGIME_WEIGHTS_SMALLCAP[rk])
-    _score = partial(_score_one_buy, weights=fw)
 
     sc_cfg    = {**SMALLCAP_CONFIG, **config.get("smallcap", {})}
     max_cap   = sc_cfg["max_cap_yi"] * 1e8
@@ -83,7 +59,8 @@ def scan(
         print(f"[small_strategy] spot_df missing essential columns")
         return []
     if "总市值" not in spot_df.columns:
-        spot_df = _inject_marketcap(spot_df)
+        from strategies._quality import inject_marketcap as _inject_mc
+        spot_df = _inject_mc(spot_df)
     if "总市值" not in spot_df.columns:
         print("[small_strategy] 无总市值数据（EM不可用且缓存为空），跳过")
         return []
@@ -111,12 +88,7 @@ def scan(
     print(f"[small_strategy] scanning {len(candidates)} candidates "
           f"(cap≤{sc_cfg['max_cap_yi']}亿, regime={rk})...")
 
-    scored: list[dict] = []
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futs = {ex.submit(_score, code): code for code in candidates}
-        for fut in as_completed(futs):
-            scored.append(fut.result())
-    scored.sort(key=lambda x: -x.get("buy_score", 0))
+    scored = score_universe(candidates, REGIME_WEIGHTS_SMALLCAP[rk], max_workers=8)
 
     results: list[dict] = []
     for s in scored:
@@ -194,28 +166,19 @@ def _push_results(
         return
 
     rk = _regime_key(regime_score)
-    _re_emoji = regime_emoji(regime_score)
     alerts = [s for s in candidates if s.get("_sc_signal")]
     parts  = [f"📊 {len(alerts)} 信号"] if alerts else ["明日关注"]
     title  = f"小盘策略 {' | '.join(parts)}"
 
-    rows = [f"*{run_time}*<br>市场 {_re_emoji} {regime_score:.0f}/10 {rk}",
+    rows = [regime_header_line(run_time, regime_score, rk),
             "<br>**今日关注（小市值策略）**"]
     for s in candidates:
         cap_str  = f" {s['market_cap_b']:.0f}亿" if s.get("market_cap_b") else ""
         mark = " ✅" if s.get("_sc_signal") else ""
         rows.append(f"**{s['code']} {s['name']}** 买入分:{s['buy_score']:.0f}{cap_str}{mark}")
-    desp = "<br>".join(rows) + "<br><br>> 仅供参考，不构成投资建议"
+    desp = "<br>".join(rows) + DISCLAIMER
 
-    if not dry_run:
-        try:
-            send_wechat(title, desp, sendkey, dry_run=False)
-            print("[small_strategy] 微信推送完成")
-        except Exception as e:
-            print(f"[small_strategy] 微信推送失败: {e}")
-            raise
-    else:
-        print(f"[small_strategy] dry-run:\n{title}\n{desp}")
+    wechat_send_with_log(title, desp, sendkey, "small_strategy", dry_run)
 
 
 def push_from_json(config: dict, dry_run: bool = False) -> None:

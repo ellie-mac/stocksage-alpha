@@ -15,18 +15,17 @@ import argparse
 import json
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from functools import partial
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from factors import weights_from_config_dict
 from factors.config import REGIME_WEIGHTS
 from factors import score_market_regime
 import fetcher
-from common import send_wechat, setup_push
-from report.utils import regime_key as _regime_key, score_one_buy as _score_watchlist
+from common import setup_push
+from strategies._push import regime_header_line, wechat_send_with_log
+from strategies._scoring import score_universe, adjust_buy_trig, filter_buys
+from report.utils import regime_key as _regime_key
 from research import _FACTOR_ZH_REPORT
 
 _ROOT           = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -41,41 +40,18 @@ def scan(
     regime_score: float = 5.0,
 ) -> tuple[list[dict], list[dict]]:
     """Score watchlist. Returns (buy_alerts, all_scored)."""
-    rk  = _regime_key(regime_score)
-    fw  = weights_from_config_dict(REGIME_WEIGHTS[rk])
-    _sw = partial(_score_watchlist, weights=fw)
-
+    rk = _regime_key(regime_score)
+    buy_trig   = adjust_buy_trig(thresholds.get("buy_score_trigger", 70), regime_score)
     sell_guard = max(0, thresholds.get("sell_score_trigger", 60) - 10)
-    buy_trig   = thresholds.get("buy_score_trigger", 70)
     if regime_score <= 2:
-        buy_trig   = round(buy_trig * 1.25, 1)
         sell_guard = min(sell_guard, 25)
-    elif regime_score <= 4:
-        buy_trig = round(buy_trig * 1.15, 1)
 
-    scored_wl: list[dict] = []
-    if watchlist_codes:
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            futs = {ex.submit(_sw, c): c for c in watchlist_codes}
-            for fut in as_completed(futs):
-                scored_wl.append(fut.result())
-    scored_wl.sort(key=lambda x: -x.get("buy_score", 0))
-
-    buy_alerts: list[dict] = []
-    top_n = thresholds.get("buy_universe_top_n", 5)
-    for s in scored_wl:
-        if s.get("error"):
-            continue
-        if s["buy_score"] < buy_trig:
-            break
-        if s["sell_score"] >= sell_guard:
-            continue
-        if (s.get("change_pct") or 0) >= 9.5:
-            continue
-        buy_alerts.append(s)
-        if len(buy_alerts) >= top_n:
-            break
-
+    scored_wl = score_universe(watchlist_codes, REGIME_WEIGHTS[rk], max_workers=4)
+    buy_alerts = filter_buys(
+        scored_wl,
+        buy_trig=buy_trig, sell_guard=sell_guard,
+        top_n=thresholds.get("buy_universe_top_n", 5),
+    )
     return buy_alerts, scored_wl
 
 
@@ -148,10 +124,9 @@ def main() -> None:
         print("[watchlist_scan] 无买入信号，跳过推送")
         return
 
-    run_time  = now_dt.strftime("%Y-%m-%d %H:%M")
-    _re_emoji = "🐻" if regime_score <= 3 else ("🟡" if regime_score <= 6 else "🐂")
+    run_time = now_dt.strftime("%Y-%m-%d %H:%M")
 
-    rows = [f"*{run_time}*<br>市场 {_re_emoji} {regime_score:.0f}/10"]
+    rows = [regime_header_line(run_time, regime_score, regime_signal)]
     for ba in buy_alerts:
         p = ba.get("price") or 0
         rows.append(f"**{ba['name']} ({ba['code']})**<br>"
@@ -171,14 +146,7 @@ def main() -> None:
     if add_b:    parts.append(f"💡 {len(add_b)} 买入")
     title = f"自选池 {' | '.join(parts)}"
 
-    if not args.dry_run:
-        try:
-            send_wechat(title, desp, sendkey, dry_run=False)
-            print("[watchlist_scan] 微信推送完成")
-        except Exception as e:
-            print(f"[watchlist_scan] 微信推送失败: {e}")
-    else:
-        print(f"[watchlist_scan] dry-run:\n{title}\n{desp}")
+    wechat_send_with_log(title, desp, sendkey, "watchlist_scan", args.dry_run)
 
 
 if __name__ == "__main__":

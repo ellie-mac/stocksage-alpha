@@ -29,35 +29,12 @@ from common import send_wechat, setup_push
 
 _OUT_LATEST     = ROOT / "data" / "marketcap_latest.json"
 _MARKETCAP_CACHE = ROOT / "data" / "marketcap_cache.json"
-_CACHE_MAX_DAYS = 7   # 超过 7 天的缓存视为过期
 
 TOP_N      = 20
 MIN_PRICE  = 2.0      # 股价门槛（严格大于）
 
 
 # ── 市值数据获取 ───────────────────────────────────────────────────────────────
-
-def _load_cached_marketcap() -> dict[str, float]:
-    """从磁盘缓存读取市值，返回 {6位代码: 总市值(元)}。"""
-    if not _MARKETCAP_CACHE.exists():
-        return {}
-    try:
-        raw = json.loads(_MARKETCAP_CACHE.read_text(encoding="utf-8"))
-        from datetime import date, timedelta
-        cache_date = raw.get("date", "")
-        data = raw.get("data", {})
-        if cache_date:
-            cutoff = (date.today() - timedelta(days=_CACHE_MAX_DAYS)).strftime("%Y%m%d")
-            if cache_date < cutoff:
-                if data:
-                    print(f"[marketcap] 市值缓存已过期({cache_date})，使用旧数据({len(data)}只)继续")
-                    return data
-                print(f"[marketcap] 市值缓存过期({cache_date})且为空，跳过")
-                return {}
-        return data
-    except Exception as e:
-        print(f"[marketcap] 读取市值缓存失败: {e}")
-        return {}
 
 
 def _save_marketcap_cache(code_mv: dict[str, float]) -> None:
@@ -96,16 +73,10 @@ def get_spot_with_marketcap() -> tuple[pd.DataFrame, bool]:
         return spot, True
 
     # EM 不可用，走磁盘缓存
-    cached = _load_cached_marketcap()
+    from strategies._quality import load_marketcap_cache, inject_marketcap
+    cached = load_marketcap_cache()
     if cached and spot is not None and not spot.empty:
-        spot = spot.copy()
-        # 缓存 key 是 6 位纯数字；Sina spot 代码带 sh/sz 前缀，需先规一化
-        norm_codes = spot["代码"].astype(str).apply(
-            lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
-        )
-        spot["总市值"] = norm_codes.map(cached)
-        print(f"[marketcap] 使用磁盘缓存市值 ({len(cached)} 只)")
-        return spot, False
+        return inject_marketcap(spot, cached), False
 
     if spot is None or spot.empty:
         print("[marketcap] 行情数据不可用")
@@ -115,12 +86,7 @@ def get_spot_with_marketcap() -> tuple[pd.DataFrame, bool]:
     print("[marketcap] 尝试 BaoStock 获取流通市值（非交易时段备用，约需 1-2 分钟）")
     bs_mv = _get_marketcap_from_baostock(spot)
     if bs_mv:
-        spot = spot.copy()
-        # 规一化代码后再 map
-        norm_codes = spot["代码"].astype(str).apply(
-            lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
-        )
-        spot["总市值"] = norm_codes.map(bs_mv)
+        spot = inject_marketcap(spot, bs_mv, verbose=False)
         _save_marketcap_cache(bs_mv)
         print(f"[marketcap] BaoStock 流通市值已获取 ({len(bs_mv)} 只)")
         return spot, False

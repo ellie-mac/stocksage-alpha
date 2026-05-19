@@ -12,22 +12,20 @@ import argparse
 import json
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from functools import partial
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from factors import weights_from_config_dict
 from factors.config import REGIME_WEIGHTS
 from factors import score_market_regime
 import fetcher
-from common import send_wechat, setup_push, regime_emoji
+from common import setup_push
+from strategies._push import regime_header_line, wechat_send_with_log, DISCLAIMER
+from strategies._scoring import score_universe, adjust_buy_trig, filter_buys
 from report.utils import (
     regime_key as _regime_key,
     compact_factor_scores as _compact_factor_scores,
-    score_one_buy as _score_one_buy,
 )
 import signals_store as _signals_store
 
@@ -45,56 +43,27 @@ def scan(
     held_codes: set | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """评分 universe，返回 (buy_alerts, all_scored)。"""
-    held_codes = held_codes or set()
-    rk   = _regime_key(regime_score)
-    fw   = weights_from_config_dict(REGIME_WEIGHTS[rk])
-    _score = partial(_score_one_buy, weights=fw)
-
-    buy_trig  = thresholds.get("buy_score_trigger", 70)
+    rk = _regime_key(regime_score)
+    buy_trig  = adjust_buy_trig(thresholds.get("buy_score_trigger", 70), regime_score)
     sell_trig = thresholds.get("sell_score_trigger", 60)
-    if regime_score <= 2:
-        buy_trig = round(buy_trig * 1.25, 1)
-        bear_sell_cap = 25
-    elif regime_score <= 4:
-        buy_trig = round(buy_trig * 1.15, 1)
-        bear_sell_cap = None
-    else:
-        bear_sell_cap = None
+    bear_sell_cap = 25 if regime_score <= 2 else None
 
     # universe_main.json may have sh/sz/bj prefixes; strip to 6-digit before any cache lookup
     universe = [fetcher.normalize_code(c) for c in universe]
-
     try:
         suspended = fetcher.get_suspended_codes()
         universe = [c for c in universe if c not in suspended]
     except Exception:
         pass
 
-    scored: list[dict] = []
-    with ThreadPoolExecutor(max_workers=16) as ex:
-        futs = {ex.submit(_score, code): code for code in universe}
-        for fut in as_completed(futs):
-            scored.append(fut.result())
-    scored.sort(key=lambda x: -x.get("buy_score", 0))
-
-    top_n     = thresholds.get("buy_universe_top_n", 5)
+    scored = score_universe(universe, REGIME_WEIGHTS[rk], max_workers=16)
+    top_n      = thresholds.get("buy_universe_top_n", 5)
     sell_guard = max(0, sell_trig - 10)
-    buy_alerts: list[dict] = []
-    for s in scored[:top_n * 3]:
-        if s.get("error") or s["code"] in held_codes:
-            continue
-        if s["buy_score"] < buy_trig:
-            break
-        if s["sell_score"] >= sell_guard:
-            continue
-        if bear_sell_cap is not None and s["sell_score"] >= bear_sell_cap:
-            continue
-        if (s.get("change_pct") or 0) >= 9.5:
-            continue
-        buy_alerts.append(s)
-        if len(buy_alerts) >= top_n:
-            break
-
+    buy_alerts = filter_buys(
+        scored[:top_n * 3],
+        buy_trig=buy_trig, sell_guard=sell_guard, top_n=top_n,
+        held_codes=held_codes, bear_sell_cap=bear_sell_cap,
+    )
     return buy_alerts, scored
 
 
@@ -186,7 +155,6 @@ def _push_results(
         return
 
     rk = _regime_key(regime_score)
-    _re_emoji = regime_emoji(regime_score)
     strong = [b for b in buy_alerts if b["buy_score"] >= 80]
     add    = [b for b in buy_alerts if b["buy_score"] < 80]
     parts  = []
@@ -195,22 +163,14 @@ def _push_results(
     if not parts: parts.append("明日关注")
     title = f"主策略 {' | '.join(parts)}"
 
-    rows = [f"*{run_time}*<br>市场 {_re_emoji} {regime_score:.0f}/10 {rk}",
+    rows = [regime_header_line(run_time, regime_score, rk),
             "<br>**今日关注（低波动主策略）**"]
     for s in top_candidates:
         mark = " ✅" if s in buy_alerts else ""
         rows.append(f"**{s['code']} {s['name']}** 买入分:{s['buy_score']:.0f}{mark}")
-    desp = "<br>".join(rows) + "<br><br>> 仅供参考，不构成投资建议"
+    desp = "<br>".join(rows) + DISCLAIMER
 
-    if not dry_run:
-        try:
-            send_wechat(title, desp, sendkey, dry_run=False)
-            print("[main_strategy] 微信推送完成")
-        except Exception as e:
-            print(f"[main_strategy] 微信推送失败: {e}")
-            raise
-    else:
-        print(f"[main_strategy] dry-run:\n{title}\n{desp}")
+    wechat_send_with_log(title, desp, sendkey, "main_strategy", dry_run)
 
 
 def push_from_json(config: dict, dry_run: bool = False) -> None:
