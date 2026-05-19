@@ -133,6 +133,10 @@ _v8_initialised = threading.Event()
 _v8_em_fail_count = 0   # circuit breaker: skip EM fundflow after 3 consecutive failures
 _EM_FAIL_THRESHOLD = 3
 
+_fin_em_fail_count = 0  # circuit breaker: skip EM financial indicators after N consecutive failures
+_fin_ths_fail_count = 0 # circuit breaker: skip THS financial indicators after N consecutive failures
+_FIN_FAIL_THRESHOLD = 5
+
 _bs_module = None        # baostock module, None if unavailable
 _bs_lock = threading.Lock()
 _bs_login_failed = False  # fail-fast: once login fails, skip all subsequent attempts for this process
@@ -1022,43 +1026,46 @@ def get_financial_indicators(code: str) -> Optional[pd.DataFrame]:
     if cached is not None:
         return cached
 
+    global _fin_em_fail_count, _fin_ths_fail_count
+
     # ── Source 1: akshare East Money ─────────────────────────────────────
-    try:
-        df = _call_with_timeout(ak.stock_financial_analysis_indicator, 30, symbol=code, start_year="2020")
-        if df is not None and not df.empty:
-            df = df.reset_index(drop=True)
-            cache.set_df(cache_key, df)
-            return df
-    except Exception:
-        log.warning("src_degraded", extra={"source": "financial_em", "code": code, "error": _traceback.format_exc()[:200]})
+    if _fin_em_fail_count < _FIN_FAIL_THRESHOLD:
+        try:
+            df = _call_with_timeout(ak.stock_financial_analysis_indicator, 30, symbol=code, start_year="2020")
+            if df is not None and not df.empty:
+                df = df.reset_index(drop=True)
+                cache.set_df(cache_key, df)
+                _fin_em_fail_count = 0
+                return df
+            _fin_em_fail_count += 1
+        except Exception:
+            log.warning("src_degraded", extra={"source": "financial_em", "code": code, "error": _traceback.format_exc()[:200]})
+            _fin_em_fail_count += 1
 
     # ── Source 2: akshare THS abstract (fallback) ────────────────────────
-    try:
-        df = _call_with_timeout(ak.stock_financial_abstract_ths, 30, symbol=code, indicator="按年度")
-        if df is not None and not df.empty:
-            # Convert pct strings ("46.84%", False) → float or NaN
-            def _pct(v):
-                try:
-                    return float(str(v).replace("%", "").strip())
-                except Exception:
-                    return float("nan")
-
-            df = df.copy()
-            for _col in ["净利润同比增长率", "营业总收入同比增长率", "净资产收益率"]:
-                _nan_n = df[_col].isna().sum() if _col in df.columns else 0
-                if _nan_n:
-                    print(f"[financial] {code} {_col}: {_nan_n} NaN values coerced to NaN")
-            def _pct_vec(series):
-                return pd.to_numeric(series.astype(str).str.replace("%", "", regex=False).str.strip(), errors="coerce")
-            df["净利润增长率(%)"]     = _pct_vec(df["净利润同比增长率"])
-            df["总营收同比增长率(%)"] = _pct_vec(df["营业总收入同比增长率"])
-            df["净资产收益率(%)"]     = _pct_vec(df["净资产收益率"])
-            # Sort most-recent first (报告期 is year int/str)
-            df = df.sort_values("报告期", ascending=False).reset_index(drop=True)
-            cache.set_df(cache_key, df)
-            return df
-    except Exception:
-        log.warning("src_degraded", extra={"source": "financial_ths", "code": code, "error": _traceback.format_exc()[:200]})
+    if _fin_ths_fail_count < _FIN_FAIL_THRESHOLD:
+        try:
+            df = _call_with_timeout(ak.stock_financial_abstract_ths, 30, symbol=code, indicator="按年度")
+            if df is not None and not df.empty:
+                df = df.copy()
+                for _col in ["净利润同比增长率", "营业总收入同比增长率", "净资产收益率"]:
+                    _nan_n = df[_col].isna().sum() if _col in df.columns else 0
+                    if _nan_n:
+                        print(f"[financial] {code} {_col}: {_nan_n} NaN values coerced to NaN")
+                def _pct_vec(series):
+                    return pd.to_numeric(series.astype(str).str.replace("%", "", regex=False).str.strip(), errors="coerce")
+                df["净利润增长率(%)"]     = _pct_vec(df["净利润同比增长率"])
+                df["总营收同比增长率(%)"] = _pct_vec(df["营业总收入同比增长率"])
+                df["净资产收益率(%)"]     = _pct_vec(df["净资产收益率"])
+                # Sort most-recent first (报告期 is year int/str)
+                df = df.sort_values("报告期", ascending=False).reset_index(drop=True)
+                cache.set_df(cache_key, df)
+                _fin_ths_fail_count = 0
+                return df
+            _fin_ths_fail_count += 1
+        except Exception:
+            log.warning("src_degraded", extra={"source": "financial_ths", "code": code, "error": _traceback.format_exc()[:200]})
+            _fin_ths_fail_count += 1
 
     # ── Stale cache fallback (all sources down) ───────────────────────────
     # Financial reports change quarterly; 30-day-old data is still valid for scoring.
