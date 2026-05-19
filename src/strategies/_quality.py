@@ -50,8 +50,14 @@ BLACKLIST_INDUSTRIES = frozenset([
 
 
 def is_blacklisted(industry: str) -> bool:
-    """精确匹配 — industry 是否在赛道黑名单里。"""
-    return industry in BLACKLIST_INDUSTRIES
+    """substring 匹配 — industry 含任意 BLACKLIST_INDUSTRIES 关键词即命中。
+
+    精确匹配会漏 "白酒II" / "白酒制造" 这类变体；substring 能稳健覆盖。
+    空字符串视为"未知行业"，不命中（防止 scanner 误剔无 industry 数据的票）。
+    """
+    if not industry:
+        return False
+    return any(kw in industry for kw in BLACKLIST_INDUSTRIES)
 
 
 @functools.lru_cache(maxsize=1)
@@ -109,6 +115,57 @@ def load_universe(
                 continue
         out.append(c)
     return out
+
+
+def load_marketcap_cache(max_days: int = 7, verbose: bool = True) -> dict[str, float]:
+    """读取 data/marketcap_cache.json，返回 {6位代码: 总市值(元)}。
+
+    max_days 控制过期检查：缓存日期早于 max_days 天前时仍返回旧数据（带 warning）。
+    文件缺失、IO 错误、或 data 字段为空均返回 {}。
+    """
+    p = _DATA_DIR / "marketcap_cache.json"
+    if not p.exists():
+        return {}
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        if verbose:
+            print(f"[marketcap_cache] 读取失败: {e}")
+        return {}
+    data: dict[str, float] = raw.get("data", {}) or {}
+    cache_date = raw.get("date", "")
+    if cache_date:
+        from datetime import date as _d, timedelta as _td
+        cutoff = (_d.today() - _td(days=max_days)).strftime("%Y%m%d")
+        if cache_date < cutoff:
+            if data:
+                if verbose:
+                    print(f"[marketcap_cache] 已过期({cache_date})，仍使用旧数据({len(data)}只)")
+                return data
+            if verbose:
+                print(f"[marketcap_cache] 过期({cache_date})且为空，跳过")
+            return {}
+    return data
+
+
+def inject_marketcap(spot_df, cache: Optional[dict[str, float]] = None, verbose: bool = True):
+    """给 Sina 行情 DataFrame 注入 "总市值" 列（从磁盘缓存映射）。
+
+    Sina 代码带 sh/sz/bj 前缀，先规一化到 6 位再 map。cache=None 时自动加载。
+    返回新的 DataFrame；如果缓存为空或 spot 为空，原样返回（可能仍无总市值列）。
+    """
+    if cache is None:
+        cache = load_marketcap_cache(verbose=verbose)
+    if not cache or spot_df is None or len(spot_df) == 0:
+        return spot_df
+    spot_df = spot_df.copy()
+    norm = spot_df["代码"].astype(str).apply(
+        lambda c: c[2:] if len(c) > 6 and c[:2].isalpha() else c
+    )
+    spot_df["总市值"] = norm.map(cache)
+    if verbose:
+        print(f"[marketcap_cache] 已注入 {len(cache)} 只市值")
+    return spot_df
 
 
 @functools.lru_cache(maxsize=1)
