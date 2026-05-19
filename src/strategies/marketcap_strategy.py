@@ -232,20 +232,41 @@ def scan() -> list[dict]:
     df = df[mv_col > 0].copy()
     df["_mv"] = pd.to_numeric(df["总市值"], errors="coerce")
 
-    df = df.nsmallest(TOP_N, "_mv")
+    # 多取一些候选给质量门槛筛（部分会被流动性/量比剔除）
+    df = df.nsmallest(TOP_N * 3, "_mv")
 
-    results = []
-    for _, row in df.iterrows():
+    # 流动性 / 量能 enrichment（统一公共 _quality 口径）
+    import fetcher as _f
+    from strategies._quality import compute_metrics, passes_quality
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+
+    def _enrich(row) -> dict | None:
+        code = str(row["代码"])
+        code6 = code[-6:]
+        try:
+            ddf = _f.get_price_history(code6, days=65)
+        except Exception:
+            return None
+        m = compute_metrics(ddf)
+        if not passes_quality(m):
+            return None
         mv_yi = row["_mv"] / 1e8 if row["_mv"] > 0 else 0
-        results.append({
-            "code":      row["代码"],
-            "name":      row["名称"],
-            "price":     float(pd.to_numeric(row["最新价"], errors="coerce") or 0),
-            "change_pct": float(pd.to_numeric(row.get("涨跌幅", 0), errors="coerce") or 0),
+        return {
+            "code":         code6,
+            "name":         row["名称"],
+            "price":        float(pd.to_numeric(row["最新价"], errors="coerce") or 0),
+            "change_pct":   float(pd.to_numeric(row.get("涨跌幅", 0), errors="coerce") or 0),
             "marketcap_yi": round(mv_yi, 2),
-        })
+            "amt_5d_yi":    m["amt_5d_yi"],
+            "vol_ratio":    m["vol_ratio"],
+        }
 
-    print(f"[marketcap] 筛选完成，共 {len(results)} 只")
+    rows = list(df.to_dict("records"))
+    with _TPE(max_workers=10) as ex:
+        enriched = list(ex.map(_enrich, rows))
+    results = [r for r in enriched if r is not None][:TOP_N]
+
+    print(f"[marketcap] 筛选完成，共 {len(results)} 只（候选 {len(rows)}，过质量门槛后取 top {TOP_N}）")
     return results
 
 

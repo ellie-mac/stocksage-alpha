@@ -136,18 +136,18 @@ TASKS = [
     ("report_Evening",  "15:30", "chip_evening",    "收盘报告推送 📱",                                True),
     # ── 收盘后数据预热 ───────────────────────────────────────────────────────
     ("market_Warm",      "15:35", "market_warm",      "预热市场数据：CSI300/PE/申万/停牌表，不推送",    False),
-    ("marketcap_Scan",   "15:35", "marketcap_scan",   "市值策略扫盘 📱",                               True),
+    ("marketcap_Scan",   "15:45", "marketcap_scan",   "市值策略扫盘 📱",                               True),
+    ("daily_PerfLog",    "16:05", "daily_perf_log",  "多策略收盘胜率统计 📱",                           True),
+    ("hot_Scan",         "16:35", "hot_scan",        "热榜策略扫描，更新 hot_scan_latest.json 推送 📱", True),
     ("price_Prefetch",   "17:00", "price_prefetch",  "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
     ("fundflow_Prefetch","17:30", "fundflow_prefetch","预热全市场资金流向缓存（~20min），不推送",       False),
-    # ── 收盘后分析 ──────────────────────────────────────────────────────────
-    ("daily_PerfLog",   "16:05", "daily_perf_log",  "多策略收盘胜率统计 📱",                           True),
+    # ── 收盘后扫描 ──────────────────────────────────────────────────────────
     ("chip_Night",      "18:00", "chip_night",      "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
     ("main_Scan",       "18:30", "monitor_scan",    "主/ETF/小盘策略扫盘 📱",                         True),
     ("golden_Scan",     "19:30", "gc_scan",         "金叉策略扫描（全A股7项指标共振）推送 📱",         True),
-    ("hot_Scan",        "19:00", "hot_scan",        "热榜策略扫描，更新 hot_scan_latest.json 推送 📱", True),
-    ("sideways_Scan",   "20:00", "sideways_scan",   "横盘策略扫描（科技TMT，30/20/10/5天±5%，HX严格/HS宽松）推送 📱", True),
+    ("sideways_Scan",   "20:00", "sideways_scan",   "横盘策略扫描（全市场+流动性+量比≥0.5）推送 📱",  True),
     ("chip_CadScan",    "21:00", "cad_scan",        "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱",    True),
-    ("morning_Push",    "22:00", "morning_push",    "多策略晨报合并推送（科技TMT） 📱",                True),
+    ("morning_Push",    "22:00", "morning_push",    "多策略晨报合并推送（七路汇总） 📱",               True),
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
     ("main_Night",      "22:30", "main_night",      "预热财务缓存（batch_financials），不推送",        False),
 ]
@@ -265,14 +265,22 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
         raise ValueError(f"Unknown slot: {slot}")
 
     title_text = desc.split(" 📱")[0].split("（")[0].strip() if desc else task_name
+    # task_probe — single source of truth for "bat 实际跑没跑+ python 真返回了没"
+    probe_log = f'{log}\\task_probe.log'
+    probe_entered = f'echo [%DATE% %TIME%] {task_name} bat entered >> "{probe_log}"'
+    probe_invoking = f'echo [%DATE% %TIME%] {task_name} invoking python >> "{probe_log}"'
+    probe_exit = f'echo [%DATE% %TIME%] {task_name} python exit=%errorlevel% >> "{probe_log}"'
     content = (
         f'@echo off\n'
         f'chcp 65001 > nul\n'
         f'title {title_text}\n'
         f'cd /d "{REPO_ROOT}"\n'
         f'mkdir "{LOGS_DIR}" 2>nul\n'
+        f'{probe_entered}\n'
         f'{discord_start_cmd}\n'
+        f'{probe_invoking}\n'
         f'{cmd}\n'
+        f'{probe_exit}\n'
         f'if errorlevel 1 (\n'
         f'    {notify_cmd}\n'
         f'    {discord_fail_cmd}\n'

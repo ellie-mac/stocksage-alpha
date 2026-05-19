@@ -150,6 +150,8 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
 
     results: list[dict] = []
 
+    from strategies._quality import compute_metrics, passes_quality
+
     def _process(code: str):
         try:
             df = _fetcher.get_price_history(code, days=200)
@@ -161,13 +163,10 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
             name = name_map.get(code, code)
             if "ST" in name.upper():
                 return None
-            if len(df) >= 2:
-                prev_close = float(df["close"].iloc[-2])
-                if prev_close > 0 and abs(close - prev_close) / prev_close * 100 >= 9.5:
-                    return None
-            if "high" in df.columns and "low" in df.columns:
-                if float(df["high"].iloc[-1]) == float(df["low"].iloc[-1]):
-                    return None
+            # 流动性 / 量能 / 涨跌停 / 一字板 — 统一公共门槛
+            q = compute_metrics(df)
+            if not passes_quality(q):
+                return None
             if cah:
                 high_6m = float(df["high"].tail(120).max())
                 if close > high_6m * 0.9:
@@ -207,6 +206,8 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
                 "rank_pct": round(rank / total * 100, 1),
                 "momentum": round(momentum, 1), "score": round(score, 1),
                 "breakdown": breakdown,
+                "amt_5d_yi": q["amt_5d_yi"],
+                "vol_ratio": q["vol_ratio"],
             }
         except Exception:
             return None
