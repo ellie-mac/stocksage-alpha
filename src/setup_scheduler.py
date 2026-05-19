@@ -119,7 +119,6 @@ OLD_TASKS = [
 TASKS = [
     # (name, time, slot, description, wechat_push)  — 按时间顺序排列
     # ── 盘前 ────────────────────────────────────────────────────────────────
-    ("morning_Push",    "00:00", "morning_push",    "多策略晨报合并推送 📱",                          True),
     ("chip_Premarket",  "07:00", "chip_premarket",  "筹码盘前兜底（chip_Night未跑时），不推送",        False),
     ("main_Morning",    "07:10", "monitor_scan",    "主策略盘前兜底（main_Scan未跑时），不推送",       False),
     ("integrity_Check", "08:00", "integrity_check", "每小时数据完整性检查（首次通过后当日跳过）",      False),
@@ -148,6 +147,7 @@ TASKS = [
     ("hot_Scan",        "19:00", "hot_scan",        "热榜策略扫描，更新 hot_scan_latest.json 推送 📱", True),
     ("sideways_Scan",   "20:00", "sideways_scan",   "横盘策略扫描（科技TMT，30/20/10/5天±5%，HX严格/HS宽松）推送 📱", True),
     ("chip_CadScan",    "21:00", "cad_scan",        "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱",    True),
+    ("morning_Push",    "22:00", "morning_push",    "多策略晨报合并推送（科技TMT） 📱",                True),
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
     ("main_Night",      "22:30", "main_night",      "预热财务缓存（batch_financials），不推送",        False),
 ]
