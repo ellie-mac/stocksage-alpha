@@ -2,12 +2,15 @@
 """
 横盘策略扫描 — 滑动窗口振幅判定
 
-档位（窗口长度 × 严格/宽松）：
-  HX0 30天严格 · HX1 20天严格 · HX2 10天严格 · HX3 5天严格
-  HS0 30天宽松 · HS1 20天宽松 · HS2 10天宽松 · HS3 5天宽松
+档位（窗口长度 × 严格/宽松，窗口越短门槛越严）：
+  HX0 30天±5% 严格 · HX1 20天±4% 严格 · HX2 10天±3% 严格 · HX3 5天±2% 严格
+  HS0 30天±5% 宽松 · HS1 20天±4% 宽松 · HS2 10天±3% 宽松 · HS3 5天±2% 宽松
 
-严格 (HX)：窗口内 max/mid ≤ +5% 且 min/mid ≥ -5%（mid = (max+min)/2，全程稳定）
-宽松 (HS)：窗口首尾两点 |chg_pct| ≤ 5%（仅首尾偶合，可能有中段大波动）
+严格 (HX)：窗口内 max/mid ≤ +pct 且 min/mid ≥ -pct（mid = (max+min)/2，全程稳定）
+宽松 (HS)：窗口首尾两点 |chg_pct| ≤ pct（仅首尾偶合，可能有中段波动）
+
+为什么窗口越短门槛越严：A 股日波动 1-2% 是常态，5 天内振幅 ±5% 几乎是 80%
+股票的默认状态——那不算"横盘"，只算"最近没大事"。短窗口要更严才有"窄幅整理"信号价值。
 
 归属规则：取最强档（窗口越长越强；同窗口严格 > 宽松）。一只股只归一档。
 
@@ -40,15 +43,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 UNIVERSE_PATH = ROOT / "data" / "universe_main.json"
 OUT_LATEST    = ROOT / "data" / "sideways_latest.json"
 
-# 档位优先级：窗口越长越强，同窗口严格优先
+# 档位优先级：窗口越长越强，同窗口严格优先。窗口越短，门槛越严。
 _TIER_ORDER = ["HX0", "HS0", "HX1", "HS1", "HX2", "HS2", "HX3", "HS3"]
-_TIER_SPEC: dict[str, tuple[int, str]] = {
-    "HX0": (30, "strict"), "HS0": (30, "loose"),
-    "HX1": (20, "strict"), "HS1": (20, "loose"),
-    "HX2": (10, "strict"), "HS2": (10, "loose"),
-    "HX3": (5,  "strict"), "HS3": (5,  "loose"),
+_TIER_SPEC: dict[str, tuple[int, str, float]] = {
+    "HX0": (30, "strict", 0.05), "HS0": (30, "loose", 0.05),
+    "HX1": (20, "strict", 0.04), "HS1": (20, "loose", 0.04),
+    "HX2": (10, "strict", 0.03), "HS2": (10, "loose", 0.03),
+    "HX3": (5,  "strict", 0.02), "HS3": (5,  "loose", 0.02),
 }
-_PCT = 0.05            # ±5%
 _MIN_BARS = 65         # 拉 65 天，含 60 天 volume 用于量比
 
 # 科技 (TMT) 行业关键词 — substring 匹配 industry 字段
@@ -94,7 +96,7 @@ def _classify(closes: np.ndarray) -> Optional[dict]:
     if len(closes) < 5:
         return None
     for tier in _TIER_ORDER:
-        n, mode = _TIER_SPEC[tier]
+        n, mode, pct = _TIER_SPEC[tier]
         if len(closes) < n:
             continue
         window = closes[-n:]
@@ -107,23 +109,24 @@ def _classify(closes: np.ndarray) -> Optional[dict]:
             continue
         range_pct = (hi - lo) / mid * 100
         if mode == "strict":
-            ok = (hi / mid - 1) <= _PCT and (1 - lo / mid) <= _PCT
+            ok = (hi / mid - 1) <= pct and (1 - lo / mid) <= pct
         else:
             first = float(window[0])
             last  = float(window[-1])
-            ok = first > 0 and abs(last / first - 1) <= _PCT
+            ok = first > 0 and abs(last / first - 1) <= pct
         if ok:
             return {"tier": tier, "window": n, "mode": mode,
+                    "pct_threshold": pct,
                     "range_pct": round(range_pct, 2),
                     "hi": round(hi, 2), "lo": round(lo, 2)}
     return None
 
 
 _TIER_LABEL = {
-    "HX0": "30天严格", "HS0": "30天宽松",
-    "HX1": "20天严格", "HS1": "20天宽松",
-    "HX2": "10天严格", "HS2": "10天宽松",
-    "HX3": "5天严格",  "HS3": "5天宽松",
+    "HX0": "30天±5% 严格", "HS0": "30天±5% 宽松",
+    "HX1": "20天±4% 严格", "HS1": "20天±4% 宽松",
+    "HX2": "10天±3% 严格", "HS2": "10天±3% 宽松",
+    "HX3": "5天±2% 严格",  "HS3": "5天±2% 宽松",
 }
 _TIER_CAP = {"HX0": 12, "HS0": 8, "HX1": 12, "HS1": 8,
              "HX2": 6,  "HS2": 5, "HX3": 5,  "HS3": 5}
@@ -168,10 +171,11 @@ def _push_results(data: dict) -> None:
 
     legend = (
         "```\n"
-        "HX 严格：窗口内 max/min 相对中价都在 ±5% 以内（全程稳定）\n"
-        "HS 宽松：窗口首尾两点涨跌幅 ≤5%（仅首尾偶合）\n"
+        "门槛：30天±5% / 20天±4% / 10天±3% / 5天±2%（窗口越短越严）\n"
+        "HX 严格：窗口内 max/min 相对中价都在 ±pct 以内（全程稳定）\n"
+        "HS 宽松：窗口首尾两点涨跌幅 ≤pct（仅首尾偶合）\n"
         "归属：取最强档（窗口越长越强，同窗口严格优先）\n"
-        "已过滤死水股：5日均额≥0.5亿 + 量比(5日/60日)≥0.5\n"
+        "已过滤：死水股(5日均额≥0.5亿+量比≥0.5) + 行业黑名单\n"
         "```"
     )
     body = legend + "\n\n" + "\n\n".join(sections)
