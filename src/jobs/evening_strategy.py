@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-多策略汇总（晚间）— 合并主策略/小盘/金叉/筹码/低市值/热榜/横盘七路信号，统一推送。
+多策略汇总（晚间）— 合并主策略/小盘/金叉/筹码/低市值/热榜/横盘/扶梯八路信号，统一推送。
 
 22:00 跑，所有 scanner 跑完后汇总当日多策略共振结果。
 股票按覆盖策略数从多到少排列；同策略内按原始得分排序。
@@ -165,6 +165,7 @@ _SOURCE_FILES = [
     ("市", "marketcap_latest.json",    "date"),
     ("热", "hot_scan_latest.json",     "date"),
     ("横", "sideways_latest.json",     "date"),
+    ("扶", "escalator_latest.json",    "date"),       # 扶梯策略（活跃慢牛）
 ]
 
 
@@ -312,6 +313,28 @@ def _load_marketcap() -> list[dict]:
     ]
 
 
+def _load_escalator() -> list[dict]:
+    """Returns [{code, name, score, tier, close, slope_pct, r2, daily_amp}, ...]
+    from escalator_latest.json (E0/E1/E2)."""
+    d = _load(DATA / "escalator_latest.json")
+    if not d:
+        return []
+    if not _is_fresh(d.get("date", ""), "%Y%m%d"):
+        print("[evening_strategy] escalator_latest.json 数据已过期，跳过扶梯策略")
+        return []
+    picks = []
+    for p in d.get("all_picks", []):
+        if p.get("code"):
+            picks.append({"code": p["code"], "name": p.get("name", ""),
+                          "score": float(p.get("r2", 0)) * 100,
+                          "tier": p.get("tier", ""),
+                          "close": p.get("close"),
+                          "slope_pct": p.get("slope_pct"),
+                          "r2": p.get("r2"),
+                          "daily_amp": p.get("daily_amp")})
+    return picks
+
+
 # ── Merge & tag ───────────────────────────────────────────────────────────────
 
 def _merge(
@@ -322,10 +345,11 @@ def _merge(
     marketcap: list[dict],
     hot: list[dict],
     sideways: list[dict],
+    escalator: list[dict],
 ) -> dict[str, dict]:
     """
     Returns registry: {code: {name, tags: list[str], details: {tag: pick_dict}}}.
-    Tag order: 主 小 叉 筹 市 热 横
+    Tag order: 主 小 叉 筹 市 热 横 扶
     """
     registry: dict[str, dict] = {}
 
@@ -345,6 +369,7 @@ def _merge(
     _add("市", marketcap)
     _add("热", hot)
     _add("横", sideways)
+    _add("扶", escalator)
 
     return registry
 
@@ -360,7 +385,7 @@ def _fmt_pick(code: str, entry: dict) -> str:
     tags = _tag_str(entry["tags"])
     details = entry["details"]
 
-    # Price fallback chain: 市/主/小 用 price 字段，叉/筹/热/横 用 close
+    # Price fallback chain: 市/主/小 用 price 字段，叉/筹/热/横/扶 用 close
     price = None
     for tag in ("市", "主", "小"):
         p = details.get(tag, {}).get("price")
@@ -368,7 +393,7 @@ def _fmt_pick(code: str, entry: dict) -> str:
             price = float(p)
             break
     if price is None:
-        for tag in ("叉", "筹", "热", "横"):
+        for tag in ("叉", "筹", "热", "横", "扶"):
             close = details.get(tag, {}).get("close")
             if close:
                 price = float(close)
@@ -410,6 +435,12 @@ def _fmt_pick(code: str, entry: dict) -> str:
             amt_s = f"/{amt:.1f}亿" if amt else ""
             spec = _SIDEWAYS_TIER_SHORT.get(t, t)
             annotations.append(f"{spec}(振{rp:.1f}%{amt_s})")
+    if "扶" in details:
+        t = details["扶"].get("tier", "")
+        sp = details["扶"].get("slope_pct")
+        r2 = details["扶"].get("r2")
+        if t and sp is not None and r2 is not None:
+            annotations.append(f"扶{t}({sp:+.1f}%/R²{r2:.2f})")
 
     ann_str = "  " + "  ".join(annotations) if annotations else ""
     return f"**{code} {name}** {tags}{price_str}{ann_str}"
@@ -430,6 +461,7 @@ _TIER_ORDER = {
     "G0": 0, "G1": 1, "G2": 2,
     "C0": 0, "C1": 1, "C2": 2,
     "HX0": 0, "HS0": 1, "HX1": 2, "HS1": 3, "HX2": 4, "HS2": 5, "HX3": 6, "HS3": 7,
+    "E0": 0, "E1": 1, "E2": 2,
 }
 
 
@@ -440,7 +472,7 @@ def _build_message(
 ) -> tuple[str, str]:
     label = "[多策略·晚间·科技]" if tech_only else "[多策略·晚间]"
     if not registry:
-        return label, "今日七路策略均无信号"
+        return label, "今日八路策略均无信号"
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     title = f"{label} | {now_str}"
@@ -483,9 +515,9 @@ def _build_message(
             parts.append(f"_...还有{omitted_multi}只_")
 
     # ── Per-strategy sections (capped at MAX_SINGLE each) ────────────────────
-    tag_order = ["主", "小", "叉", "筹", "市", "热", "横"]
+    tag_order = ["主", "小", "叉", "筹", "市", "热", "横", "扶"]
     tag_label = {"主": "主策略", "小": "小盘策略", "叉": "金叉", "筹": "筹码",
-                 "市": "低市值", "热": "热榜", "横": "横盘"}
+                 "市": "低市值", "热": "热榜", "横": "横盘", "扶": "扶梯"}
 
     for tag in tag_order:
         tag_codes = [c for c in single if registry[c]["tags"] == [tag]]
@@ -495,7 +527,7 @@ def _build_message(
                 continue
             else:
                 continue  # already shown in multi block
-        if tag in ("叉", "筹", "横"):
+        if tag in ("叉", "筹", "横", "扶"):
             tag_codes.sort(key=lambda c, _t=tag: (
                 _TIER_ORDER.get(registry[c]["details"][_t].get("tier", ""), 99),
                 -registry[c]["details"][_t].get("score", 0),
@@ -549,75 +581,74 @@ def main() -> None:
     mc_picks       = _load_marketcap()
     hot_picks      = _load_hot()
     sideways_picks = _load_sideways()
+    escalator_picks = _load_escalator()
+
+    def _counts() -> tuple:
+        return (len(main_picks), len(small_picks), len(gc_picks), len(chip_picks),
+                len(mc_picks), len(hot_picks), len(sideways_picks), len(escalator_picks))
+
+    def _print_filter(label: str, before: tuple, after: tuple) -> None:
+        print(f"[evening_strategy] {label}: "
+              f"主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
+              f"叉{before[2]}→{after[2]} 筹{before[3]}→{after[3]} "
+              f"市{before[4]}→{after[4]} 热{before[5]}→{after[5]} "
+              f"横{before[6]}→{after[6]} 扶{before[7]}→{after[7]}")
 
     # 0) 默认：行业黑名单过滤（剔除酒/金融/地产/消费/农业/交运）
     if not args.no_blacklist_filter:
         ind_map = _load_industry_map()
         if ind_map:
-            before = (len(main_picks), len(small_picks), len(gc_picks),
-                      len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
-            main_picks     = _filter_blacklist(main_picks, ind_map)
-            small_picks    = _filter_blacklist(small_picks, ind_map)
-            gc_picks       = _filter_blacklist(gc_picks, ind_map)
-            chip_picks     = _filter_blacklist(chip_picks, ind_map)
-            mc_picks       = _filter_blacklist(mc_picks, ind_map)
-            hot_picks      = _filter_blacklist(hot_picks, ind_map)
-            sideways_picks = _filter_blacklist(sideways_picks, ind_map)
-            after = (len(main_picks), len(small_picks), len(gc_picks),
-                     len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
-            print(f"[evening_strategy] 黑名单过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
-                  f"叉{before[2]}→{after[2]} 筹{before[3]}→{after[3]} "
-                  f"市{before[4]}→{after[4]} 热{before[5]}→{after[5]} 横{before[6]}→{after[6]}")
+            before = _counts()
+            main_picks      = _filter_blacklist(main_picks, ind_map)
+            small_picks     = _filter_blacklist(small_picks, ind_map)
+            gc_picks        = _filter_blacklist(gc_picks, ind_map)
+            chip_picks      = _filter_blacklist(chip_picks, ind_map)
+            mc_picks        = _filter_blacklist(mc_picks, ind_map)
+            hot_picks       = _filter_blacklist(hot_picks, ind_map)
+            sideways_picks  = _filter_blacklist(sideways_picks, ind_map)
+            escalator_picks = _filter_blacklist(escalator_picks, ind_map)
+            _print_filter("黑名单过滤", before, _counts())
 
     # 1) 可选：tech-only 行业过滤（默认 off）
     if args.tech_only:
         ind_map = _load_industry_map()
         if ind_map:
-            before = (len(main_picks), len(small_picks), len(gc_picks),
-                      len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
-            main_picks     = _filter_tech(main_picks, ind_map)
-            small_picks    = _filter_tech(small_picks, ind_map)
-            gc_picks       = _filter_tech(gc_picks, ind_map)
-            chip_picks     = _filter_tech(chip_picks, ind_map)
-            mc_picks       = _filter_tech(mc_picks, ind_map)
-            hot_picks      = _filter_tech(hot_picks, ind_map)
-            sideways_picks = _filter_tech(sideways_picks, ind_map)
-            after = (len(main_picks), len(small_picks), len(gc_picks),
-                     len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
-            print(f"[evening_strategy] 科技过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
-                  f"叉{before[2]}→{after[2]} 筹{before[3]}→{after[3]} "
-                  f"市{before[4]}→{after[4]} 热{before[5]}→{after[5]} 横{before[6]}→{after[6]}")
+            before = _counts()
+            main_picks      = _filter_tech(main_picks, ind_map)
+            small_picks     = _filter_tech(small_picks, ind_map)
+            gc_picks        = _filter_tech(gc_picks, ind_map)
+            chip_picks      = _filter_tech(chip_picks, ind_map)
+            mc_picks        = _filter_tech(mc_picks, ind_map)
+            hot_picks       = _filter_tech(hot_picks, ind_map)
+            sideways_picks  = _filter_tech(sideways_picks, ind_map)
+            escalator_picks = _filter_tech(escalator_picks, ind_map)
+            _print_filter("科技过滤", before, _counts())
 
     # 2) 默认：流动性下限过滤（amt_5d_yi ≥ 0.5 亿）
     if not args.no_liquidity_filter:
         amt_cache: dict[str, float | None] = {}
-        before = (len(main_picks), len(small_picks), len(gc_picks),
-                  len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
-        main_picks     = _filter_liquid(main_picks,     _LIQUIDITY_MIN_AMT_YI, amt_cache)
-        small_picks    = _filter_liquid(small_picks,    _LIQUIDITY_MIN_AMT_YI, amt_cache)
-        gc_picks       = _filter_liquid(gc_picks,       _LIQUIDITY_MIN_AMT_YI, amt_cache)
-        chip_picks     = _filter_liquid(chip_picks,     _LIQUIDITY_MIN_AMT_YI, amt_cache)
-        mc_picks       = _filter_liquid(mc_picks,       _LIQUIDITY_MIN_AMT_YI, amt_cache)
-        hot_picks      = _filter_liquid(hot_picks,      _LIQUIDITY_MIN_AMT_YI, amt_cache)
-        sideways_picks = _filter_liquid(sideways_picks, _LIQUIDITY_MIN_AMT_YI, amt_cache)
-        after = (len(main_picks), len(small_picks), len(gc_picks),
-                 len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
-        print(f"[evening_strategy] 流动性过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
-              f"叉{before[2]}→{after[2]} 筹{before[3]}→{after[3]} "
-              f"市{before[4]}→{after[4]} 热{before[5]}→{after[5]} 横{before[6]}→{after[6]}")
+        before = _counts()
+        main_picks      = _filter_liquid(main_picks,      _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        small_picks     = _filter_liquid(small_picks,     _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        gc_picks        = _filter_liquid(gc_picks,        _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        chip_picks      = _filter_liquid(chip_picks,      _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        mc_picks        = _filter_liquid(mc_picks,        _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        hot_picks       = _filter_liquid(hot_picks,       _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        sideways_picks  = _filter_liquid(sideways_picks,  _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        escalator_picks = _filter_liquid(escalator_picks, _LIQUIDITY_MIN_AMT_YI, amt_cache)
+        _print_filter("流动性过滤", before, _counts())
 
-    total = (len(main_picks) + len(small_picks) + len(gc_picks) + len(chip_picks)
-             + len(mc_picks) + len(hot_picks) + len(sideways_picks))
-    print(f"[evening_strategy] 主{len(main_picks)} 小{len(small_picks)} "
-          f"叉{len(gc_picks)} 筹{len(chip_picks)} 市{len(mc_picks)} "
-          f"热{len(hot_picks)} 横{len(sideways_picks)}  共{total}只信号")
+    cnt = _counts()
+    total = sum(cnt)
+    print(f"[evening_strategy] 主{cnt[0]} 小{cnt[1]} 叉{cnt[2]} 筹{cnt[3]} "
+          f"市{cnt[4]} 热{cnt[5]} 横{cnt[6]} 扶{cnt[7]}  共{total}只信号")
 
     if total == 0:
         print("[evening_strategy] 无信号，退出")
         sys.exit(0)
 
     registry = _merge(main_picks, small_picks, gc_picks, chip_picks,
-                       mc_picks, hot_picks, sideways_picks)
+                       mc_picks, hot_picks, sideways_picks, escalator_picks)
     unique = len(registry)
     multi_count = sum(1 for e in registry.values() if len(e["tags"]) >= 2)
     print(f"[evening_strategy] 去重后 {unique} 只（多策略共振 {multi_count} 只）")
