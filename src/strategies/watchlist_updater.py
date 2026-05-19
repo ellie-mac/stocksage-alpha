@@ -236,25 +236,45 @@ def main() -> None:
         for e, r in evicted:
             print(f"  - {e.get('name', e['code'])}({e['code']}) [{e.get('source','')}] {r}")
 
-    # ── Add new candidates ────────────────────────────────────────────────────
-    kept_codes = {e["code"] for e in kept}
+    # ── Add new candidates / refresh existing ────────────────────────────────
+    # 同票同源再次入选 → 刷新 added_date 延期 TTL（避免热度仍在的票被硬剔）
+    kept_by_code: dict[str, dict] = {e["code"]: e for e in kept}
     added: list[dict] = []
+    refreshed: list[dict] = []
+    src_label = {"main_scan": "主策略", "gc_scan": "金叉", "hot_scan": "热榜",
+                 "sideways_scan": "横盘", "escalator_scan": "扶梯"}
+
     for candidate in _candidates_A() + _candidates_B() + _candidates_C() + _candidates_D() + _candidates_E():
         code = candidate["code"]
-        if code in kept_codes or code in manual_codes or code in {c["code"] for c in added}:
+        if code in manual_codes:
+            continue
+        # 已在池里：source 匹配 → 刷新 added_date；不匹配 → 不动（让原 TTL 走完）
+        if code in kept_by_code:
+            existing = kept_by_code[code]
+            if (existing.get("source") == candidate["source"]
+                    and existing.get("added_date") != today):
+                existing["added_date"] = today
+                refreshed.append(existing)
+            continue
+        # 不在池且本轮 added 也没添加过 → 入池
+        if code in {c["code"] for c in added}:
             continue
         candidate["added_date"] = today
         added.append(candidate)
-        kept_codes.add(code)
+
+    if refreshed:
+        print(f"[updater] 刷新 TTL {len(refreshed)} 只 (同源再次入选):")
+        for e in refreshed:
+            print(f"  ↻ {e.get('name', e['code'])}({e['code']}) [{src_label.get(e['source'], e['source'])}]")
 
     if added:
-        src_label = {"main_scan": "主策略", "gc_scan": "金叉", "hot_scan": "热榜", "sideways_scan": "横盘", "escalator_scan": "扶梯"}
         print(f"[updater] 新增 {len(added)} 只:")
         for e in added:
             print(f"  + {e.get('name', e['code'])}({e['code']}) [{src_label.get(e['source'], e['source'])}]")
 
     new_list = kept + added
-    print(f"[updater] 动态池: {len(current)} → {len(new_list)} 只  (淘汰{len(evicted)} 新增{len(added)})")
+    print(f"[updater] 动态池: {len(current)} → {len(new_list)} 只  "
+          f"(淘汰{len(evicted)} 新增{len(added)} 刷新{len(refreshed)})")
 
     if args.dry_run:
         print("[updater] dry-run，不保存")
@@ -266,17 +286,18 @@ def main() -> None:
     if evicted or added:
         try:
             from notify.notify import push_feishu_card
-            src_label = {"main_scan": "主策略", "gc_scan": "金叉", "hot_scan": "热榜", "sideways_scan": "横盘", "escalator_scan": "扶梯"}
             lines = [f"动态自选池  {today}  共{len(new_list)}只"]
             if added:
                 lines.append(f"\n新增 {len(added)} 只")
                 for e in added:
                     lines.append(f"  + {e.get('name', e['code'])}({e['code']})  [{src_label.get(e['source'], e['source'])}]")
+            if refreshed:
+                lines.append(f"\n刷新 TTL {len(refreshed)} 只 (同源再选)")
             if evicted:
                 lines.append(f"\n移除 {len(evicted)} 只")
                 for e, r in evicted:
                     lines.append(f"  - {e.get('name', e['code'])}({e['code']})  {r}")
-            push_feishu_card(f"自选池更新 +{len(added)} -{len(evicted)}", lines)
+            push_feishu_card(f"自选池更新 +{len(added)} -{len(evicted)} ↻{len(refreshed)}", lines)
         except Exception as e:
             print(f"[updater] 飞书推送失败: {e}")
 
