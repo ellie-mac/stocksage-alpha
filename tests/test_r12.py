@@ -11,6 +11,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+from conftest import InlineProcess, SyncQueue
 
 
 # ── DB 备份 ───────────────────────────────────────────────────────────────────
@@ -131,8 +132,11 @@ def test_publish_failure_recorded_in_artifacts(tmp_path):
 
         with patch("jobs.nightly_scan.finish_run", side_effect=_fake_finish_run), \
              patch("jobs.nightly_scan.start_run", return_value=1), \
-             patch("strategies.base.get_strategy", return_value=mock_strategy):
+             patch("strategies.base.get_strategy", return_value=mock_strategy), \
+             patch.object(ns.multiprocessing, "Process", InlineProcess), \
+             patch.object(ns.multiprocessing, "Queue", SyncQueue):
             ns._run_strategy("test", "test_job", "main", {}, dry_run=True)
 
-    assert recorded.get("ok") is True        # publish 失败不影响 run 状态
+    # 自 66dc714 起：publish 失败 → run_manifest 记 failed → 允许重跑
+    assert recorded.get("ok") is False
     assert "publish=failed" in (recorded.get("artifacts") or [])
