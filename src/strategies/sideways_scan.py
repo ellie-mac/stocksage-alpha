@@ -228,7 +228,7 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
             close = float(df["close"].iloc[-1])
             if not (3.0 <= close <= 500.0):
                 return None
-            metrics = compute_metrics(df)
+            metrics = compute_metrics(df, code6)
             if not passes_quality(metrics):
                 return None
             sw = _classify(df["close"].values)

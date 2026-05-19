@@ -39,7 +39,7 @@ HOT_RANK_LOGGER   = SCRIPTS   / "tools" / "hot_rank_logger.py"
 HOT_SCAN          = SCRIPTS   / "strategies" / "hot_scan.py"
 SIDEWAYS_SCAN     = SCRIPTS   / "strategies" / "sideways_scan.py"
 MARKETCAP_SCAN    = SCRIPTS   / "strategies" / "marketcap_strategy.py"
-MORNING_PUSH      = SCRIPTS   / "jobs"       / "morning_push.py"
+EVENING_STRATEGY  = SCRIPTS   / "jobs"       / "evening_strategy.py"
 
 # ── Bot startup tasks (At Logon trigger) ─────────────────────────────────────
 BOT_TASKS = [
@@ -105,8 +105,9 @@ OLD_TASKS = [
     "StockSage_marketcap_Scan",
     # bot keepalive tasks (replaced by in-process keepalive thread)
     "bot_Keepalive0", "bot_Keepalive1", "bot_Keepalive2",
-    # replaced by morning_Push (run_morning_push.bat)
+    # replaced by evening_Strategy (run_evening_strategy.bat)
     "main_Morning",
+    "morning_Push",
     # renamed to report_Morning/Midday/Evening
     "xhs_Morning", "xhs_Midday", "xhs_Evening",
     # renamed to StockSage_LarkBot
@@ -147,7 +148,7 @@ TASKS = [
     ("golden_Scan",     "19:30", "gc_scan",         "金叉策略扫描（全A股7项指标共振）推送 📱",         True),
     ("sideways_Scan",   "20:00", "sideways_scan",   "横盘策略扫描（全市场+流动性+量比≥0.5）推送 📱",  True),
     ("chip_CadScan",    "21:00", "cad_scan",        "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱",    True),
-    ("morning_Push",    "22:00", "morning_push",    "多策略晨报合并推送（七路汇总） 📱",               True),
+    ("evening_Strategy","22:00", "evening_strategy","多策略汇总·晚间（七路合并推送） 📱",              True),
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
     ("main_Night",      "22:30", "main_night",      "预热财务缓存（batch_financials），不推送",        False),
 ]
@@ -225,9 +226,9 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
     elif slot == "daily_perf_log":
         path = TASKS_DIR / "run_daily_perf_log.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{DAILY_PERF_LOG}" --force >> "{log}\\daily_perf_log.log" 2>&1'
-    elif slot == "morning_push":
-        path = TASKS_DIR / "run_morning_push.bat"
-        cmd  = f'"{PYTHON}" -X utf8 "{MORNING_PUSH}" --push >> "{log}\\morning_push.log" 2>&1'
+    elif slot == "evening_strategy":
+        path = TASKS_DIR / "run_evening_strategy.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{EVENING_STRATEGY}" --push >> "{log}\\evening_strategy.log" 2>&1'
     elif slot == "monitor_scan":
         path = TASKS_DIR / "run_monitor_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{MONITOR}" --always-send >> "{log}\\monitor_scan.log" 2>&1'

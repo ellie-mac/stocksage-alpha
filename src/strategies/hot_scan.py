@@ -175,8 +175,8 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
             name = name_map.get(code, code)
             if "ST" in name.upper():
                 return None
-            # 流动性 / 量能 / 涨跌停 / 一字板 — 统一公共门槛
-            q = compute_metrics(df)
+            # 流动性 / 量能 / 涨跌停 / 一字板 — 统一公共门槛（按板块阈值）
+            q = compute_metrics(df, code[-6:])
             if not passes_quality(q):
                 return None
             if cah:

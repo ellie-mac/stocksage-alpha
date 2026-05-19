@@ -68,16 +68,30 @@ def is_bj_code(code: str) -> bool:
     return False
 
 
-def compute_metrics(df: Optional[pd.DataFrame]) -> dict:
+def _limit_threshold_pct(code: str) -> float:
+    """日涨跌停阈值（百分比，留 0.5pp 浮点缓冲）。
+
+    创业板 (300/301) + 科创板 (688/689) 是 20% → 19.0；其余主板/中小板 10% → 9.5。
+    ST 股票名字含 "ST" 但代码无 prefix 区分——scanner 层已通过 name 检查剔除 ST，
+    这里只按板块代码判断。
+    """
+    d = code[-6:] if code else ""
+    if len(d) >= 3 and d[:3] in ("300", "301", "688", "689"):
+        return 19.0
+    return 9.5
+
+
+def compute_metrics(df: Optional[pd.DataFrame], code: str = "") -> dict:
     """从价格历史 DataFrame 算质量指标，口径全 A 股统一。
 
     要求列：close, volume；可选：high, low（用于一字板判定）。
     单位约定：volume = 手（×100 = 股）；close = 元。
+    可选 code：用于按板块判涨跌停阈值（主板 9.5% / 创业·科创 19%）。
 
     Returns dict with:
       - amt_5d_yi:      5 日均成交额（亿）
       - vol_ratio:      5 日均量 / 60 日均量（数据不够时给 1.0 neutral）
-      - is_limit_today: 当日相对前日 |chg_pct| ≥ 9.5%（涨跌停）
+      - is_limit_today: 当日相对前日 |chg_pct| ≥ 板块阈值（涨跌停）
       - is_yi_zi:       当日 high == low（一字板）
 
     数据不全时返回 {} —— 调用方将这视为"质量不达标，剔除"。
@@ -103,7 +117,8 @@ def compute_metrics(df: Optional[pd.DataFrame]) -> dict:
     is_limit_today = False
     if len(closes) >= 2:
         prev = float(closes[-2])
-        if prev > 0 and abs(close - prev) / prev * 100 >= 9.5:
+        thr = _limit_threshold_pct(code)
+        if prev > 0 and abs(close - prev) / prev * 100 >= thr:
             is_limit_today = True
 
     is_yi_zi = False

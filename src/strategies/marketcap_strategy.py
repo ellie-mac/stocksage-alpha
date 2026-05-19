@@ -259,7 +259,7 @@ def scan() -> list[dict]:
             ddf = _f.get_price_history(code6, days=65)
         except Exception:
             return None
-        m = compute_metrics(ddf)
+        m = compute_metrics(ddf, code6)
         if not passes_quality(m):
             return None
         mv_yi = row["_mv"] / 1e8 if row["_mv"] > 0 else 0

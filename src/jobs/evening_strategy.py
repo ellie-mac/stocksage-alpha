@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-多策略晨报 — 合并主策略/小盘/金叉/筹码/低市值/热榜/横盘七路信号，统一推送。
+多策略汇总（晚间）— 合并主策略/小盘/金叉/筹码/低市值/热榜/横盘七路信号，统一推送。
 
+22:00 跑，所有 scanner 跑完后汇总当日多策略共振结果。
 股票按覆盖策略数从多到少排列；同策略内按原始得分排序。
 """
 from __future__ import annotations
@@ -28,7 +29,7 @@ def _load(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"[morning_push] 读取 {path.name} 失败: {e}")
+        print(f"[evening_strategy] 读取 {path.name} 失败: {e}")
         return None
 
 
@@ -85,14 +86,14 @@ def _load_industry_map() -> dict[str, str]:
     """从 stock_names.json 读取 {6位code: industry}。"""
     p = DATA / "stock_names.json"
     if not p.exists():
-        print(f"[morning_push] stock_names.json 不存在，无法过滤科技行业")
+        print(f"[evening_strategy] stock_names.json 不存在，无法过滤科技行业")
         return {}
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
         return {ts.split(".")[0]: (info.get("industry", "") if isinstance(info, dict) else "")
                 for ts, info in raw.items()}
     except Exception as e:
-        print(f"[morning_push] 读取 stock_names.json 失败: {e}")
+        print(f"[evening_strategy] 读取 stock_names.json 失败: {e}")
         return {}
 
 
@@ -163,7 +164,7 @@ def _load_main() -> tuple[list[dict], list[dict]]:
         return [], []
     ts = d.get("timestamp", "")
     if ts and not _is_fresh(ts[:10].replace("-", ""), "%Y%m%d"):
-        print("[morning_push] latest_picks.json 数据已过期，跳过主/小盘策略")
+        print("[evening_strategy] latest_picks.json 数据已过期，跳过主/小盘策略")
         return [], []
 
     def _extract(lst: list) -> list[dict]:
@@ -180,7 +181,7 @@ def _load_gc() -> list[dict]:
     if not d:
         return []
     if not _is_fresh(d.get("date", ""), "%Y%m%d"):
-        print("[morning_push] golden_cross_latest.json 数据已过期，跳过金叉策略")
+        print("[evening_strategy] golden_cross_latest.json 数据已过期，跳过金叉策略")
         return []
     picks = []
     for tier, tier_picks in d.get("tiers", {}).items():
@@ -199,7 +200,7 @@ def _load_chip() -> list[dict]:
     if not d:
         return []
     if not _is_fresh(d.get("date", ""), "%Y%m%d"):
-        print("[morning_push] chip_scan_latest.json 数据已过期，跳过筹码策略")
+        print("[evening_strategy] chip_scan_latest.json 数据已过期，跳过筹码策略")
         return []
     picks = []
     for p in d.get("all_picks", []):
@@ -216,7 +217,7 @@ def _load_hot() -> list[dict]:
     if not d:
         return []
     if not _is_fresh(d.get("date", ""), "%Y%m%d"):
-        print("[morning_push] hot_scan_latest.json 数据已过期，跳过热榜策略")
+        print("[evening_strategy] hot_scan_latest.json 数据已过期，跳过热榜策略")
         return []
     picks = []
     for p in d.get("picks", []):
@@ -234,7 +235,7 @@ def _load_sideways() -> list[dict]:
     if not d:
         return []
     if not _is_fresh(d.get("date", ""), "%Y%m%d"):
-        print("[morning_push] sideways_latest.json 数据已过期，跳过横盘策略")
+        print("[evening_strategy] sideways_latest.json 数据已过期，跳过横盘策略")
         return []
     picks = []
     for p in d.get("all_picks", []):
@@ -254,7 +255,7 @@ def _load_marketcap() -> list[dict]:
     if not d:
         return []
     if not _is_fresh(d.get("date", ""), "%Y%m%d"):
-        print("[morning_push] marketcap_latest.json 数据已过期，跳过市值策略")
+        print("[evening_strategy] marketcap_latest.json 数据已过期，跳过市值策略")
         return []
     return [
         {"code": p["code"], "name": p.get("name", ""), "score": 0,
@@ -311,11 +312,14 @@ def _fmt_pick(code: str, entry: dict) -> str:
     tags = _tag_str(entry["tags"])
     details = entry["details"]
 
-    # Price: prefer 市 then 叉 then 筹 then 热 then 横
+    # Price fallback chain: 市/主/小 用 price 字段，叉/筹/热/横 用 close
     price = None
-    if "市" in details and details["市"].get("price"):
-        price = float(details["市"]["price"])
-    else:
+    for tag in ("市", "主", "小"):
+        p = details.get(tag, {}).get("price")
+        if p:
+            price = float(p)
+            break
+    if price is None:
         for tag in ("叉", "筹", "热", "横"):
             close = details.get(tag, {}).get("close")
             if close:
@@ -372,7 +376,7 @@ _TIER_ORDER = {
 
 
 def _build_message(registry: dict[str, dict], tech_only: bool = False) -> tuple[str, str]:
-    label = "多策略晨报（科技）" if tech_only else "多策略晨报"
+    label = "多策略汇总·晚间（科技）" if tech_only else "多策略汇总·晚间"
     if not registry:
         return label, "今日七路策略均无信号"
 
@@ -471,7 +475,7 @@ def main() -> None:
             sideways_picks = _filter_blacklist(sideways_picks, ind_map)
             after = (len(main_picks), len(small_picks), len(gc_picks),
                      len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
-            print(f"[morning_push] 黑名单过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
+            print(f"[evening_strategy] 黑名单过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
                   f"叉{before[2]}→{after[2]} 筹{before[3]}→{after[3]} "
                   f"市{before[4]}→{after[4]} 热{before[5]}→{after[5]} 横{before[6]}→{after[6]}")
 
@@ -490,7 +494,7 @@ def main() -> None:
             sideways_picks = _filter_tech(sideways_picks, ind_map)
             after = (len(main_picks), len(small_picks), len(gc_picks),
                      len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
-            print(f"[morning_push] 科技过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
+            print(f"[evening_strategy] 科技过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
                   f"叉{before[2]}→{after[2]} 筹{before[3]}→{after[3]} "
                   f"市{before[4]}→{after[4]} 热{before[5]}→{after[5]} 横{before[6]}→{after[6]}")
 
@@ -508,25 +512,25 @@ def main() -> None:
         sideways_picks = _filter_liquid(sideways_picks, _LIQUIDITY_MIN_AMT_YI, amt_cache)
         after = (len(main_picks), len(small_picks), len(gc_picks),
                  len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
-        print(f"[morning_push] 流动性过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
+        print(f"[evening_strategy] 流动性过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
               f"叉{before[2]}→{after[2]} 筹{before[3]}→{after[3]} "
               f"市{before[4]}→{after[4]} 热{before[5]}→{after[5]} 横{before[6]}→{after[6]}")
 
     total = (len(main_picks) + len(small_picks) + len(gc_picks) + len(chip_picks)
              + len(mc_picks) + len(hot_picks) + len(sideways_picks))
-    print(f"[morning_push] 主{len(main_picks)} 小{len(small_picks)} "
+    print(f"[evening_strategy] 主{len(main_picks)} 小{len(small_picks)} "
           f"叉{len(gc_picks)} 筹{len(chip_picks)} 市{len(mc_picks)} "
           f"热{len(hot_picks)} 横{len(sideways_picks)}  共{total}只信号")
 
     if total == 0:
-        print("[morning_push] 无信号，退出")
+        print("[evening_strategy] 无信号，退出")
         sys.exit(0)
 
     registry = _merge(main_picks, small_picks, gc_picks, chip_picks,
                        mc_picks, hot_picks, sideways_picks)
     unique = len(registry)
     multi_count = sum(1 for e in registry.values() if len(e["tags"]) >= 2)
-    print(f"[morning_push] 去重后 {unique} 只（多策略共振 {multi_count} 只）")
+    print(f"[evening_strategy] 去重后 {unique} 只（多策略共振 {multi_count} 只）")
 
     title, body = _build_message(registry, tech_only=args.tech_only)
 
@@ -541,9 +545,9 @@ def main() -> None:
     if args.push:
         try:
             push_wechat(title, body)
-            print("[morning_push] 微信推送完成")
+            print("[evening_strategy] 微信推送完成")
         except Exception as e:
-            print(f"[morning_push] 推送失败: {e}")
+            print(f"[evening_strategy] 推送失败: {e}")
             sys.exit(1)
 
 

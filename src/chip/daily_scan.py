@@ -177,7 +177,7 @@ def main() -> None:
             return None
         code6 = pick["code"]
         df = _f.get_price_history(code6, days=65)
-        m = compute_metrics(df)
+        m = compute_metrics(df, code6)
         if not passes_quality(m):
             return None
         pick["amt_5d_yi"] = m["amt_5d_yi"]
@@ -216,10 +216,6 @@ def main() -> None:
         result["_ind"]  = result.get("industry", "").fillna("")
         result["_close"] = result.get("close", 0).fillna(0).astype(float)
         result["_wr"]    = result.get("winner_rate", 0).fillna(0).astype(float)
-        rows = [
-            f"{r['_code']} {r['_name']} {r['_ind']} ¥{r['_close']:.2f}  "
-            for r in result[["_code", "_name", "_ind", "_close"]].to_dict("records")
-        ]
         tier_picks_raw = [
             {"code": r["_code"], "name": r["_name"], "industry": r["_ind"],
              "close": r["_close"], "winner_rate": r["_wr"], "tier": tier_key}
@@ -231,7 +227,11 @@ def main() -> None:
             enriched = list(_ex.map(_enrich, tier_picks_raw))
         tier_picks = [p for p in enriched if p is not None]
         all_picks.extend(tier_picks)
-        # rows still derived from the original screen() output (display 不变)
+        # rows 用过滤后 tier_picks 生成，与落盘 JSON 一致（避免推送展示已被剔除的票）
+        rows = [
+            f"{p['code']} {p['name']} {p.get('industry', '')} ¥{p.get('close', 0):.2f}  "
+            for p in tier_picks
+        ]
         sections.append(header + "  \n" + "\n".join(rows))
         tier_data[tier_key] = tier_picks
 

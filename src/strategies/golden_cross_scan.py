@@ -269,8 +269,8 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
             close = float(df["close"].iloc[-1])
             if not (3.0 <= close <= 500.0):
                 return None
-            # 流动性 + 量能 + 涨跌停/一字板 综合过滤（涨跌停过滤原本就有，公共类一并处理）
-            metrics = compute_metrics(df)
+            # 流动性 + 量能 + 涨跌停/一字板 综合过滤（按板块阈值）
+            metrics = compute_metrics(df, code[-6:])
             if not passes_quality(metrics):
                 return None
             return {
