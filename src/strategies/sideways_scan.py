@@ -196,14 +196,16 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
         universe = [c for c in universe if _is_tech(ind_map.get(c[-6:], ""))]
         print(f"[sideways] 科技行业过滤: {before} → {len(universe)} 只", flush=True)
 
-    from strategies._quality import compute_metrics, passes_quality
+    from strategies._quality import compute_metrics, passes_quality, is_blacklisted
 
     def _fetch_and_classify(code: str) -> Optional[dict]:
         try:
+            code6 = code[-6:]
+            if is_blacklisted(ind_map.get(code6, "")):
+                return None
             df = _fetcher.get_price_history(code, days=_MIN_BARS + 5)
             if df is None or len(df) < 5:
                 return None
-            code6 = code[-6:]
             name = name_map.get(code6, code6)
             if "ST" in name.upper():
                 return None

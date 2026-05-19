@@ -234,10 +234,12 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
     name_map, ind_map = _build_name_maps()
     date = as_of_date or datetime.now().strftime("%Y%m%d")
 
-    from strategies._quality import compute_metrics, passes_quality
+    from strategies._quality import compute_metrics, passes_quality, is_blacklisted
 
     def _fetch_and_score(code: str) -> Optional[dict]:
         try:
+            if is_blacklisted(ind_map.get(code[-6:], "")):
+                return None
             df = _fetcher.get_price_history(code, days=90)
             if df is None or df.empty:
                 return None

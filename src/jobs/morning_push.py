@@ -55,6 +55,15 @@ def _norm_code(code: str) -> str:
     return s.lower().lstrip("shz")[-6:] if any(c.isalpha() for c in s) else s
 
 
+def _filter_blacklist(picks: list[dict], ind_map: dict[str, str]) -> list[dict]:
+    """剔除 industry 在 BLACKLIST_INDUSTRIES 中的 picks（兜底，scanner 已过滤过一次）。"""
+    if not ind_map:
+        return picks
+    sys.path.insert(0, str(ROOT / "src"))
+    from strategies._quality import is_blacklisted
+    return [p for p in picks if not is_blacklisted(ind_map.get(p["code"], ""))]
+
+
 # 科技 (TMT) 行业关键词 — 与 src/strategies/sideways_scan.py 保持同步
 _TECH_KEYWORDS = (
     "半导体", "集成电路", "芯片",
@@ -436,6 +445,8 @@ def main() -> None:
                         help="仅展示科技 TMT（默认覆盖全行业）")
     parser.add_argument("--no-liquidity-filter", action="store_true",
                         help="关闭流动性下限过滤（默认 5 日均成交额 ≥ 0.5 亿）")
+    parser.add_argument("--no-blacklist-filter", action="store_true",
+                        help="关闭行业黑名单过滤（默认剔除酒/金融/地产/消费/农业/交运）")
     args = parser.parse_args()
 
     main_picks, small_picks = _load_main()
@@ -444,6 +455,25 @@ def main() -> None:
     mc_picks       = _load_marketcap()
     hot_picks      = _load_hot()
     sideways_picks = _load_sideways()
+
+    # 0) 默认：行业黑名单过滤（剔除酒/金融/地产/消费/农业/交运）
+    if not args.no_blacklist_filter:
+        ind_map = _load_industry_map()
+        if ind_map:
+            before = (len(main_picks), len(small_picks), len(gc_picks),
+                      len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
+            main_picks     = _filter_blacklist(main_picks, ind_map)
+            small_picks    = _filter_blacklist(small_picks, ind_map)
+            gc_picks       = _filter_blacklist(gc_picks, ind_map)
+            chip_picks     = _filter_blacklist(chip_picks, ind_map)
+            mc_picks       = _filter_blacklist(mc_picks, ind_map)
+            hot_picks      = _filter_blacklist(hot_picks, ind_map)
+            sideways_picks = _filter_blacklist(sideways_picks, ind_map)
+            after = (len(main_picks), len(small_picks), len(gc_picks),
+                     len(chip_picks), len(mc_picks), len(hot_picks), len(sideways_picks))
+            print(f"[morning_push] 黑名单过滤: 主{before[0]}→{after[0]} 小{before[1]}→{after[1]} "
+                  f"叉{before[2]}→{after[2]} 筹{before[3]}→{after[3]} "
+                  f"市{before[4]}→{after[4]} 热{before[5]}→{after[5]} 横{before[6]}→{after[6]}")
 
     # 1) 可选：tech-only 行业过滤（默认 off）
     if args.tech_only:

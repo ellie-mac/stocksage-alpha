@@ -150,10 +150,22 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
 
     results: list[dict] = []
 
-    from strategies._quality import compute_metrics, passes_quality
+    from strategies._quality import compute_metrics, passes_quality, is_blacklisted
+
+    # 行业映射（黑名单检查）
+    _stock_names_path = ROOT / "data" / "stock_names.json"
+    _ind_map: dict[str, str] = {}
+    try:
+        _raw = json.loads(_stock_names_path.read_text(encoding="utf-8"))
+        _ind_map = {ts.split(".")[0]: (info.get("industry", "") if isinstance(info, dict) else "")
+                    for ts, info in _raw.items()}
+    except Exception:
+        pass
 
     def _process(code: str):
         try:
+            if is_blacklisted(_ind_map.get(code, "")):
+                return None
             df = _fetcher.get_price_history(code, days=200)
             if df is None or df.empty or len(df) < 20:
                 return None

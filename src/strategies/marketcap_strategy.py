@@ -235,14 +235,26 @@ def scan() -> list[dict]:
     # 多取一些候选给质量门槛筛（部分会被流动性/量比剔除）
     df = df.nsmallest(TOP_N * 3, "_mv")
 
-    # 流动性 / 量能 enrichment（统一公共 _quality 口径）
+    # 流动性 / 量能 enrichment + 行业黑名单
     import fetcher as _f
-    from strategies._quality import compute_metrics, passes_quality
+    from strategies._quality import compute_metrics, passes_quality, is_blacklisted
     from concurrent.futures import ThreadPoolExecutor as _TPE
+
+    # 黑名单需要 industry 映射 — 从 stock_names.json 读
+    _stock_names_path = ROOT / "data" / "stock_names.json"
+    _ind_map: dict[str, str] = {}
+    try:
+        _raw = json.loads(_stock_names_path.read_text(encoding="utf-8"))
+        _ind_map = {ts.split(".")[0]: (info.get("industry", "") if isinstance(info, dict) else "")
+                    for ts, info in _raw.items()}
+    except Exception:
+        pass
 
     def _enrich(row) -> dict | None:
         code = str(row["代码"])
         code6 = code[-6:]
+        if is_blacklisted(_ind_map.get(code6, "")):
+            return None
         try:
             ddf = _f.get_price_history(code6, days=65)
         except Exception:

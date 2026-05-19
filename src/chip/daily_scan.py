@@ -167,11 +167,14 @@ def main() -> None:
     filter_label = "＋".join(parts)
 
     # 流动性 / 量能 enrichment — 用公共 _quality 模块统一字段（amt_5d_yi, vol_ratio）
+    # 同时剔除行业黑名单
     import sys as _sys; _sys.path.insert(0, str(SCRIPTS))
-    from strategies._quality import compute_metrics, passes_quality
+    from strategies._quality import compute_metrics, passes_quality, is_blacklisted
     import fetcher as _f
 
     def _enrich(pick: dict) -> dict | None:
+        if is_blacklisted(pick.get("industry", "")):
+            return None
         code6 = pick["code"]
         df = _f.get_price_history(code6, days=65)
         m = compute_metrics(df)
