@@ -150,17 +150,8 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
 
     results: list[dict] = []
 
-    from strategies._quality import compute_metrics, passes_quality, is_blacklisted
-
-    # 行业映射（黑名单检查）
-    _stock_names_path = ROOT / "data" / "stock_names.json"
-    _ind_map: dict[str, str] = {}
-    try:
-        _raw = json.loads(_stock_names_path.read_text(encoding="utf-8"))
-        _ind_map = {ts.split(".")[0]: (info.get("industry", "") if isinstance(info, dict) else "")
-                    for ts, info in _raw.items()}
-    except Exception:
-        pass
+    from strategies._quality import compute_metrics, passes_quality, is_blacklisted, load_name_industry_map
+    _, _ind_map = load_name_industry_map()
 
     def _process(code: str):
         try:

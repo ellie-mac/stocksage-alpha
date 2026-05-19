@@ -237,18 +237,10 @@ def scan() -> list[dict]:
 
     # 流动性 / 量能 enrichment + 行业黑名单
     import fetcher as _f
-    from strategies._quality import compute_metrics, passes_quality, is_blacklisted
+    from strategies._quality import compute_metrics, passes_quality, is_blacklisted, load_name_industry_map
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
-    # 黑名单需要 industry 映射 — 从 stock_names.json 读
-    _stock_names_path = ROOT / "data" / "stock_names.json"
-    _ind_map: dict[str, str] = {}
-    try:
-        _raw = json.loads(_stock_names_path.read_text(encoding="utf-8"))
-        _ind_map = {ts.split(".")[0]: (info.get("industry", "") if isinstance(info, dict) else "")
-                    for ts, info in _raw.items()}
-    except Exception:
-        pass
+    _, _ind_map = load_name_industry_map()
 
     def _enrich(row) -> dict | None:
         code = str(row["代码"])

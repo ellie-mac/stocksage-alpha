@@ -14,9 +14,15 @@
 """
 from __future__ import annotations
 
+import functools
+import json
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_DATA_DIR = _REPO_ROOT / "data"
 
 
 # Default gate thresholds — strategies can override per-策略
@@ -46,6 +52,84 @@ BLACKLIST_INDUSTRIES = frozenset([
 def is_blacklisted(industry: str) -> bool:
     """精确匹配 — industry 是否在赛道黑名单里。"""
     return industry in BLACKLIST_INDUSTRIES
+
+
+@functools.lru_cache(maxsize=1)
+def load_name_industry_map() -> tuple[dict[str, str], dict[str, str]]:
+    """从 data/stock_names.json 读出 (name_map, industry_map)，6 位 code 作 key。
+
+    lru_cache 让进程内重复调用零成本。stock_names.json 每天 02:00 sync_Knowledge
+    刷新，scanner 进程通常一次跑完就退出，缓存命中策略适用。
+    """
+    p = _DATA_DIR / "stock_names.json"
+    if not p.exists():
+        return {}, {}
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}, {}
+    names: dict[str, str] = {}
+    inds:  dict[str, str] = {}
+    for ts_code, info in raw.items():
+        code6 = ts_code.split(".")[0]
+        if isinstance(info, dict):
+            names[code6] = info.get("name", code6)
+            inds[code6]  = info.get("industry", "")
+        else:
+            names[code6] = str(info)
+            inds[code6]  = ""
+    return names, inds
+
+
+def load_universe(
+    universe_path: Optional[Path] = None,
+    drop_bj: bool = True,
+    drop_st: bool = True,
+) -> list[str]:
+    """加载 universe 代码列表，默认排除北证 + ST/退市。
+
+    universe_path 默认 data/universe_main.json；自动调 load_name_industry_map 拿 ST name。
+    """
+    if universe_path is None:
+        universe_path = _DATA_DIR / "universe_main.json"
+    raw = json.loads(Path(universe_path).read_text(encoding="utf-8"))
+    codes = raw if isinstance(raw, list) else list(raw.keys())
+    if not (drop_bj or drop_st):
+        return codes
+    name_map: dict[str, str] = {}
+    if drop_st:
+        name_map, _ = load_name_industry_map()
+    out = []
+    for c in codes:
+        if drop_bj and is_bj_code(c):
+            continue
+        if drop_st:
+            n = name_map.get(c[-6:], "")
+            if "ST" in n.upper() or "退" in n:
+                continue
+        out.append(c)
+    return out
+
+
+def enrich_pick(code: str, days: int = 65) -> Optional[dict]:
+    """5 路 scanner 公共流水线：fetch K 线 → compute_metrics → 质量门槛。
+
+    Returns 含 metrics 字段（amt_5d_yi/vol_ratio/is_limit_today/is_yi_zi）+ close。
+    fetch 失败或质量门槛不过返回 None。
+    """
+    import sys
+    sys.path.insert(0, str(_REPO_ROOT / "src"))
+    try:
+        import fetcher as _f
+        df = _f.get_price_history(code[-6:], days=days)
+    except Exception:
+        return None
+    if df is None or len(df) < 5:
+        return None
+    m = compute_metrics(df, code[-6:])
+    if not passes_quality(m):
+        return None
+    return {**m, "close": float(df["close"].iloc[-1])}
 
 
 def is_bj_code(code: str) -> bool:

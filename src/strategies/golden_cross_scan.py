@@ -201,39 +201,7 @@ def _score_stock(df: pd.DataFrame) -> tuple[int, list[str], float]:
 
 # ── 主扫描 ────────────────────────────────────────────────────────────────────
 
-def _load_universe(name_map: dict[str, str] | None = None) -> list[str]:
-    """Load universe codes, drop 北证 (bj/8x/43) and ST/退 at the universe level."""
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from strategies._quality import is_bj_code
-    raw = json.loads(UNIVERSE_PATH.read_text(encoding="utf-8"))
-    codes = raw if isinstance(raw, list) else list(raw.keys())
-    out = []
-    for c in codes:
-        if is_bj_code(c):
-            continue
-        if name_map is not None:
-            n = name_map.get(c[-6:], "")
-            if "ST" in n.upper() or "退" in n:
-                continue
-        out.append(c)
-    return out
-
-
-def _build_name_maps() -> tuple[dict[str, str], dict[str, str]]:
-    """直接读 stock_names.json 缓存，构建 6位代码 → (name, industry) 映射。"""
-    names_file = ROOT / "data" / "stock_names.json"
-    names: dict[str, str] = {}
-    inds:  dict[str, str] = {}
-    try:
-        raw = json.loads(names_file.read_text(encoding="utf-8"))
-        for ts_code, info in raw.items():
-            code6 = ts_code.split(".")[0]
-            names[code6] = info.get("name", code6) if isinstance(info, dict) else str(info)
-            inds[code6]  = info.get("industry", "")  if isinstance(info, dict) else ""
-        print(f"[golden_cross] 名称缓存 {len(names)} 条", flush=True)
-    except Exception as e:
-        print(f"[golden_cross] 名称加载失败: {e}", flush=True)
-    return names, inds
+# universe / name maps loading 已下沉到 strategies._quality 公共模块
 
 
 def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") -> dict:
@@ -243,8 +211,10 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
         from jobs.prefetch import wait_for_fresh_prices
         wait_for_fresh_prices()
 
-    name_map, ind_map = _build_name_maps()
-    universe = _load_universe(name_map)
+    from strategies._quality import load_name_industry_map, load_universe
+    name_map, ind_map = load_name_industry_map()
+    print(f"[golden_cross] 名称缓存 {len(name_map)} 条", flush=True)
+    universe = load_universe()
     date = as_of_date or datetime.now().strftime("%Y%m%d")
 
     from strategies._quality import compute_metrics, passes_quality, is_blacklisted
