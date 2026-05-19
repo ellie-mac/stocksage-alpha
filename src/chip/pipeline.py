@@ -63,7 +63,7 @@ def _ak_cache_rows(trade_date: str) -> int:
     """返回今日 AK 筹码缓存行数，0 表示不存在或为空。"""
     try:
         import cache as _cache
-        from .strategy import _chip_cache_key, _CHIP_TTL
+        from chip.strategy import _chip_cache_key, _CHIP_TTL
         raw = _cache.get(_chip_cache_key(trade_date, "ak"), _CHIP_TTL)
         if raw is None:
             return 0
@@ -98,7 +98,7 @@ def main() -> None:
     from jobs.prefetch import wait_for_fresh_prices
     wait_for_fresh_prices()
 
-    from .strategy import _latest_trade_date
+    from chip.strategy import _latest_trade_date
     trade_date = _latest_trade_date()
     print(f"[pipeline] 开始  trade_date={trade_date}  {datetime.now():%H:%M:%S}", flush=True)
 
