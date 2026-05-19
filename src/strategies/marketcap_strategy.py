@@ -266,6 +266,7 @@ def scan() -> list[dict]:
         return {
             "code":         code6,
             "name":         row["名称"],
+            "industry":     _ind_map.get(code6, ""),
             "price":        float(pd.to_numeric(row["最新价"], errors="coerce") or 0),
             "change_pct":   float(pd.to_numeric(row.get("涨跌幅", 0), errors="coerce") or 0),
             "marketcap_yi": round(mv_yi, 2),

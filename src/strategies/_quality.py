@@ -48,6 +48,26 @@ def is_blacklisted(industry: str) -> bool:
     return industry in BLACKLIST_INDUSTRIES
 
 
+def is_bj_code(code: str) -> bool:
+    """识别北证 A 股代码 — 排除主板/创业/科创以外的票。
+
+    支持三种格式：bj 前缀（'bj920000'）、sh/sz 前缀剥离后 8x/43 开头、纯数字 8x/43。
+    注意：688/689 是科创板（上交所），不算北证。
+    """
+    if not code:
+        return False
+    if code[:2].lower() == "bj":
+        return True
+    digits = code[-6:] if len(code) >= 6 else code
+    if not digits.isdigit():
+        return False
+    if digits.startswith("43"):
+        return True
+    if digits.startswith("8") and not digits.startswith("86"):
+        return True
+    return False
+
+
 def compute_metrics(df: Optional[pd.DataFrame]) -> dict:
     """从价格历史 DataFrame 算质量指标，口径全 A 股统一。
 

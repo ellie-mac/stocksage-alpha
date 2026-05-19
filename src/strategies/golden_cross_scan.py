@@ -201,9 +201,22 @@ def _score_stock(df: pd.DataFrame) -> tuple[int, list[str], float]:
 
 # ── 主扫描 ────────────────────────────────────────────────────────────────────
 
-def _load_universe() -> list[str]:
+def _load_universe(name_map: dict[str, str] | None = None) -> list[str]:
+    """Load universe codes, drop 北证 (bj/8x/43) and ST/退 at the universe level."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from strategies._quality import is_bj_code
     raw = json.loads(UNIVERSE_PATH.read_text(encoding="utf-8"))
-    return raw if isinstance(raw, list) else list(raw.keys())
+    codes = raw if isinstance(raw, list) else list(raw.keys())
+    out = []
+    for c in codes:
+        if is_bj_code(c):
+            continue
+        if name_map is not None:
+            n = name_map.get(c[-6:], "")
+            if "ST" in n.upper() or "退" in n:
+                continue
+        out.append(c)
+    return out
 
 
 def _build_name_maps() -> tuple[dict[str, str], dict[str, str]]:
@@ -230,8 +243,8 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
         from jobs.prefetch import wait_for_fresh_prices
         wait_for_fresh_prices()
 
-    universe  = _load_universe()
     name_map, ind_map = _build_name_maps()
+    universe = _load_universe(name_map)
     date = as_of_date or datetime.now().strftime("%Y%m%d")
 
     from strategies._quality import compute_metrics, passes_quality, is_blacklisted
@@ -263,7 +276,7 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
             return {
                 "code":      code,
                 "name":      name,
-                "industry":  ind_map.get(code, ""),
+                "industry":  ind_map.get(code[-6:], ""),
                 "close":     round(close, 2),
                 "gc_score":  score,
                 "freshness": round(freshness, 3),

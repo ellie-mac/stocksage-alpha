@@ -70,9 +70,21 @@ def _is_tech(industry: str) -> bool:
     return any(kw in industry for kw in _TECH_KEYWORDS)
 
 
-def _load_universe() -> list[str]:
+def _load_universe(name_map: dict[str, str] | None = None) -> list[str]:
+    """Load universe codes, drop 北证 (bj/8x/43) and ST/退 at the universe level."""
+    from strategies._quality import is_bj_code
     raw = json.loads(UNIVERSE_PATH.read_text(encoding="utf-8"))
-    return raw if isinstance(raw, list) else list(raw.keys())
+    codes = raw if isinstance(raw, list) else list(raw.keys())
+    out = []
+    for c in codes:
+        if is_bj_code(c):
+            continue
+        if name_map is not None:
+            n = name_map.get(c[-6:], "")
+            if "ST" in n.upper() or "退" in n:
+                continue
+        out.append(c)
+    return out
 
 
 def _build_name_maps() -> tuple[dict[str, str], dict[str, str]]:
@@ -191,8 +203,8 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
     except Exception:
         pass
 
-    universe = _load_universe()
     name_map, ind_map = _build_name_maps()
+    universe = _load_universe(name_map)
     date = datetime.now().strftime("%Y%m%d")
 
     if tech_only:

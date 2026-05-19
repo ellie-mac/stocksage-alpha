@@ -214,6 +214,7 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
             change_pct = round((close - float(df["close"].iloc[-2])) / float(df["close"].iloc[-2]) * 100, 2) if len(df) >= 2 else 0.0
             return {
                 "code": code, "name": name, "close": round(close, 2),
+                "industry": _ind_map.get(code, ""),
                 "change_pct": change_pct, "rank": rank,
                 "rank_pct": round(rank / total * 100, 1),
                 "momentum": round(momentum, 1), "score": round(score, 1),
