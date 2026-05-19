@@ -408,7 +408,8 @@ def _fmt_pick(code: str, entry: dict) -> str:
         amt = details["横"].get("avg_amt_5d_yi")
         if t and rp is not None:
             amt_s = f"/{amt:.1f}亿" if amt else ""
-            annotations.append(f"横{t}({rp:.1f}%{amt_s})")
+            spec = _SIDEWAYS_TIER_SHORT.get(t, t)
+            annotations.append(f"{spec}(振{rp:.1f}%{amt_s})")
 
     ann_str = "  " + "  ".join(annotations) if annotations else ""
     return f"**{code} {name}** {tags}{price_str}{ann_str}"
@@ -416,6 +417,14 @@ def _fmt_pick(code: str, entry: dict) -> str:
 
 MAX_SINGLE = 20  # per-strategy section cap (single-strategy stocks only)
 MAX_MULTI  = 50  # 多策略共振块 cap — 防止爆量日（如横盘 2000+）让 push body 超出 PushPlus 限制
+
+# sideways tier 短标签（用于 _fmt_pick 注释）：HX严/HS宽 + 窗口×阈值
+_SIDEWAYS_TIER_SHORT = {
+    "HX0": "30d5%严", "HS0": "30d5%宽",
+    "HX1": "20d4%严", "HS1": "20d4%宽",
+    "HX2": "10d3%严", "HS2": "10d3%宽",
+    "HX3": "5d2%严",  "HS3": "5d2%宽",
+}
 
 _TIER_ORDER = {
     "G0": 0, "G1": 1, "G2": 2,
