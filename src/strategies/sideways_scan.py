@@ -184,12 +184,19 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
         universe = [c for c in universe if _is_tech(ind_map.get(c[-6:], ""))]
         print(f"[sideways] 科技行业过滤: {before} → {len(universe)} 只", flush=True)
 
-    from strategies._quality import compute_metrics, passes_quality, is_blacklisted
+    from strategies._quality import compute_metrics, passes_quality, is_blacklisted, load_quality_cache
+    quality_cache = load_quality_cache()
+    if quality_cache:
+        print(f"[sideways] 命中 quality cache（{len(quality_cache)} 只）", flush=True)
 
     def _fetch_and_classify(code: str) -> Optional[dict]:
         try:
             code6 = code[-6:]
             if is_blacklisted(ind_map.get(code6, "")):
+                return None
+            # cache 命中且不过质量门槛 → 早退，省 fetch
+            cached_m = quality_cache.get(code6)
+            if cached_m is not None and not passes_quality(cached_m):
                 return None
             df = _fetcher.get_price_history(code, days=_MIN_BARS + 5)
             if df is None or len(df) < 5:
@@ -200,7 +207,7 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
             close = float(df["close"].iloc[-1])
             if not (3.0 <= close <= 500.0):
                 return None
-            metrics = compute_metrics(df, code6)
+            metrics = cached_m if cached_m is not None else compute_metrics(df, code6)
             if not passes_quality(metrics):
                 return None
             sw = _classify(df["close"].values)

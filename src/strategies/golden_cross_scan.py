@@ -217,11 +217,19 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
     universe = load_universe()
     date = as_of_date or datetime.now().strftime("%Y%m%d")
 
-    from strategies._quality import compute_metrics, passes_quality, is_blacklisted
+    from strategies._quality import compute_metrics, passes_quality, is_blacklisted, load_quality_cache
+    quality_cache = load_quality_cache()
+    if quality_cache:
+        print(f"[golden_cross] 命中 quality cache（{len(quality_cache)} 只）", flush=True)
 
     def _fetch_and_score(code: str) -> Optional[dict]:
         try:
-            if is_blacklisted(ind_map.get(code[-6:], "")):
+            code6 = code[-6:]
+            if is_blacklisted(ind_map.get(code6, "")):
+                return None
+            # cache 命中且不过质量门槛 → 早退
+            cached_m = quality_cache.get(code6)
+            if cached_m is not None and not passes_quality(cached_m):
                 return None
             df = _fetcher.get_price_history(code, days=90)
             if df is None or df.empty:
@@ -233,14 +241,14 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
             score, signals, freshness = _score_stock(df)
             if score < 3:
                 return None
-            name = name_map.get(code[-6:], name_map.get(code, code))
+            name = name_map.get(code6, name_map.get(code, code))
             if "ST" in name.upper():
                 return None
             close = float(df["close"].iloc[-1])
             if not (3.0 <= close <= 500.0):
                 return None
-            # 流动性 + 量能 + 涨跌停/一字板 综合过滤（按板块阈值）
-            metrics = compute_metrics(df, code[-6:])
+            # 流动性 + 量能 + 涨跌停/一字板（按板块阈值），用 cache 或现算
+            metrics = cached_m if cached_m is not None else compute_metrics(df, code6)
             if not passes_quality(metrics):
                 return None
             return {

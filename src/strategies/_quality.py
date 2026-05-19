@@ -111,22 +111,52 @@ def load_universe(
     return out
 
 
+@functools.lru_cache(maxsize=1)
+def load_quality_cache() -> dict[str, dict]:
+    """读取 data/quality_metrics_latest.json，返回 {code6: metrics(含 close)}。
+
+    过期（非当日）或文件不存在时返回 {}。下游 scanner 优先查这个缓存避免
+    重复 compute_metrics，缓存 miss 时再回退到现拉。
+    """
+    p = _DATA_DIR / "quality_metrics_latest.json"
+    if not p.exists():
+        return {}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    from datetime import datetime as _dt
+    today = _dt.now().strftime("%Y%m%d")
+    if d.get("date", "") != today:
+        return {}
+    return d.get("metrics", {})
+
+
 def enrich_pick(code: str, days: int = 65) -> Optional[dict]:
-    """5 路 scanner 公共流水线：fetch K 线 → compute_metrics → 质量门槛。
+    """5 路 scanner 公共流水线：优先 quality cache → fallback 现拉。
 
     Returns 含 metrics 字段（amt_5d_yi/vol_ratio/is_limit_today/is_yi_zi）+ close。
     fetch 失败或质量门槛不过返回 None。
     """
+    code6 = code[-6:]
+    # 优先读 quality_metrics_latest 缓存（当日 fresh）
+    cache = load_quality_cache()
+    if code6 in cache:
+        m = cache[code6]
+        if not passes_quality(m):
+            return None
+        return m
+    # 缓存 miss — 现拉
     import sys
     sys.path.insert(0, str(_REPO_ROOT / "src"))
     try:
         import fetcher as _f
-        df = _f.get_price_history(code[-6:], days=days)
+        df = _f.get_price_history(code6, days=days)
     except Exception:
         return None
     if df is None or len(df) < 5:
         return None
-    m = compute_metrics(df, code[-6:])
+    m = compute_metrics(df, code6)
     if not passes_quality(m):
         return None
     return {**m, "close": float(df["close"].iloc[-1])}

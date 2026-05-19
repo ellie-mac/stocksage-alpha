@@ -150,12 +150,19 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
 
     results: list[dict] = []
 
-    from strategies._quality import compute_metrics, passes_quality, is_blacklisted, load_name_industry_map
+    from strategies._quality import compute_metrics, passes_quality, is_blacklisted, load_name_industry_map, load_quality_cache
     _, _ind_map = load_name_industry_map()
+    quality_cache = load_quality_cache()
+    if quality_cache:
+        print(f"[hot_scan] 命中 quality cache（{len(quality_cache)} 只）", flush=True)
 
     def _process(code: str):
         try:
             if is_blacklisted(_ind_map.get(code, "")):
+                return None
+            # cache 命中且不过质量门槛 → 早退
+            cached_m = quality_cache.get(code[-6:])
+            if cached_m is not None and not passes_quality(cached_m):
                 return None
             df = _fetcher.get_price_history(code, days=200)
             if df is None or df.empty or len(df) < 20:
@@ -166,8 +173,8 @@ def run_hot_scan(top_pct: float = 100.0, cah: bool = True, push: bool = False) -
             name = name_map.get(code, code)
             if "ST" in name.upper():
                 return None
-            # 流动性 / 量能 / 涨跌停 / 一字板 — 统一公共门槛（按板块阈值）
-            q = compute_metrics(df, code[-6:])
+            # 流动性 / 量能 / 涨跌停 / 一字板（按板块阈值），用 cache 或现算
+            q = cached_m if cached_m is not None else compute_metrics(df, code[-6:])
             if not passes_quality(q):
                 return None
             if cah:

@@ -166,19 +166,16 @@ def main() -> None:
     if args.no_kcb:      parts.append("排科创")
     filter_label = "＋".join(parts)
 
-    # 流动性 / 量能 enrichment — 用公共 _quality 模块统一字段（amt_5d_yi, vol_ratio）
+    # 流动性 / 量能 enrichment — 优先用 quality cache，未命中再现拉
     # 同时剔除行业黑名单
     import sys as _sys; _sys.path.insert(0, str(SCRIPTS))
-    from strategies._quality import compute_metrics, passes_quality, is_blacklisted
-    import fetcher as _f
+    from strategies._quality import enrich_pick, is_blacklisted
 
     def _enrich(pick: dict) -> dict | None:
         if is_blacklisted(pick.get("industry", "")):
             return None
-        code6 = pick["code"]
-        df = _f.get_price_history(code6, days=65)
-        m = compute_metrics(df, code6)
-        if not passes_quality(m):
+        m = enrich_pick(pick["code"], days=65)
+        if m is None:
             return None
         pick["amt_5d_yi"] = m["amt_5d_yi"]
         pick["vol_ratio"] = m["vol_ratio"]

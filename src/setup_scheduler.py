@@ -40,6 +40,7 @@ HOT_SCAN          = SCRIPTS   / "strategies" / "hot_scan.py"
 SIDEWAYS_SCAN     = SCRIPTS   / "strategies" / "sideways_scan.py"
 MARKETCAP_SCAN    = SCRIPTS   / "strategies" / "marketcap_strategy.py"
 EVENING_STRATEGY  = SCRIPTS   / "jobs"       / "evening_strategy.py"
+PREFETCH_QUALITY  = SCRIPTS   / "jobs"       / "prefetch_quality.py"
 
 # ── Bot startup tasks (At Logon trigger) ─────────────────────────────────────
 BOT_TASKS = [
@@ -143,8 +144,9 @@ TASKS = [
     ("price_Prefetch",   "17:00", "price_prefetch",  "预热全市场价格历史缓存（~1-1.5h），不推送",      False),
     ("fundflow_Prefetch","17:30", "fundflow_prefetch","预热全市场资金流向缓存（~20min），不推送",       False),
     # ── 收盘后扫描 ──────────────────────────────────────────────────────────
-    ("chip_Night",      "18:00", "chip_night",      "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
-    ("main_Scan",       "18:30", "monitor_scan",    "主/ETF/小盘策略扫盘 📱",                         True),
+    ("chip_Night",       "18:00", "chip_night",      "收盘后预取筹码缓存（AK重算~1.5h），不推送",      False),
+    ("main_Scan",        "18:30", "monitor_scan",    "主/ETF/小盘策略扫盘 📱",                         True),
+    ("quality_Prefetch", "19:00", "quality_prefetch","预热全市场质量指标 (amt/vol_ratio)，不推送",     False),
     ("golden_Scan",     "19:30", "gc_scan",         "金叉策略扫描（全A股7项指标共振）推送 📱",         True),
     ("sideways_Scan",   "20:00", "sideways_scan",   "横盘策略扫描（全市场+流动性+量比≥0.5）推送 📱",  True),
     ("chip_CadScan",    "21:00", "cad_scan",        "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱",    True),
@@ -229,6 +231,9 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
     elif slot == "evening_strategy":
         path = TASKS_DIR / "run_evening_strategy.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{EVENING_STRATEGY}" --push >> "{log}\\evening_strategy.log" 2>&1'
+    elif slot == "quality_prefetch":
+        path = TASKS_DIR / "run_quality_prefetch.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{PREFETCH_QUALITY}" >> "{log}\\quality_prefetch.log" 2>&1'
     elif slot == "monitor_scan":
         path = TASKS_DIR / "run_monitor_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{MONITOR}" --always-send >> "{log}\\monitor_scan.log" 2>&1'
