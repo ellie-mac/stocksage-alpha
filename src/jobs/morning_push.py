@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-多策略晨报 — 合并主策略/小盘/金叉/筹码/低市值/热榜六路信号，统一推送。
+多策略晨报 — 合并主策略/小盘/金叉/筹码/低市值/热榜/横盘七路信号，统一推送。
 
 股票按覆盖策略数从多到少排列；同策略内按原始得分排序。
 """
@@ -128,6 +128,27 @@ def _load_hot() -> list[dict]:
     return picks
 
 
+def _load_sideways() -> list[dict]:
+    """Returns [{code, name, score, tier, close, range_pct, avg_amt_5d_yi}, ...]
+    from sideways_latest.json (8 tiers HX0~HS3, 0-based)."""
+    d = _load(DATA / "sideways_latest.json")
+    if not d:
+        return []
+    if not _is_fresh(d.get("date", ""), "%Y%m%d"):
+        print("[morning_push] sideways_latest.json 数据已过期，跳过横盘策略")
+        return []
+    picks = []
+    for p in d.get("all_picks", []):
+        if p.get("code"):
+            picks.append({"code": p["code"], "name": p.get("name", ""),
+                          "score": -float(p.get("range_pct", 100.0)),
+                          "tier": p.get("tier", ""),
+                          "close": p.get("close"),
+                          "range_pct": p.get("range_pct"),
+                          "avg_amt_5d_yi": p.get("avg_amt_5d_yi")})
+    return picks
+
+
 def _load_marketcap() -> list[dict]:
     """Returns [{code, name, price, marketcap_yi}, ...] from marketcap_latest.json."""
     d = _load(DATA / "marketcap_latest.json")
@@ -152,10 +173,11 @@ def _merge(
     chip: list[dict],
     marketcap: list[dict],
     hot: list[dict],
+    sideways: list[dict],
 ) -> dict[str, dict]:
     """
     Returns registry: {code: {name, tags: list[str], details: {tag: pick_dict}}}.
-    Tag order: 主 小 叉 筹 市 热
+    Tag order: 主 小 叉 筹 市 热 横
     """
     registry: dict[str, dict] = {}
 
@@ -174,6 +196,7 @@ def _merge(
     _add("筹", chip)
     _add("市", marketcap)
     _add("热", hot)
+    _add("横", sideways)
 
     return registry
 
@@ -189,12 +212,12 @@ def _fmt_pick(code: str, entry: dict) -> str:
     tags = _tag_str(entry["tags"])
     details = entry["details"]
 
-    # Price: prefer 市 then 叉 then 筹 then 热
+    # Price: prefer 市 then 叉 then 筹 then 热 then 横
     price = None
     if "市" in details and details["市"].get("price"):
         price = float(details["市"]["price"])
     else:
-        for tag in ("叉", "筹", "热"):
+        for tag in ("叉", "筹", "热", "横"):
             close = details.get(tag, {}).get("close")
             if close:
                 price = float(close)
@@ -228,6 +251,13 @@ def _fmt_pick(code: str, entry: dict) -> str:
         r = details["热"].get("rank")
         if r:
             annotations.append(f"热#{r}")
+    if "横" in details:
+        t = details["横"].get("tier", "")
+        rp = details["横"].get("range_pct")
+        amt = details["横"].get("avg_amt_5d_yi")
+        if t and rp is not None:
+            amt_s = f"/{amt:.1f}亿" if amt else ""
+            annotations.append(f"横{t}({rp:.1f}%{amt_s})")
 
     ann_str = "  " + "  ".join(annotations) if annotations else ""
     return f"**{code} {name}** {tags}{price_str}{ann_str}"
@@ -235,12 +265,16 @@ def _fmt_pick(code: str, entry: dict) -> str:
 
 MAX_SINGLE = 20  # per-strategy section cap (single-strategy stocks only)
 
-_TIER_ORDER = {"G0": 0, "G1": 1, "G2": 2, "C0": 0, "C1": 1, "C2": 2}
+_TIER_ORDER = {
+    "G0": 0, "G1": 1, "G2": 2,
+    "C0": 0, "C1": 1, "C2": 2,
+    "HX0": 0, "HS0": 1, "HX1": 2, "HS1": 3, "HX2": 4, "HS2": 5, "HX3": 6, "HS3": 7,
+}
 
 
 def _build_message(registry: dict[str, dict]) -> tuple[str, str]:
     if not registry:
-        return "多策略晨报", "今日六路策略均无信号"
+        return "多策略晨报", "今日七路策略均无信号"
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     title = f"多策略晨报 | {now_str}"
@@ -264,8 +298,9 @@ def _build_message(registry: dict[str, dict]) -> tuple[str, str]:
             parts.append(_fmt_pick(code, registry[code]))
 
     # ── Per-strategy sections (capped at MAX_SINGLE each) ────────────────────
-    tag_order = ["主", "小", "叉", "筹", "市", "热"]
-    tag_label = {"主": "主策略", "小": "小盘策略", "叉": "金叉", "筹": "筹码", "市": "低市值", "热": "热榜"}
+    tag_order = ["主", "小", "叉", "筹", "市", "热", "横"]
+    tag_label = {"主": "主策略", "小": "小盘策略", "叉": "金叉", "筹": "筹码",
+                 "市": "低市值", "热": "热榜", "横": "横盘"}
 
     for tag in tag_order:
         tag_codes = [c for c in single if registry[c]["tags"] == [tag]]
@@ -275,7 +310,7 @@ def _build_message(registry: dict[str, dict]) -> tuple[str, str]:
                 continue
             else:
                 continue  # already shown in multi block
-        if tag in ("叉", "筹"):
+        if tag in ("叉", "筹", "横"):
             tag_codes.sort(key=lambda c, _t=tag: (
                 _TIER_ORDER.get(registry[c]["details"][_t].get("tier", ""), 99),
                 -registry[c]["details"][_t].get("score", 0),
@@ -309,20 +344,24 @@ def main() -> None:
     args = parser.parse_args()
 
     main_picks, small_picks = _load_main()
-    gc_picks   = _load_gc()
-    chip_picks = _load_chip()
-    mc_picks   = _load_marketcap()
-    hot_picks  = _load_hot()
+    gc_picks       = _load_gc()
+    chip_picks     = _load_chip()
+    mc_picks       = _load_marketcap()
+    hot_picks      = _load_hot()
+    sideways_picks = _load_sideways()
 
-    total = len(main_picks) + len(small_picks) + len(gc_picks) + len(chip_picks) + len(mc_picks) + len(hot_picks)
+    total = (len(main_picks) + len(small_picks) + len(gc_picks) + len(chip_picks)
+             + len(mc_picks) + len(hot_picks) + len(sideways_picks))
     print(f"[morning_push] 主{len(main_picks)} 小{len(small_picks)} "
-          f"叉{len(gc_picks)} 筹{len(chip_picks)} 市{len(mc_picks)} 热{len(hot_picks)}  共{total}只信号")
+          f"叉{len(gc_picks)} 筹{len(chip_picks)} 市{len(mc_picks)} "
+          f"热{len(hot_picks)} 横{len(sideways_picks)}  共{total}只信号")
 
     if total == 0:
         print("[morning_push] 无信号，退出")
         sys.exit(0)
 
-    registry = _merge(main_picks, small_picks, gc_picks, chip_picks, mc_picks, hot_picks)
+    registry = _merge(main_picks, small_picks, gc_picks, chip_picks,
+                       mc_picks, hot_picks, sideways_picks)
     unique = len(registry)
     multi_count = sum(1 for e in registry.values() if len(e["tags"]) >= 2)
     print(f"[morning_push] 去重后 {unique} 只（多策略共振 {multi_count} 只）")

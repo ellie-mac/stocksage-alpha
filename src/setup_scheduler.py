@@ -37,7 +37,9 @@ NOTIFY_FAIL       = SCRIPTS   / "notify" / "notify_failure.py"
 NOTIFY            = SCRIPTS   / "notify" / "notify.py"
 HOT_RANK_LOGGER   = SCRIPTS   / "tools" / "hot_rank_logger.py"
 HOT_SCAN          = SCRIPTS   / "strategies" / "hot_scan.py"
+SIDEWAYS_SCAN     = SCRIPTS   / "strategies" / "sideways_scan.py"
 MARKETCAP_SCAN    = SCRIPTS   / "strategies" / "marketcap_strategy.py"
+MORNING_PUSH      = SCRIPTS   / "jobs"       / "morning_push.py"
 
 # ── Bot startup tasks (At Logon trigger) ─────────────────────────────────────
 BOT_TASKS = [
@@ -103,6 +105,8 @@ OLD_TASKS = [
     "StockSage_marketcap_Scan",
     # bot keepalive tasks (replaced by in-process keepalive thread)
     "bot_Keepalive0", "bot_Keepalive1", "bot_Keepalive2",
+    # replaced by morning_Push (run_morning_push.bat)
+    "main_Morning",
     # renamed to report_Morning/Midday/Evening
     "xhs_Morning", "xhs_Midday", "xhs_Evening",
     # renamed to StockSage_LarkBot
@@ -115,6 +119,7 @@ OLD_TASKS = [
 TASKS = [
     # (name, time, slot, description, wechat_push)  — 按时间顺序排列
     # ── 盘前 ────────────────────────────────────────────────────────────────
+    ("morning_Push",    "00:00", "morning_push",    "多策略晨报合并推送 📱",                          True),
     ("chip_Premarket",  "07:00", "chip_premarket",  "筹码盘前兜底（chip_Night未跑时），不推送",        False),
     ("main_Morning",    "07:10", "monitor_scan",    "主策略盘前兜底（main_Scan未跑时），不推送",       False),
     ("integrity_Check", "08:00", "integrity_check", "每小时数据完整性检查（首次通过后当日跳过）",      False),
@@ -141,6 +146,7 @@ TASKS = [
     ("main_Scan",       "18:30", "monitor_scan",    "主/ETF/小盘策略扫盘 📱",                         True),
     ("golden_Scan",     "19:30", "gc_scan",         "金叉策略扫描（全A股7项指标共振）推送 📱",         True),
     ("hot_Scan",        "19:00", "hot_scan",        "热榜策略扫描，更新 hot_scan_latest.json 推送 📱", True),
+    ("sideways_Scan",   "20:00", "sideways_scan",   "横盘策略扫描（30/20/10/5天±5%，HX严格/HS宽松），不推送", False),
     ("chip_CadScan",    "21:00", "cad_scan",        "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱",    True),
     # ── 次日盘前准备 ────────────────────────────────────────────────────────
     ("main_Night",      "22:30", "main_night",      "预热财务缓存（batch_financials），不推送",        False),
@@ -219,6 +225,9 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
     elif slot == "daily_perf_log":
         path = TASKS_DIR / "run_daily_perf_log.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{DAILY_PERF_LOG}" --force >> "{log}\\daily_perf_log.log" 2>&1'
+    elif slot == "morning_push":
+        path = TASKS_DIR / "run_morning_push.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{MORNING_PUSH}" --push >> "{log}\\morning_push.log" 2>&1'
     elif slot == "monitor_scan":
         path = TASKS_DIR / "run_monitor_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{MONITOR}" --always-send >> "{log}\\monitor_scan.log" 2>&1'
@@ -246,6 +255,9 @@ def _bat(slot: str, task_name_override: str = "", desc: str = "") -> tuple[Path,
     elif slot == "hot_scan":
         path = TASKS_DIR / "run_hot_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{HOT_SCAN}" --push >> "{log}\\hot_scan.log" 2>&1'
+    elif slot == "sideways_scan":
+        path = TASKS_DIR / "run_sideways_scan.bat"
+        cmd  = f'"{PYTHON}" -X utf8 "{SIDEWAYS_SCAN}" >> "{log}\\sideways_scan.log" 2>&1'
     elif slot == "marketcap_scan":
         path = TASKS_DIR / "run_marketcap_scan.bat"
         cmd  = f'"{PYTHON}" -X utf8 "{MARKETCAP_SCAN}" --push >> "{log}\\marketcap_scan.log" 2>&1'
