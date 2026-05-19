@@ -109,6 +109,8 @@ OLD_TASKS = [
     # replaced by evening_Strategy (run_evening_strategy.bat)
     "main_Morning",
     "morning_Push",
+    # removed 2026-05-19: chip_Night/main_Scan 稳定后不再需要盘前兜底
+    "chip_Premarket",
     # renamed to report_Morning/Midday/Evening
     "xhs_Morning", "xhs_Midday", "xhs_Evening",
     # renamed to StockSage_LarkBot
@@ -121,8 +123,6 @@ OLD_TASKS = [
 TASKS = [
     # (name, time, slot, description, wechat_push)  — 按时间顺序排列
     # ── 盘前 ────────────────────────────────────────────────────────────────
-    ("chip_Premarket",  "07:00", "chip_premarket",  "筹码盘前兜底（chip_Night未跑时），不推送",        False),
-    ("main_Morning",    "07:10", "monitor_scan",    "主策略盘前兜底（main_Scan未跑时），不推送",       False),
     ("integrity_Check", "08:00", "integrity_check", "每小时数据完整性检查（首次通过后当日跳过）",      False),
     ("concept_Warm",    "08:30", "concept_warm",    "预热概念板块反查 map（~30s），不推送",            False),
     ("report_Morning",  "09:25", "chip_morning",    "盘前选股报告推送 📱",                            True),
@@ -303,6 +303,14 @@ _REPEAT_TRIGGERS: dict[str, tuple[str, str]] = {
     "integrity_check": ("PT1H", "PT15H"),
 }
 
+# Tasks that should be created but kept disabled (留着配置以便日后启用，当前不跑)。
+# register() 创建后立即 schtasks /Change /DISABLE。
+DISABLED_TASKS = {
+    "report_Morning",
+    "report_Midday",
+    "report_Evening",
+}
+
 
 def register():
     print(f"Python : {PYTHON}")
@@ -353,7 +361,12 @@ def register():
         )
         mark = "✅" if result.returncode == 0 else "❌"
         err  = f"  失败: {result.stderr.strip()}" if result.returncode != 0 else ""
-        print(f"{mark}  {time_str}  {name:<35}  {desc}{err}")
+        disabled_suffix = ""
+        if result.returncode == 0 and name in DISABLED_TASKS:
+            subprocess.run(f'schtasks /change /tn "{name}" /disable',
+                           shell=True, capture_output=True, text=True)
+            disabled_suffix = "  [DISABLED]"
+        print(f"{mark}  {time_str}  {name:<35}  {desc}{err}{disabled_suffix}")
 
     # ── Bot startup tasks (At Logon) ──────────────────────────────────────────
     print()
