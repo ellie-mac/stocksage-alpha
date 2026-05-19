@@ -7,7 +7,7 @@
   HS0 30天±5% 宽松 · HS1 20天±4% 宽松 · HS2 10天±3% 宽松 · HS3 5天±2% 宽松
 
 严格 (HX)：窗口内 max/mid ≤ +pct 且 min/mid ≥ -pct（mid = (max+min)/2，全程稳定）
-宽松 (HS)：窗口首尾两点 |chg_pct| ≤ pct（仅首尾偶合，可能有中段波动）
+宽松 (HS)：首尾偶合 (|chg_pct| ≤ pct) 且总区间 ≤ 2×pct（防 V 型反弹/震荡回原点）
 
 为什么窗口越短门槛越严：A 股日波动 1-2% 是常态，5 天内振幅 ±5% 几乎是 80%
 股票的默认状态——那不算"横盘"，只算"最近没大事"。短窗口要更严才有"窄幅整理"信号价值。
@@ -93,9 +93,15 @@ def _classify(closes: np.ndarray) -> Optional[dict]:
         if mode == "strict":
             ok = (hi / mid - 1) <= pct and (1 - lo / mid) <= pct
         else:
+            # loose: 首尾偶合 + mid-window guard，避免"V 型反弹"和"震荡回原点"
+            # 总区间不得超过 2× 容忍（HS2: 3% × 2 = 6%；多氟多 14% 直接淘汰）
             first = float(window[0])
             last  = float(window[-1])
-            ok = first > 0 and abs(last / first - 1) <= pct
+            ok = (
+                first > 0
+                and abs(last / first - 1) <= pct
+                and (hi - lo) / mid <= 2 * pct
+            )
         if ok:
             return {"tier": tier, "window": n, "mode": mode,
                     "pct_threshold": pct,
