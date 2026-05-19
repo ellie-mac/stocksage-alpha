@@ -2,13 +2,14 @@
 """
 自选池自动更新 — 每晚 gc_scan 后运行（约 19:30+）
 
-三路来源：
-  A 主策略  data/latest_picks.json         top 15 by buy_score
+四路来源：
+  A 主策略  data/latest_picks.json          top 15 by buy_score
   B 金叉    data/golden_cross_latest.json   G0/G1/G2 全部
   C 热榜    data/hot_scan_latest.json       top 10 by score
+  D 横盘    data/sideways_latest.json       top 10 by range_pct asc（区间最窄优先）
 
 淘汰规则（每次运行时检查当前动态池）：
-  - TTL 到期（A: 14 日, B/C: 7 日）
+  - TTL 到期（A: 14 日, B/C: 7 日, D: 10 日）
   - 入池后浮亏 ≥ 8%
   - 价格跌破 MA20（含 1% 缓冲）
 
@@ -36,10 +37,12 @@ DYNAMIC_WL_PATH   = DATA / "watchlist_dynamic.json"
 LATEST_PICKS_PATH = DATA / "latest_picks.json"
 GC_LATEST_PATH    = DATA / "golden_cross_latest.json"
 HOT_LATEST_PATH   = DATA / "hot_scan_latest.json"
+SIDEWAYS_LATEST_PATH = DATA / "sideways_latest.json"
 
-TTL_DAYS  = {"main_scan": 14, "gc_scan": 7, "hot_scan": 7}
+TTL_DAYS  = {"main_scan": 14, "gc_scan": 7, "hot_scan": 7, "sideways_scan": 10}
 LIMIT_A   = 15
 LIMIT_C   = 10
+LIMIT_D   = 10
 STOP_LOSS = -8.0
 
 
@@ -160,6 +163,24 @@ def _candidates_C() -> list[dict]:
         return []
 
 
+def _candidates_D() -> list[dict]:
+    """横盘策略：从 sideways_latest.json all_picks 里取 range_pct 最窄的 top 10。"""
+    if not SIDEWAYS_LATEST_PATH.exists():
+        return []
+    try:
+        picks = json.loads(SIDEWAYS_LATEST_PATH.read_text(encoding="utf-8")).get("all_picks", [])
+        # range_pct 越小代表区间越窄，反映横盘越紧
+        picks.sort(key=lambda x: x.get("range_pct", 100.0))
+        return [
+            {"code": _clean(p["code"]), "name": p.get("name", p["code"]),
+             "source": "sideways_scan", "entry_price": p.get("close", 0)}
+            for p in picks[:LIMIT_D]
+        ]
+    except Exception as e:
+        print(f"[updater] D-横盘读取失败: {e}")
+        return []
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
@@ -195,7 +216,7 @@ def main() -> None:
     # ── Add new candidates ────────────────────────────────────────────────────
     kept_codes = {e["code"] for e in kept}
     added: list[dict] = []
-    for candidate in _candidates_A() + _candidates_B() + _candidates_C():
+    for candidate in _candidates_A() + _candidates_B() + _candidates_C() + _candidates_D():
         code = candidate["code"]
         if code in kept_codes or code in manual_codes or code in {c["code"] for c in added}:
             continue
@@ -204,7 +225,7 @@ def main() -> None:
         kept_codes.add(code)
 
     if added:
-        src_label = {"main_scan": "主策略", "gc_scan": "金叉", "hot_scan": "热榜"}
+        src_label = {"main_scan": "主策略", "gc_scan": "金叉", "hot_scan": "热榜", "sideways_scan": "横盘"}
         print(f"[updater] 新增 {len(added)} 只:")
         for e in added:
             print(f"  + {e.get('name', e['code'])}({e['code']}) [{src_label.get(e['source'], e['source'])}]")
@@ -222,7 +243,7 @@ def main() -> None:
     if evicted or added:
         try:
             from notify.notify import push_feishu_card
-            src_label = {"main_scan": "主策略", "gc_scan": "金叉", "hot_scan": "热榜"}
+            src_label = {"main_scan": "主策略", "gc_scan": "金叉", "hot_scan": "热榜", "sideways_scan": "横盘"}
             lines = [f"动态自选池  {today}  共{len(new_list)}只"]
             if added:
                 lines.append(f"\n新增 {len(added)} 只")

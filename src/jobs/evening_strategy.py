@@ -155,6 +155,54 @@ def _filter_liquid(picks: list[dict], min_amt_yi: float,
     return out
 
 
+# ── Source freshness check ────────────────────────────────────────────────────
+
+_SOURCE_FILES = [
+    ("主", "latest_picks.json",        "timestamp"),  # ISO timestamp w/ date prefix
+    ("小", "latest_picks.json",        "timestamp"),  # same file as 主
+    ("叉", "golden_cross_latest.json", "date"),       # YYYYMMDD
+    ("筹", "chip_scan_latest.json",    "date"),
+    ("市", "marketcap_latest.json",    "date"),
+    ("热", "hot_scan_latest.json",     "date"),
+    ("横", "sideways_latest.json",     "date"),
+]
+
+
+def _check_sources(max_days: int = 1) -> dict[str, dict]:
+    """扫描 7 路 source 文件，返回 {tag: {"status": ..., "age_days": N, "file_date": "YYYYMMDD"}}.
+    status: 'fresh' (<= max_days)、'stale' (older)、'missing' (file 不存在或日期字段缺失)
+    """
+    today = datetime.now().date()
+    out: dict[str, dict] = {}
+    for tag, fname, key in _SOURCE_FILES:
+        path = DATA / fname
+        if not path.exists():
+            out[tag] = {"status": "missing", "reason": "no file"}
+            continue
+        try:
+            d = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            out[tag] = {"status": "missing", "reason": f"read error: {str(e)[:50]}"}
+            continue
+        raw = d.get(key, "")
+        if not raw:
+            out[tag] = {"status": "missing", "reason": f"empty {key}"}
+            continue
+        digits = "".join(c for c in str(raw)[:10] if c.isdigit())[:8]
+        if len(digits) != 8:
+            out[tag] = {"status": "missing", "reason": f"bad date: {raw[:20]}"}
+            continue
+        try:
+            file_date = datetime.strptime(digits, "%Y%m%d").date()
+        except Exception:
+            out[tag] = {"status": "missing", "reason": f"unparseable: {digits}"}
+            continue
+        age = (today - file_date).days
+        status = "fresh" if age <= max_days else "stale"
+        out[tag] = {"status": status, "age_days": age, "file_date": digits}
+    return out
+
+
 # ── Data loaders ──────────────────────────────────────────────────────────────
 
 def _load_main() -> tuple[list[dict], list[dict]]:
@@ -375,7 +423,11 @@ _TIER_ORDER = {
 }
 
 
-def _build_message(registry: dict[str, dict], tech_only: bool = False) -> tuple[str, str]:
+def _build_message(
+    registry: dict[str, dict],
+    tech_only: bool = False,
+    source_status: dict[str, dict] | None = None,
+) -> tuple[str, str]:
     label = "多策略汇总·晚间（科技）" if tech_only else "多策略汇总·晚间"
     if not registry:
         return label, "今日七路策略均无信号"
@@ -394,6 +446,20 @@ def _build_message(registry: dict[str, dict], tech_only: bool = False) -> tuple[
     single = [c for c in sorted_codes if len(registry[c]["tags"]) == 1]
 
     parts: list[str] = [f"*{now_str}*"]
+
+    # Freshness banner — explicitly flag missing/stale sources at the top
+    if source_status:
+        bad = [(tag, info) for tag, info in source_status.items() if info["status"] != "fresh"]
+        if bad:
+            n_total = len(source_status)
+            n_bad   = len(bad)
+            detail_strs = []
+            for tag, info in bad:
+                if info["status"] == "stale":
+                    detail_strs.append(f"{tag}({info.get('age_days', '?')}日前)")
+                else:
+                    detail_strs.append(f"{tag}缺")
+            parts.append(f"⚠️ **源 {n_total - n_bad}/{n_total} 正常**，缺失/过期: {' '.join(detail_strs)}")
 
     # ── Multi-strategy resonance block (no truncation) ────────────────────────
     if multi:
@@ -452,6 +518,15 @@ def main() -> None:
     parser.add_argument("--no-blacklist-filter", action="store_true",
                         help="关闭行业黑名单过滤（默认剔除酒/金融/地产/消费/农业/交运）")
     args = parser.parse_args()
+
+    # Source freshness check first — surfaces missing/stale sources as banner
+    source_status = _check_sources(max_days=1)
+    _bad = {t: i for t, i in source_status.items() if i["status"] != "fresh"}
+    if _bad:
+        _detail = {t: (i["status"] if i["status"] == "missing" else f"stale-{i.get('age_days', '?')}d") for t, i in _bad.items()}
+        print(f"[evening_strategy] 源状态: {len(source_status) - len(_bad)}/{len(source_status)} 正常，问题源: {_detail}")
+    else:
+        print(f"[evening_strategy] 源状态: {len(source_status)}/{len(source_status)} 全部正常")
 
     main_picks, small_picks = _load_main()
     gc_picks       = _load_gc()
@@ -532,7 +607,7 @@ def main() -> None:
     multi_count = sum(1 for e in registry.values() if len(e["tags"]) >= 2)
     print(f"[evening_strategy] 去重后 {unique} 只（多策略共振 {multi_count} 只）")
 
-    title, body = _build_message(registry, tech_only=args.tech_only)
+    title, body = _build_message(registry, tech_only=args.tech_only, source_status=source_status)
 
     print(f"\n{'='*40}")
     print(f"{title}")
