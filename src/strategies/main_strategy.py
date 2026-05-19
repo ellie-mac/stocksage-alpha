@@ -155,7 +155,8 @@ def _push_results(
             "<br>**今日关注（低波动主策略）**"]
     for s in top_candidates:
         mark = " ✅" if s in buy_alerts else ""
-        rows.append(f"**{s['code']} {s['name']}** 买入分:{s['buy_score']:.0f}{mark}")
+        ind_s = f" ({s['industry']})" if s.get("industry") else ""
+        rows.append(f"**{s['code']} {s['name']}**{ind_s} 买入分:{s['buy_score']:.0f}{mark}")
     desp = "<br>".join(rows) + DISCLAIMER
 
     wechat_send_with_log(title, desp, sendkey, "main_strategy", dry_run)

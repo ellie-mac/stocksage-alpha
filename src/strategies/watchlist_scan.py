@@ -129,7 +129,8 @@ def main() -> None:
     rows = [regime_header_line(run_time, regime_score, regime_signal)]
     for ba in buy_alerts:
         p = ba.get("price") or 0
-        rows.append(f"**{ba['name']} ({ba['code']})**<br>"
+        ind_s = f" [{ba['industry']}]" if ba.get("industry") else ""
+        rows.append(f"**{ba['name']} ({ba['code']})**{ind_s}<br>"
                     f"买入分 **{ba['buy_score']:.0f}** | 现价 **{p}**")
         if ba.get("bullish"):
             labels = [f"`{_FACTOR_ZH_REPORT.get(b['factor'], b['factor'])}`"

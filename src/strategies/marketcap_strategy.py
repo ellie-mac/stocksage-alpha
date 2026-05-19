@@ -279,7 +279,8 @@ def main() -> None:
     rows = [f"*{datetime.now():%Y-%m-%d %H:%M}*<br>**市值最低 {TOP_N} 只**（排除ST/科创/北证/≤{MIN_PRICE}元）"]
     for i, p in enumerate(picks, 1):
         pct_s = f" {p['change_pct']:+.2f}%" if p['change_pct'] else ""
-        rows.append(f"{i}. **{p['code']} {p['name']}**  ¥{p['price']:.2f}  {p['marketcap_yi']:.1f}亿{pct_s}")
+        ind_s = f" ({p['industry']})" if p.get("industry") else ""
+        rows.append(f"{i}. **{p['code']} {p['name']}**{ind_s}  ¥{p['price']:.2f}  {p['marketcap_yi']:.1f}亿{pct_s}")
     rows.append("<br>> 仅供参考，不构成投资建议")
     desp  = "<br>".join(rows)
     title = f"[市值] 最低{TOP_N}只"

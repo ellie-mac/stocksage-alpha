@@ -164,8 +164,9 @@ def _push_results(
             "<br>**今日关注（小市值策略）**"]
     for s in candidates:
         cap_str  = f" {s['market_cap_b']:.0f}亿" if s.get("market_cap_b") else ""
+        ind_s    = f" ({s['industry']})" if s.get("industry") else ""
         mark = " ✅" if s.get("_sc_signal") else ""
-        rows.append(f"**{s['code']} {s['name']}** 买入分:{s['buy_score']:.0f}{cap_str}{mark}")
+        rows.append(f"**{s['code']} {s['name']}**{ind_s} 买入分:{s['buy_score']:.0f}{cap_str}{mark}")
     desp = "<br>".join(rows) + DISCLAIMER
 
     wechat_send_with_log(title, desp, sendkey, "small_strategy", dry_run)
