@@ -596,64 +596,75 @@ def h_logs(n: int = 20) -> str:
 
 
 def h_tasks() -> str:
-    all_names = [n for n, _, _ in _TASK_LIST if n != "__SEP__"] + _HOT_RANK_NAMES
-    names_list = "','".join(all_names)
-    ps = (
-        f"$today = (Get-Date).Date;"
-        f"$names = @('{names_list}');"
-        "Get-ScheduledTask | Where-Object { $names -contains $_.TaskName } | ForEach-Object {"
-        "  $info = $_ | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue;"
-        "  $lr = $info.LastRunTime;"
-        "  $done = $lr -and $lr -ge $today -and $lr -le (Get-Date);"
-        "  $nr = $info.NextRunTime;"
-        "  $st = if ($done) { 'OK' } else { '--' };"
-        "  $lrS = if ($lr -and $lr.Year -gt 1) { $lr.ToString('HH:mm') } else { '--' };"
-        "  $nrS = if ($nr -and $nr.Year -gt 1) { $nr.ToString('MM/dd HH:mm') } else { '--' };"
-        "  Write-Output \"$($_.TaskName)|||$st|||$lrS|||$nrS\""
-        "}"
-    )
-    try:
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-            capture_output=True, timeout=20, encoding="utf-8", errors="replace",
-        )
-        by_name: dict[str, tuple] = {}
-        for line in (r.stdout or "").splitlines():
-            parts = line.strip().split("|||")
-            if len(parts) == 4:
-                name, status, last_run, next_run = parts
-                by_name[name] = (status, last_run, next_run)
+    """复用 task_summary.get_today_statuses() —— 与每日 3 次飞书汇报同源同口径。
 
-        if not by_name:
+    数据源：task_probe.log（bat 写入的 entered/invoking/exit 标记）+ 产物 mtime 兜底。
+    5 种状态：✅成功 ❌失败 ⏳进行中 ⏰未到时间 ❓应运行但无记录；· = slot=None 没探针。
+    """
+    try:
+        sys.path.insert(0, str(SCRIPTS / "jobs"))
+        from task_summary import get_today_statuses
+
+        statuses = get_today_statuses()
+        if not statuses:
             return "❌ 无任务数据"
 
-        today_mdd    = date.today().strftime("%m/%d")
-        tomorrow_mdd = (date.today() + timedelta(days=1)).strftime("%m/%d")
+        # 按 push 分组（推微信 vs 不推），_TASK_LIST 已经分好序
+        push_set = {t[0] for t in _TASK_LIST if "📱" in t[2]}
+        push_rows: list[str] = []
+        nopush_rows: list[str] = []
+        counts = {"✅": 0, "❌": 0, "⏳": 0, "⏰": 0, "❓": 0, "·": 0}
+        for task, emoji, note in statuses:
+            counts[emoji] = counts.get(emoji, 0) + 1
+            line = f"{emoji} {task['time']} {task['name']} — {task['desc']}"
+            if task["push"]:
+                push_rows.append(line)
+            else:
+                nopush_rows.append(line)
 
-        def _tick(status: str, next_run: str) -> str:
-            if status == "OK":
-                return "✅"
-            if next_run != "--" and next_run.startswith(tomorrow_mdd):
-                return "❌"
-            return "⬜"
+        lines: list[str] = []
+        lines.append(f"今日任务  ✅{counts['✅']} ❌{counts['❌']} ⏳{counts['⏳']} ⏰{counts['⏰']} ❓{counts['❓']}")
+        if push_rows:
+            lines.append("\n── 推送微信 ──")
+            lines.extend(push_rows)
+        if nopush_rows:
+            lines.append("\n── 不推微信 ──")
+            lines.extend(nopush_rows)
 
-        lines = []
-        for name, sched_time, desc in _TASK_LIST:
-            if name == "__SEP__":
-                lines.append(f"\n{desc}")
-                continue
-            status, _, next_run = by_name.get(name, ("--", "--", "--"))
-            t = sched_time if sched_time else "--:--"
-            lines.append(f"{_tick(status, next_run)} {t} {name} / {desc}")
-
-        hot_ok  = sum(1 for n in _HOT_RANK_NAMES if by_name.get(n, ("--",))[0] == "OK")
-        hot_tot = len(_HOT_RANK_NAMES)
-        hot_tick = "✅" if hot_ok == hot_tot else ("🟡" if hot_ok > 0 else "⬜")
-        lines.append(f"\n后台: {hot_tick}热榜快照({hot_ok}/{hot_tot})")
+        # 热榜快照单独显示（_HOT_RANK_NAMES 是 display=False 的，没在 statuses 里）
+        hot_today = _hot_rank_status()
+        if hot_today is not None:
+            ok_n, tot_n = hot_today
+            hot_tick = "✅" if ok_n == tot_n else ("🟡" if ok_n > 0 else "⬜")
+            lines.append(f"\n后台: {hot_tick}热榜快照({ok_n}/{tot_n})")
 
         return "\n".join(lines)
     except Exception as e:
-        return f"❌ 查询失败: {e}"
+        import traceback
+        return f"❌ 查询失败: {e}\n{traceback.format_exc()[:300]}"
+
+
+def _hot_rank_status() -> tuple[int, int] | None:
+    """返回 (今日完成数, 总数)；通过 schtasks LastRunTime 判定（hot_Rank_* 没有 probe）。"""
+    try:
+        names_arr = ",".join(f"'{n}'" for n in _HOT_RANK_NAMES)
+        ps = (
+            f"$today = (Get-Date).Date;"
+            f"$names = @({names_arr});"
+            "Get-ScheduledTask | Where-Object { $names -contains $_.TaskName } | ForEach-Object {"
+            "  $info = $_ | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue;"
+            "  $lr = $info.LastRunTime;"
+            "  if ($lr -and $lr -ge $today -and $lr -le (Get-Date)) { Write-Output 'OK' }"
+            "}"
+        )
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True, timeout=10, encoding="utf-8", errors="replace",
+        )
+        ok = sum(1 for ln in (r.stdout or "").splitlines() if ln.strip() == "OK")
+        return ok, len(_HOT_RANK_NAMES)
+    except Exception:
+        return None
 
 
 def h_backtest_status() -> str:

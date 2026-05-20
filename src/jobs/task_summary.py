@@ -139,6 +139,27 @@ def _classify(task: dict, probe_info: dict | None, now_hhmm: str, today: str) ->
     return "❌", f"exit={probe_info['exit_code']} @ {probe_info['exit_at']}"
 
 
+def get_today_statuses() -> list[tuple[dict, str, str]]:
+    """公共 API：返回 [(task, emoji, note), ...]，按 time 升序，仅含 display=True & !disabled。
+
+    供 main() 推送汇报、bot_common /t 即时查询共用，确保两路输出一致。
+    """
+    now = datetime.now()
+    today = now.strftime("%Y%m%d")
+    now_hhmm = now.strftime("%H:%M")
+    probe = _parse_probe_today(today)
+    out: list[tuple[dict, str, str]] = []
+    for t in sorted(ALL_TASKS, key=lambda x: x["time"]):
+        if t.get("disabled"):
+            continue
+        if not t.get("display", True):
+            continue
+        info = probe.get(t["name"])
+        emoji, note = _classify(t, info, now_hhmm, today)
+        out.append((t, emoji, note))
+    return out
+
+
 def _guess_label(now_hhmm: str) -> str:
     if now_hhmm < "13:00":
         return "中午"
@@ -155,19 +176,10 @@ def main() -> int:
     if not label:
         label = _guess_label(now_hhmm)
 
-    probe = _parse_probe_today(today)
-
+    statuses = get_today_statuses()
     rows: list[str] = []
     ok = fail = stuck = pending = missing = 0
-    # 按 schedule 时间排序展示
-    tasks_sorted = sorted(ALL_TASKS, key=lambda t: t["time"])
-    for t in tasks_sorted:
-        if t.get("disabled"):
-            continue
-        if not t.get("display", True):
-            continue
-        info = probe.get(t["name"])
-        emoji, note = _classify(t, info, now_hhmm, today)
+    for t, emoji, note in statuses:
         rows.append(f"{emoji} {t['time']} {t['name']:<22} {note}")
         if emoji == "✅":  ok += 1
         elif emoji == "❌": fail += 1
