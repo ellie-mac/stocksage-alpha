@@ -25,14 +25,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 OUT_LATEST = ROOT / "data" / "escalator_latest.json"
 
-_TIER_ORDER = ["E1", "E2"]
+_TIER_ORDER = ["E1", "E2", "E3"]
 _TIER_SPEC: dict[str, dict] = {
     "E1": {"window": 20, "slope_lo": 5.0, "slope_hi": 25.0, "r2_min": 0.80},
     "E2": {"window": 10, "slope_lo": 3.0, "slope_hi": 15.0, "r2_min": 0.85},
+    # E3 实验档：5 日窗口抓启动初期。slope 范围窄、R² 比 E2 还严（对冲 5 点拟合噪声）。
+    # 回填验证胜率 ≥ E2 且 picks 跟 hot_scan 重合率低再正式启用。
+    "E3": {"window": 5,  "slope_lo": 2.0, "slope_hi": 6.0,  "r2_min": 0.92},
 }
 _TIER_LABEL = {
     "E1": "20 天慢牛 (5-25% / R²≥0.80)",
     "E2": "10 天慢牛 (3-15% / R²≥0.85)",
+    "E3": "5 天启动期 (2-6% / R²≥0.92)",
 }
 
 _MIN_BARS = 25

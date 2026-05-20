@@ -33,7 +33,7 @@ ALL_TASKS: list[dict[str, Any]] = [
 
     # ── 盘前 (07-09) ────────────────────────────────────────────────────────
     {"name": "integrity_Check",   "time": "08:00", "desc": "数据完整性检查",     "push": False, "slot": "integrity_check","disabled": False, "display": True},
-    {"name": "cffex_CiticAM",     "time": "08:00", "desc": "中信期货空单跟踪",   "push": True,  "slot": "cffex_citic",    "disabled": False, "display": True},
+    {"name": "cffex_CiticAM",     "time": "19:00", "desc": "中信期货空单跟踪",   "push": True,  "slot": "cffex_citic",    "disabled": False, "display": True},
     {"name": "concept_Warm",      "time": "08:30", "desc": "概念map预热",        "push": False, "slot": "concept_warm",   "disabled": False, "display": True},
     {"name": "watchlist_Monitor", "time": "09:15", "desc": "自选股监控",         "push": True,  "slot": None,             "disabled": False, "display": True},
     {"name": "report_Morning",    "time": "09:25", "desc": "盘前选股报告",       "push": True,  "slot": "chip_morning",   "disabled": True,  "display": True},

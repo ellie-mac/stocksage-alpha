@@ -34,7 +34,7 @@ CHART_PATH = DATA / "escalator_perf_chart.png"
 # R² buckets — 边界与 escalator_scan _TIER_SPEC 对齐（E1≥0.80, E2≥0.85）。
 R2_BUCKETS = [(0.80, 0.85), (0.85, 0.90), (0.90, 0.95), (0.95, 1.01)]
 HOLD_PERIODS = [1, 5, 10]
-TIERS = ["E1", "E2"]
+TIERS = ["E1", "E2", "E3"]
 MIN_SAMPLE_DAYS_WARN = 10   # 样本天数低于此值打 ⚠️
 
 
@@ -221,7 +221,8 @@ def _render_chart(summary: dict, overall: dict) -> Optional[Path]:
     plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
     plt.rcParams["axes.unicode_minus"] = False
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axes = plt.subplots(1, len(TIERS), figsize=(5 * len(TIERS), 5), squeeze=False)
+    axes = axes[0]
     bucket_labels = [f"{lo:.2f}-{hi:.2f}" if hi <= 1.0 else f"{lo:.2f}-1.00"
                      for lo, hi in R2_BUCKETS]
 

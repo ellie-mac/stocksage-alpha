@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """中信期货代客在中金所 IF/IH/IC/IM 持仓追踪（机构对冲信号代理）。
 
-每个交易日早 8 点跑（推送昨日数据）：抓 ak.get_cffex_rank_table 取中信期货行，
-保存到 cffex_citic_latest.json + 累积到 cffex_citic_history.json（最近 180 天）。
+每个交易日晚 19:00 跑（推送当日盘后数据 / 非交易日推上一交易日）：抓
+ak.get_cffex_rank_table 取中信期货行，保存到 cffex_citic_latest.json +
+累积到 cffex_citic_history.json（最近 180 天）。
 带 --push 时同时推 wechat 文本 + Feishu 折线图（2×2 panel 看趋势）。
 """
 from __future__ import annotations
@@ -82,6 +83,15 @@ def _prev_trade_dates(n: int, end_date: str | None = None) -> list[str]:
 
 
 def _get_prev_trade_date_str() -> str:
+    """默认追踪日期：晚 19:00 跑时若今天是交易日已收盘，用今天；否则用上一交易日。
+
+    CFFEX 持仓数据通常 17:00 左右发布，19:00 跑时今日数据已就绪。
+    若 ak.get_cffex_rank_table 拿不到今日数据（极少数情况），caller 会
+    见到 error；可通过 --date YYYYMMDD 手动指定上一交易日重跑。
+    """
+    now = datetime.now()
+    if now.weekday() < 5 and (now.hour, now.minute) >= (15, 30):
+        return now.strftime('%Y%m%d')
     return _prev_trade_dates(1)[0]
 
 
