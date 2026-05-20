@@ -17,26 +17,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 _FAILURES_PATH = ROOT / "data" / "task_failures.json"
 
-# notify.py "剩余任务" 显示用的日程清单——理论上应该同步自 setup_scheduler.TASKS，
-# 历史遗留各项时间/名字略漂；只列实际跑的活任务，已 disable 的 report_* 不列。
-_SCHEDULE = [
-    ("integrity_Check",  "08:00", "数据完整性检查"),
-    ("cffex_CiticAM",    "08:00", "中信期货空单跟踪 📱"),
-    ("concept_Warm",     "08:30", "概念板块预热"),
-    ("marketcap_Scan",   "15:45", "市值策略扫盘 📱"),
-    ("daily_PerfLog",    "16:05", "胜率统计 📱"),
-    ("hot_Scan",         "16:35", "热榜策略扫描 📱"),
-    ("price_Prefetch",   "17:00", "价格历史预热"),
-    ("fundflow_Prefetch","17:30", "资金流向预热"),
-    ("chip_Night",       "18:00", "筹码缓存预取"),
-    ("main_Scan",        "18:30", "主/ETF/小盘扫盘 📱"),
-    ("quality_Prefetch", "19:00", "质量指标预热"),
-    ("golden_Scan",      "19:30", "金叉策略扫描 📱"),
-    ("sideways_Scan",    "20:00", "横盘策略扫描 📱"),
-    ("escalator_Scan",   "20:15", "扶梯策略扫描 📱"),
-    ("chip_CadScan",     "21:00", "筹码扫描推送 📱"),
-    ("evening_Strategy", "22:00", "多策略汇总·晚间 📱"),
-]
+# notify.py "剩余任务" 显示用的日程清单 — 派生自 src/task_schedule.py。
+# 唯一 source: 编辑 task_schedule.ALL_TASKS。
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+from task_schedule import notify_schedule as _notify_schedule
+_SCHEDULE = _notify_schedule()
 
 
 def _load_failures() -> dict:

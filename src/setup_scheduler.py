@@ -91,43 +91,13 @@ OLD_TASKS = [
     "xhs_Morning", "xhs_Midday", "xhs_Evening",
 ]
 
-# Tasks that get created but immediately disabled (留 config 但不跑)。
-# 这些 task 仍在 TASKS 注册流程里 — 创建后 setup_scheduler 立即 schtasks /Change
-# /DISABLE。想重启某项就从这个集合里移除名字，再跑一次 setup_scheduler。
-DISABLED_TASKS = {
-    "report_Morning",
-    "report_Midday",
-    "report_Evening",
-}
-
 # ── Scheduled tasks ───────────────────────────────────────────────────────────
-TASKS = [
-    ("integrity_Check", "08:00", "integrity_check", "每小时数据完整性检查（首次通过后当日跳过）", False),
-    ("cffex_CiticAM",   "08:00", "cffex_citic",    "中信期货四大股指空单跟踪 📱", True),
-    ("concept_Warm",    "08:30", "concept_warm",   "预热概念板块反查 map（~30s），不推送", False),
-    ("report_Morning",  "09:25", "chip_morning",   "盘前选股报告推送 📱", True),
-    ("hot_Rank_0935",   "09:35", "hot_rank",       "热榜快照 09:35 落盘（开盘情绪极值）", False),
-    ("hot_Rank_1000",   "10:00", "hot_rank",       "热榜快照 10:00 落盘", False),
-    ("hot_Rank_1100",   "11:00", "hot_rank",       "热榜快照 11:00 落盘", False),
-    ("report_Midday",   "11:35", "chip_midday",    "午间行情报告推送 📱", True),
-    ("hot_Rank_1330",   "13:30", "hot_rank",       "热榜快照 13:30 落盘", False),
-    ("hot_Rank_1430",   "14:30", "hot_rank",       "热榜快照 14:30 落盘", False),
-    ("report_Evening",  "15:30", "chip_evening",   "收盘报告推送 📱", True),
-    ("market_Warm",     "15:35", "market_warm",    "预热市场数据：CSI300/PE/申万/停牌表，不推送", False),
-    ("marketcap_Scan",  "15:45", "marketcap_scan", "市值策略扫盘 📱", True),
-    ("daily_PerfLog",   "16:05", "daily_perf_log", "多策略收盘胜率统计 📱", True),
-    ("hot_Scan",        "16:35", "hot_scan",       "热榜策略扫描，更新 hot_scan_latest.json 推送 📱", True),
-    ("price_Prefetch",  "17:00", "price_prefetch", "预热全市场价格历史缓存（~1-1.5h），不推送", False),
-    ("fundflow_Prefetch","17:30", "fundflow_prefetch","预热全市场资金流向缓存（~20min），不推送", False),
-    ("chip_Night",      "18:00", "chip_night",     "收盘后预取筹码缓存（AK重算~1.5h），不推送", False),
-    ("main_Scan",       "18:30", "monitor_scan",   "主/ETF/小盘策略扫盘 📱", True),
-    ("quality_Prefetch", "19:00", "quality_prefetch","预热全市场质量指标 (amt/vol_ratio)，不推送", False),
-    ("golden_Scan",     "19:30", "gc_scan",        "金叉策略扫描（全A股7项指标共振）推送 📱", True),
-    ("sideways_Scan",   "20:00", "sideways_scan",  "横盘策略扫描（全市场+流动性+量比≥0.5）推送 📱", True),
-    ("escalator_Scan",  "20:15", "escalator_scan", "扶梯策略扫描（活跃慢牛 R²+斜率+5日防冲顶）推送 📱", True),
-    ("chip_CadScan",    "21:00", "cad_scan",       "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱", True),
-    ("evening_Strategy", "22:00", "evening_strategy","多策略汇总·晚间（七路合并推送） 📱", True),
-]
+# TASKS / DISABLED_TASKS 派生自 src/task_schedule.py 的 ALL_TASKS（single source
+# of truth）。要加/改/disable 任务请直接编辑 task_schedule.py。
+from task_schedule import setup_scheduler_tasks, setup_scheduler_disabled
+
+TASKS = setup_scheduler_tasks()
+DISABLED_TASKS = setup_scheduler_disabled()
 
 
 def _scheduled_bat(task_name: str, slot: str, desc: str):

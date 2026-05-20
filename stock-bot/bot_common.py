@@ -295,43 +295,12 @@ _CHIP_TIERS = {
     "3": (85, 90),
 }
 
-# (name, sched_time, desc) — 按调度时间排序
-_TASK_LIST = [
-    # ── 推送微信（按时间顺序）────────────────────────────────────────────────
-    ("__SEP__",                "",      "── 推送微信 ──"),
-    ("institution_Scan",       "04:00", "机构扫盘 📱"),
-    ("watchlist_Monitor",      "09:15", "自选股监控 📱"),
-    ("watchlist_Scan",         "09:30", "自选股扫描 📱"),
-    ("marketcap_Scan",         "15:45", "市值策略扫盘 📱"),
-    ("daily_PerfLog",          "16:05", "胜率统计 📱"),
-    ("hot_Scan",               "16:35", "热榜扫描 📱"),
-    ("main_Scan",              "18:30", "主/小/ETF 扫盘 📱"),
-    ("golden_Scan",            "19:30", "金叉扫描 📱"),
-    ("sideways_Scan",          "20:00", "横盘扫描 📱"),
-    ("escalator_Scan",         "20:15", "扶梯扫描 📱"),
-    ("chip_CadScan",           "21:00", "筹码扫描 📱"),
-    ("evening_Strategy",       "22:00", "多策略汇总·晚间 📱"),
-    ("weekly_PerfReport",      "00:00", "周度绩效报告 📱"),
-    # ── 不推微信 ────────────────────────────────────────────────────────────────
-    ("__SEP__",                "",      "── 不推微信 ──"),
-    ("sync_Knowledge",         "02:00", "知识库同步"),
-    ("factor_Analysis",        "03:00", "因子IC分析"),
-    ("integrity_Check",        "08:00", "数据完整性"),
-    ("concept_Warm",           "08:30", "概念map预热"),
-    ("closing_Batch",          "15:05", "收盘批处理"),
-    ("market_Warm",            "15:35", "市场数据预热"),
-    ("price_Prefetch",         "17:00", "价格缓存预热"),
-    ("fundflow_Prefetch",      "17:30", "资金流向预取"),
-    ("chip_Night",             "18:00", "筹码缓存"),
-    ("merge_Sessions",         "19:14", "Lark会话合并"),
-    ("watchlist_Updater",      "23:40", "自选股更新"),
-    ("main_Night",             "22:30", "财务缓存预热"),
-]
-
-_HOT_RANK_NAMES = [
-    "hot_Rank_0935", "hot_Rank_1000", "hot_Rank_1100",
-    "hot_Rank_1330", "hot_Rank_1430",
-]
+# (name, sched_time, desc) — 派生自 src/task_schedule.py。
+# 唯一 source: 编辑 src/task_schedule.ALL_TASKS。
+sys.path.insert(0, str(SCRIPTS))
+from task_schedule import bot_task_list as _bot_task_list, hot_rank_names as _hot_rank_names
+_TASK_LIST = _bot_task_list()
+_HOT_RANK_NAMES = _hot_rank_names()
 
 _FACTOR_ZH = {
     "accruals": "应计因子", "amihud_illiquidity": "Amihud非流动性",
