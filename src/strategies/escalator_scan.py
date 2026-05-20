@@ -184,7 +184,11 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False,
             if df is None or df.empty:
                 return None
             if as_of_date:
-                df = df[df["date"].astype(str) <= as_of_date]
+                # df["date"] 是 datetime64，要转 Timestamp 再比较；之前 .astype(str)
+                # 拿到的是 "2026-05-14" 带连字符，跟 "20260515" 做字符串比较结果错乱
+                import pandas as _pd
+                cutoff_ts = _pd.to_datetime(as_of_date, format="%Y%m%d")
+                df = df[df["date"] <= cutoff_ts]
             if len(df) < _MIN_BARS:
                 return None
             # 回填时只用最近 35 行（匹配 live 模式 fetch 窗口）

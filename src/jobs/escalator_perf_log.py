@@ -89,7 +89,11 @@ def _fetch_forward_returns(code: str, pick_date: str, hold_periods: list[int],
         return {n: None for n in hold_periods}
     if df is None or df.empty or "date" not in df.columns:
         return {n: None for n in hold_periods}
-    df = df[df["date"].astype(str) > pick_date].sort_values("date")
+    # df["date"] 是 datetime64，转 Timestamp 比较；用 .astype(str) 会拿
+    # "2026-05-14" 跟 "20260514" 字符串比错乱
+    import pandas as _pd
+    pick_ts = _pd.to_datetime(pick_date, format="%Y%m%d")
+    df = df[df["date"] > pick_ts].sort_values("date")
     out: dict[int, Optional[float]] = {}
     for n in hold_periods:
         if len(df) < n:
