@@ -191,6 +191,16 @@ def _scheduled_bat(task_name: str, slot: str, desc: str):
     probe_entered = f'echo [%DATE% %TIME%] {task_name} bat entered >> "{probe_log}"'
     probe_invoking = f'echo [%DATE% %TIME%] {task_name} invoking python >> "{probe_log}"'
     probe_exit = f'echo [%DATE% %TIME%] {task_name} python exit=%errorlevel% >> "{probe_log}"'
+
+    # 长跑任务（monitor.py）在主任务完成后 cleanup 阶段易因 socket/akshare 收尾
+    # 异常导致 exit code 非 0 触发假"失败"。改判定：用产物 mtime 替代 errorlevel。
+    LOG_FRESH = SCRIPTS / "tools" / "check_log_fresh.py"
+    success_override = ''
+    if slot == "monitor_scan":
+        success_override = (
+            f'"{PYTHON}" -X utf8 "{LOG_FRESH}" "{log}\\monitor_scan.log" 300\n'
+        )
+
     content = (
         f'@echo off\n'
         f'chcp 65001 > nul\n'
@@ -202,6 +212,7 @@ def _scheduled_bat(task_name: str, slot: str, desc: str):
         f'{probe_invoking}\n'
         f'{cmd}\n'
         f'{probe_exit}\n'
+        f'{success_override}'
         f'if errorlevel 1 (\n'
         f'    {notify_cmd}\n'
         f'    {discord_fail_cmd}\n'
