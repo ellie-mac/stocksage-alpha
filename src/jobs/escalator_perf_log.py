@@ -34,7 +34,7 @@ CHART_PATH = DATA / "escalator_perf_chart.png"
 # R² buckets — 边界与 escalator_scan _TIER_SPEC 对齐（E1≥0.80, E2≥0.85）。
 R2_BUCKETS = [(0.80, 0.85), (0.85, 0.90), (0.90, 0.95), (0.95, 1.01)]
 HOLD_PERIODS = [1, 5, 10]
-TIERS = ["E1", "E2", "E3"]
+TIERS = ["E0", "E1", "E2"]   # E0=20d (长窗口最强) / E1=10d / E2=5d
 MIN_SAMPLE_DAYS_WARN = 10   # 样本天数低于此值打 ⚠️
 
 
@@ -70,6 +70,7 @@ def _load_picks() -> list[dict]:
                     "code": p["code"],
                     "name": p.get("name", ""),
                     "tier": tier,
+                    "matched_tiers": p.get("matched_tiers") or [tier],
                     "r2": float(p["r2"]),
                     "slope_pct": float(p.get("slope_pct") or 0),
                     "close": float(p.get("close") or 0),
@@ -140,12 +141,24 @@ def _aggregate(picks_with_ret: list[dict]) -> dict:
     return summary
 
 
-def _tier_overall(picks_with_ret: list[dict], tier: str) -> dict:
-    """tier 整体 stats 不分桶。"""
+def _tier_overall(picks_with_ret: list[dict], tier: str, by: str = "primary") -> dict:
+    """tier 整体 stats 不分桶。
+
+    by='primary': 按 primary tier 算（first-match-wins，每只票归一档；residual 视图）
+    by='criterion': 按 matched_tiers 多重计数（每只票若同时命中多 tier 给每个 tier 都 +1；criterion 评估视图）
+    """
     out = {}
     for n in HOLD_PERIODS:
-        rets = [p[f"ret_t{n}"] for p in picks_with_ret
-                if p["tier"] == tier and p.get(f"ret_t{n}") is not None]
+        rets: list[float] = []
+        for p in picks_with_ret:
+            if p.get(f"ret_t{n}") is None:
+                continue
+            if by == "primary":
+                hits = [p["tier"]]
+            else:
+                hits = p.get("matched_tiers") or [p["tier"]]
+            if tier in hits:
+                rets.append(p[f"ret_t{n}"])
         if rets:
             out[n] = {
                 "n": len(rets),
@@ -157,26 +170,86 @@ def _tier_overall(picks_with_ret: list[dict], tier: str) -> dict:
     return out
 
 
-def _format_body(summary: dict, overall: dict, n_days: int, n_picks: int) -> str:
+def _overlap_stats(picks_with_ret: list[dict]) -> dict:
+    """各 tier 之间 matched_tiers 重合率。
+    返回 {tier: {"total": N, "also_in_E0": x%, "also_in_E1": y%, "only": z%}}
+    """
+    out: dict[str, dict] = {}
+    for t in TIERS:
+        total = sum(1 for p in picks_with_ret
+                    if t in (p.get("matched_tiers") or [p["tier"]]))
+        row = {"total": total}
+        if total > 0:
+            for other in TIERS:
+                if other == t:
+                    continue
+                also = sum(1 for p in picks_with_ret
+                           if t in (p.get("matched_tiers") or [p["tier"]])
+                           and other in (p.get("matched_tiers") or [p["tier"]]))
+                row[f"also_{other}"] = round(also / total * 100, 1)
+            only = sum(1 for p in picks_with_ret
+                       if (p.get("matched_tiers") or [p["tier"]]) == [t])
+            row["only"] = round(only / total * 100, 1)
+        out[t] = row
+    return out
+
+
+def _format_body(summary: dict, overall_primary: dict, overall_criterion: dict,
+                 overlap: dict, n_days: int, n_picks: int) -> str:
     lines = [f"[扶梯·胜率] {datetime.now():%Y-%m-%d %H:%M}<br>",
              f"样本：{n_days} 天历史 / {n_picks} 个 pick × hold period<br><br>"]
 
-    # 总览（不分 r² 桶）
-    lines.append("**📊 总览**<br>")
-    lines.append("```")
-    lines.append(f"{'tier':<5}{'T+1':>14}{'T+5':>14}{'T+10':>14}")
-    for tier in TIERS:
+    def _tier_row(tier: str, src: dict) -> str:
         row = [f"{tier:<5}"]
         for n in HOLD_PERIODS:
-            s = overall[tier].get(n, {})
-            wr = s.get("win_rate")
-            ret = s.get("avg_ret")
-            nn = s.get("n", 0)
+            s = src.get(tier, {}).get(n, {})
+            wr = s.get("win_rate"); ret = s.get("avg_ret"); nn = s.get("n", 0)
             if wr is None:
                 row.append(f"{'-':>14}")
             else:
-                row.append(f"{wr:>4.0f}% {ret:+.1f}% n={nn:<3}".rjust(14))
-        lines.append("".join(row))
+                # T+5 加粗（最关键指标）
+                if n == 5:
+                    row.append(f"**{wr:>4.0f}% {ret:+.1f}% n={nn}**".rjust(14))
+                else:
+                    row.append(f"{wr:>4.0f}% {ret:+.1f}% n={nn:<3}".rjust(14))
+        return "".join(row)
+
+    # 视图 A：按 primary tier（每只票归一档，长窗口优先）
+    lines.append("**📊 视图 A：按 primary tier（first-match，每票归一档）**<br>")
+    lines.append("```")
+    lines.append(f"{'tier':<5}{'T+1':>14}{'T+5':>14}{'T+10':>14}")
+    for tier in TIERS:
+        lines.append(_tier_row(tier, overall_primary))
+    lines.append("```<br>")
+
+    # 视图 B：按 criterion 多重计数（每只票若同时命中多档给每个 +1）
+    lines.append("**📊 视图 B：按 criterion 多重计数（评估每个判定独立预测力）**<br>")
+    lines.append("```")
+    lines.append(f"{'tier':<5}{'T+1':>14}{'T+5':>14}{'T+10':>14}")
+    for tier in TIERS:
+        lines.append(_tier_row(tier, overall_criterion))
+    lines.append("```<br>")
+
+    # 重合率
+    lines.append("**📊 重合率（matched_tiers 共现）**<br>")
+    lines.append("```")
+    header = f"{'tier':<5}{'total':>8}"
+    for other in TIERS:
+        header += f"{'also_'+other:>10}"
+    header += f"{'only_this':>11}"
+    lines.append(header)
+    for tier in TIERS:
+        ov = overlap.get(tier, {})
+        row = f"{tier:<5}{ov.get('total', 0):>8}"
+        for other in TIERS:
+            if other == tier:
+                row += f"{'-':>10}"
+            else:
+                v = ov.get(f"also_{other}")
+                row += f"{v:>9.1f}%" if v is not None else f"{'-':>10}"
+        only = ov.get("only")
+        row += f"{only:>10.1f}%" if only is not None else f"{'-':>11}"
+        lines.append(row)
     lines.append("```<br>")
 
     # 按 r² 分桶
@@ -317,18 +390,20 @@ def main() -> int:
             rets = fut.result()
             enriched.append({**p, **{f"ret_t{n}": rets.get(n) for n in HOLD_PERIODS}})
 
-    # 3. 聚合
+    # 3. 聚合（R² 分桶仍按 primary tier；overall 出两个视图）
     summary = _aggregate(enriched)
-    overall = {t: _tier_overall(enriched, t) for t in TIERS}
+    overall_primary   = {t: _tier_overall(enriched, t, by="primary")   for t in TIERS}
+    overall_criterion = {t: _tier_overall(enriched, t, by="criterion") for t in TIERS}
+    overlap = _overlap_stats(enriched)
 
-    body = _format_body(summary, overall, n_days, len(enriched))
+    body = _format_body(summary, overall_primary, overall_criterion, overlap, n_days, len(enriched))
     print(f"\n{body.replace('<br>', chr(10))}\n")
 
     if args.dry_run:
         print("[escalator_perf] dry-run 完成")
         return 0
 
-    _save_history(summary, overall, n_days, len(enriched))
+    _save_history(summary, overall_criterion, n_days, len(enriched))   # 持久化用 criterion 视图（独立预测力更有分析价值）
 
     if args.push:
         from common import push_wechat
@@ -336,7 +411,7 @@ def main() -> int:
         push_wechat(title, body)
         print("[escalator_perf] 微信推送完成", flush=True)
 
-        chart = _render_chart(summary, overall)
+        chart = _render_chart(summary, overall_criterion)
         if chart:
             try:
                 from notify.notify import push_feishu_image

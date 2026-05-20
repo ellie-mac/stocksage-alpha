@@ -25,18 +25,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 OUT_LATEST = ROOT / "data" / "escalator_latest.json"
 
-_TIER_ORDER = ["E1", "E2", "E3"]
+_TIER_ORDER = ["E0", "E1", "E2"]
 _TIER_SPEC: dict[str, dict] = {
-    "E1": {"window": 20, "slope_lo": 5.0, "slope_hi": 25.0, "r2_min": 0.80},
-    "E2": {"window": 10, "slope_lo": 3.0, "slope_hi": 15.0, "r2_min": 0.85},
-    # E3 实验档：5 日窗口抓启动初期。slope 范围窄、R² 比 E2 还严（对冲 5 点拟合噪声）。
-    # 回填验证胜率 ≥ E2 且 picks 跟 hot_scan 重合率低再正式启用。
-    "E3": {"window": 5,  "slope_lo": 2.0, "slope_hi": 6.0,  "r2_min": 0.92},
+    "E0": {"window": 20, "slope_lo": 5.0, "slope_hi": 25.0, "r2_min": 0.80},
+    "E1": {"window": 10, "slope_lo": 3.0, "slope_hi": 15.0, "r2_min": 0.85},
+    # E2 实验档：5 日窗口抓启动初期。slope 范围窄、R² 比 E1 还严（对冲 5 点拟合噪声）。
+    # 回填验证 T+5 win rate ≥ E1 且 picks 重合分布合理再决定是否正式启用。
+    "E2": {"window": 5,  "slope_lo": 2.0, "slope_hi": 6.0,  "r2_min": 0.92},
 }
 _TIER_LABEL = {
-    "E1": "20 天慢牛 (5-25% / R²≥0.80)",
-    "E2": "10 天慢牛 (3-15% / R²≥0.85)",
-    "E3": "5 天启动期 (2-6% / R²≥0.92)",
+    "E0": "20 天慢牛 (5-25% / R²≥0.80)",
+    "E1": "10 天慢牛 (3-15% / R²≥0.85)",
+    "E2": "5 天启动期 (2-6% / R²≥0.92)",
 }
 
 _MIN_BARS = 25
@@ -60,6 +60,11 @@ def _is_tech(industry: str) -> bool:
 
 
 def _classify(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray) -> Optional[dict]:
+    """检查所有 tier criteria，返回 primary tier（最长 window 优先）+ 全部 matched_tiers。
+
+    primary 用于推送展示（每只票一档），matched_tiers 用于 perf_log 做 criterion-level
+    分析（一只票若同时命中 E0/E1/E2，每个 criterion 都得分该票的 forward return）。
+    """
     if len(closes) < 5:
         return None
 
@@ -69,7 +74,10 @@ def _classify(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray) -> Option
     else:
         max_dd = 0.0
 
-    for tier in _TIER_ORDER:
+    primary: Optional[dict] = None
+    matched: list[str] = []
+
+    for tier in _TIER_ORDER:   # 顺序：E0 (20d) → E1 (10d) → E2 (5d)，长窗口优先
         spec = _TIER_SPEC[tier]
         n = spec["window"]
         if len(closes) < n:
@@ -102,15 +110,21 @@ def _classify(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray) -> Option
         if r2 < spec["r2_min"]:
             continue
 
-        return {
-            "tier": tier,
-            "window": n,
-            "slope_pct": round(float(slope_pct), 2),
-            "r2": round(float(r2), 3),
-            "daily_amp": round(float(amp), 2),
-            "max_dd": round(float(max_dd), 2),
-        }
-    return None
+        matched.append(tier)
+        if primary is None:
+            primary = {
+                "tier": tier,
+                "window": n,
+                "slope_pct": round(float(slope_pct), 2),
+                "r2": round(float(r2), 3),
+                "daily_amp": round(float(amp), 2),
+                "max_dd": round(float(max_dd), 2),
+            }
+
+    if primary is None:
+        return None
+    primary["matched_tiers"] = matched
+    return primary
 
 
 def _ma_bullish(closes: np.ndarray) -> bool:

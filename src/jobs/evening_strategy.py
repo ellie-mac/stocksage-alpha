@@ -443,8 +443,8 @@ def _fmt_pick(code: str, entry: dict) -> str:
         sp = details["扶"].get("slope_pct")
         r2 = details["扶"].get("r2")
         if t and sp is not None and r2 is not None:
-            # 档位 → 窗口天数；slope 整数；R² 保留两位
-            window = {"E0": 30, "E1": 20, "E2": 10}.get(t, 0)
+            # 档位 → 窗口天数（跟 escalator_scan._TIER_SPEC 同步）；slope 整数；R² 保留两位
+            window = {"E0": 20, "E1": 10, "E2": 5}.get(t, 0)
             annotations.append(f"扶{window}d/{sp:.0f}%/R²{r2:.2f}")
 
     ann_str = "  " + "  ".join(annotations) if annotations else ""
