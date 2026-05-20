@@ -3,8 +3,10 @@
 收盘批处理 — 15:05 运行一次
 1. xhs/writer.py evening（小红书收盘帖）
 2. signal_tracker.py（信号后续追踪）
-3. daily_perf_log.py --force（收盘胜率统计）
-4. auto_tune.py --apply（仅周一：因子权重自动调优）
+3. auto_tune.py --apply（仅周一：因子权重自动调优）
+
+注：daily_perf_log 由独立 scheduled task daily_PerfLog 16:05 负责，
+不在 closing_batch 内调用，避免重复推送。
 
 用法：
     python -X utf8 src/jobs/closing_batch.py
@@ -81,17 +83,9 @@ def main() -> None:
     else:
         print("[closing_batch] signal_tracker.py 不存在，跳过")
 
-    # 3. daily_perf_log.py --force
-    perf_log = os.path.join(_ROOT, "src", "jobs", "daily_perf_log.py")
-    if os.path.exists(perf_log):
-        t0 = time.monotonic()
-        ok = _run("daily_perf_log", [_PY, "-X", "utf8", perf_log, "--force"], timeout=300)
-        log_run("closing_batch/daily_perf_log", trade_date, success=ok,
-                duration_sec=round(time.monotonic() - t0, 1))
-    else:
-        print("[closing_batch] daily_perf_log.py 不存在，跳过")
+    # daily_perf_log 已移至独立 scheduled task daily_PerfLog（16:05），不在此处调用
 
-    # 4. auto_tune.py --apply（周一才跑）
+    # 3. auto_tune.py --apply（周一才跑）
     if now.weekday() == 0:
         auto_tune = os.path.join(_ROOT, "src", "jobs", "auto_tune.py")
         if os.path.exists(auto_tune):
