@@ -95,7 +95,7 @@ def _run(cmd: list[str], log_path: Path) -> int:
 def main() -> None:
     LOGS.mkdir(parents=True, exist_ok=True)
 
-    from jobs.prefetch import wait_for_fresh_prices
+    from data_freshness import wait_for_fresh_prices
     wait_for_fresh_prices()
 
     from chip.strategy import _latest_trade_date

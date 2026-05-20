@@ -215,7 +215,7 @@ def run_scan(push: bool = False, dry_run: bool = False, as_of_date: str = "") ->
     import fetcher as _fetcher
 
     if not as_of_date:  # only gate on live runs, not backfill
-        from jobs.prefetch import wait_for_fresh_prices
+        from data_freshness import wait_for_fresh_prices
         wait_for_fresh_prices()
 
     from strategies._quality import load_name_industry_map, load_universe

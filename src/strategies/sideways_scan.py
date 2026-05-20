@@ -179,7 +179,7 @@ def _push_results(data: dict) -> None:
 def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False) -> dict:
     import fetcher as _fetcher
     try:
-        from jobs.prefetch import wait_for_fresh_prices
+        from data_freshness import wait_for_fresh_prices
         wait_for_fresh_prices()
     except Exception:
         pass

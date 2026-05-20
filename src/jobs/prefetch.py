@@ -196,84 +196,13 @@ def prefetch_fundflow(force: bool = False) -> None:
 # ── freshness gate ───────────────────────────────────────────────────────────
 
 def wait_for_fresh_prices() -> bool:
-    """Check that today's closing prices are cached. Re-triggers prefetch if stale.
+    """Backward-compat wrapper — 实现已搬到 src/data_freshness.py（纯库，无 jobs 依赖）。
 
-    Call this at the start of any EOD scan (gc_scan, monitor, cad_pipeline).
-    Blocks until price data is confirmed fresh or prefetch completes.
-    Returns True if data is confirmed fresh for today's trading date.
+    保留这个 wrapper 是为了不破坏老代码 `from jobs.prefetch import wait_for_fresh_prices`，
+    但新代码应该直接 `from data_freshness import wait_for_fresh_prices`。
     """
-    import os, subprocess as _sp, pandas as _pd
-    import cache as _cache
-
-    now = datetime.now()
-    # Only meaningful after 15:00 on a weekday
-    if now.weekday() >= 5 or now.hour < 15:
-        return True  # weekend or pre-close — skip check
-
-    expected = now.strftime("%Y%m%d")
-
-    def _is_fresh() -> bool:
-        # Check first 10 universe stocks — 000001 is not in universe so never cached
-        try:
-            codes = _load_universe()[:10]
-        except Exception:
-            codes = []
-        for code in codes:
-            raw = _cache.get_df(f"price_{code}_550", 999_999_999)
-            if raw is None or raw.empty:
-                continue
-            latest = raw.iloc[-1]["date"]
-            if isinstance(latest, _pd.Timestamp):
-                latest = latest.strftime("%Y%m%d")
-            if str(latest).replace("-", "")[:8] >= expected:
-                return True
-        return False
-
-    if _is_fresh():
-        return True
-
-    # Lock file: if another process is already prefetching, wait instead of launching a second run
-    lock_file = SCRIPTS / "cache" / ".price_prefetch.lock"
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
-
-    if lock_file.exists():
-        try:
-            lock_age = time.time() - lock_file.stat().st_mtime
-        except Exception:
-            lock_age = 0
-        if lock_age < 1800:  # lock younger than 30 min → another prefetch is running
-            print(f"[wait_prices] 检测到并发 prefetch 正在运行（锁文件 {lock_age:.0f}s 前创建），等待完成...", flush=True)
-            for _ in range(120):  # wait up to 10 minutes (5s × 120)
-                time.sleep(5)
-                if _is_fresh():
-                    print("[wait_prices] 等待完成，价格数据已更新到今日 ✓", flush=True)
-                    return True
-                if not lock_file.exists():
-                    break
-            fresh = _is_fresh()
-            if not fresh:
-                print("[wait_prices] 等待超时，继续执行", flush=True)
-            return fresh
-
-    print(f"[wait_prices] 价格数据未到今日 ({expected})，重跑 prefetch ...", flush=True)
-    try:
-        lock_file.write_text(str(os.getpid()))
-        _sp.run(
-            [sys.executable, "-X", "utf8", str(Path(__file__).resolve()), "--price", "--force"],
-            cwd=str(ROOT),
-        )
-    finally:
-        try:
-            lock_file.unlink()
-        except Exception:
-            pass
-
-    fresh = _is_fresh()
-    if fresh:
-        print("[wait_prices] 价格数据已更新到今日 ✓", flush=True)
-    else:
-        print("[wait_prices] prefetch 完成但数据仍非今日（可能为非交易日或数据源延迟），继续执行", flush=True)
-    return fresh
+    from data_freshness import wait_for_fresh_prices as _wfp
+    return _wfp()
 
 
 # ── entry ─────────────────────────────────────────────────────────────────────

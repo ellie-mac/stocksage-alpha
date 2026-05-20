@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Generate main_universe.json — CSI 300 + CSI 500 components (~500 stocks)
+Generate cs300_500_universe.json — CSI 300 + CSI 500 components (~500 stocks)
 suitable for factor_analysis.py --universe, replacing the hardcoded TEST_UNIVERSE.
 
 Usage:
     python src/tools/generate_main_universe.py
-    python src/tools/generate_main_universe.py --out scripts/main_universe.json
+    python src/tools/generate_main_universe.py --out scripts/cs300_500_universe.json
 
-Output: scripts/main_universe.json  (list of 6-digit codes)
+Output: scripts/cs300_500_universe.json  (list of 6-digit codes)
 """
 
 import argparse
@@ -47,7 +47,7 @@ def generate() -> list[str]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CSI 300+500 universe for factor backtest")
     parser.add_argument("--out", type=str,
-                        default=os.path.join(os.path.dirname(__file__), "..", "..", "data", "main_universe.json"),
+                        default=os.path.join(os.path.dirname(__file__), "..", "..", "data", "cs300_500_universe.json"),
                         help="Output file path")
     args = parser.parse_args()
 
