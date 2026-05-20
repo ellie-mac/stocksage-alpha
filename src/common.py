@@ -97,21 +97,37 @@ def _send_pushplus(title: str, desp: str, token: str, retries: int = 3) -> None:
 
 
 def send_wechat(title: str, desp: str, sendkey: str, dry_run: bool = False) -> None:
+    """微信推送（PushPlus / Server酱）— 内部 retry 3 次 + 全异常吞，不向调用方抛。
+
+    任何 SSL/connection 错都 swallow（只 print 警告），让长任务（monitor/nightly_scan）
+    不会因推送失败而整体退出非零（这是历史上 main_Scan task notification 误报"failed"的根因）。
+    """
     if dry_run:
         print(f"[DRY-RUN] 微信推送: {title}")
         print(f"[DRY-RUN] 内容预览:\n{desp[:300]}{'...' if len(desp) > 300 else ''}")
         return
     if _pushplus_token:
-        _send_pushplus(title, desp, _pushplus_token)
-    elif sendkey:
-        from serverchan_sdk import sc_send
-        resp = sc_send(sendkey, title, desp)
-        if resp.get("code") == 0:
-            print(f"[OK] 微信推送成功: {title}")
-        else:
-            print(f"[WARN] 微信推送: code={resp.get('code')} msg={resp.get('message')}")
-    else:
-        print(f"[WARN] 未配置推送渠道（pushplus.token / serverchan.sendkey），跳过: {title}")
+        try:
+            _send_pushplus(title, desp, _pushplus_token)
+        except Exception as e:
+            print(f"[WARN] PushPlus 推送异常（已吞）: {type(e).__name__}: {e}")
+        return
+    if sendkey:
+        for attempt in range(1, 4):
+            try:
+                from serverchan_sdk import sc_send
+                resp = sc_send(sendkey, title, desp)
+                if resp.get("code") == 0:
+                    print(f"[OK] 微信推送成功: {title}")
+                    return
+                print(f"[WARN] 服务器酱: code={resp.get('code')} msg={resp.get('message')}（第{attempt}次）")
+            except Exception as e:
+                print(f"[WARN] 服务器酱推送失败（第{attempt}次）: {type(e).__name__}: {e}")
+            if attempt < 3:
+                time.sleep(3)
+        print(f"[WARN] 服务器酱 3 次重试均失败，已放弃: {title}")
+        return
+    print(f"[WARN] 未配置推送渠道（pushplus.token / serverchan.sendkey），跳过: {title}")
 
 
 @functools.lru_cache(maxsize=1)
