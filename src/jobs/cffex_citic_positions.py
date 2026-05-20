@@ -96,11 +96,29 @@ def _get_prev_trade_date_str() -> str:
 
 
 def _pick_contract_keys(rank_map: dict[str, pd.DataFrame], prefix: str) -> list[str]:
+    """按持仓量降序排（主力 = 持仓最大），并列时按月份升序兜底。
+
+    之前按月份升序取 candidates[0]，会在合约**实际换月前几天**仍误选
+    将到期 dying near-month（持仓已转移到下月主力）。改成按 OI 降序后
+    自动跟随真正的主力合约。
+    """
     keys = [k for k in rank_map.keys() if str(k).upper().startswith(prefix)]
-    def _sort_key(x: str):
+    def _total_oi(k: str) -> int:
+        df = rank_map.get(k)
+        if df is None or getattr(df, 'empty', True):
+            return 0
+        col = 'short_open_interest' if 'short_open_interest' in df.columns else None
+        if col is None:
+            return 0
+        try:
+            return int(pd.to_numeric(df[col], errors='coerce').fillna(0).sum())
+        except Exception:
+            return 0
+    def _month(x: str) -> int:
         m = re.search(r'^(IF|IH|IC|IM)(\d+)$', str(x).upper())
-        return int(m.group(2)) if m else -1
-    return sorted(keys, key=_sort_key)
+        return int(m.group(2)) if m else 99999
+    # 主力优先（OI desc）；持仓为 0 或并列时按月份升序兜底
+    return sorted(keys, key=lambda k: (-_total_oi(k), _month(k)))
 
 
 def _find_target_row(df: pd.DataFrame) -> pd.Series | None:
@@ -195,7 +213,13 @@ def _dedup_history(history: list[dict]) -> list[dict]:
     return [by_date[d] for d in sorted(by_date.keys())]
 
 
-def _load_history_series(prefix: str, current_date: str, current_short_qty: int | None) -> list[int]:
+def _load_history_series(prefix: str, current_contract: str, current_date: str, current_short_qty: int | None) -> list[int]:
+    """加载该 symbol 的历史 short_qty 序列。
+
+    关键：**按 contract 精确过滤**，避免跨合约换月时拼接产生 5000→25000
+    级别的假跳变污染均值/百分位/zscore。current_contract 是今日的主力合约，
+    只保留 history 里同一 contract 的记录。
+    """
     history = _load_json(HISTORY, [])
     series: list[tuple[str, int]] = []
     if isinstance(history, list):
@@ -204,8 +228,14 @@ def _load_history_series(prefix: str, current_date: str, current_short_qty: int 
                 continue
             d = str(report.get('trade_date') or '')
             for item in report.get('items', []):
-                if isinstance(item, dict) and item.get('symbol') == prefix and item.get('short_qty') is not None:
-                    series.append((d, int(item['short_qty'])))
+                if not isinstance(item, dict):
+                    continue
+                if item.get('symbol') != prefix or item.get('short_qty') is None:
+                    continue
+                # 同 contract 才纳入统计；current_contract 为空则不过滤（兼容旧脚本写的无 contract 记录）
+                if current_contract and item.get('contract') and item.get('contract') != current_contract:
+                    continue
+                series.append((d, int(item['short_qty'])))
     dedup = {}
     for d, v in series:
         if d:
@@ -220,7 +250,12 @@ def _add_baseline(report: dict) -> dict:
     for item in report['items']:
         if 'error' in item:
             continue
-        values = _load_history_series(item['symbol'], report['trade_date'], item.get('short_qty'))
+        values = _load_history_series(
+            item['symbol'],
+            item.get('contract', ''),  # 按合约过滤，避免跨合约污染
+            report['trade_date'],
+            item.get('short_qty'),
+        )
         stats = _calc_stats(values, item.get('short_qty'), item.get('short_change'))
         item.update(stats)
     return report
@@ -242,7 +277,12 @@ def build_report(trade_date: str | None = None) -> dict:
         item = _build_item_from_rank_map(rank_map, prefix, trade_date)
         prev_item = prev_map.get(prefix, {})
         item['vs_prev_file_short_change'] = None
-        if item.get('short_qty') is not None and prev_item.get('short_qty') is not None:
+        # 跨合约不算 vs_prev——合约换月时持仓量级跳变是结构性的不是信号
+        prev_contract = prev_item.get('contract')
+        cur_contract  = item.get('contract')
+        if prev_contract and cur_contract and prev_contract != cur_contract:
+            item['rollover_from'] = prev_contract
+        elif item.get('short_qty') is not None and prev_item.get('short_qty') is not None:
             item['vs_prev_file_short_change'] = item['short_qty'] - prev_item['short_qty']
         items.append(item)
 
@@ -316,8 +356,15 @@ def format_body(report: dict) -> str:
 
     lines = [
         f"[期指·中信] {report.get('trade_date', 'NA')} 机构对冲跟踪<br>",
-        f"📌 {_overall_view(report['items'])}<br><br>",
+        f"📌 {_overall_view(report['items'])}<br>",
     ]
+    # 换月提示：本日如有 contract 切换，标注（同合约样本会从 0 重新积累）
+    rolled = [(it['symbol'], it.get('rollover_from'), it.get('contract'))
+              for it in report.get('items', []) if it.get('rollover_from')]
+    if rolled:
+        msg = " / ".join(f"{s} {old}→{new}" for s, old, new in rolled)
+        lines.append(f"🔄 **换月**: {msg}（同合约样本重新积累，今日 P20/动量 暂不可信）<br>")
+    lines.append("<br>")
     for it in items:
         if 'error' in it:
             lines.append(f"{it['symbol']}｜❌ {it['error']}<br>")
