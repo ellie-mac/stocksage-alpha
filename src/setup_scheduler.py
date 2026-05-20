@@ -42,6 +42,7 @@ MARKETCAP_SCAN    = SCRIPTS   / "strategies" / "marketcap_strategy.py"
 EVENING_STRATEGY  = SCRIPTS   / "jobs"       / "evening_strategy.py"
 PREFETCH_QUALITY  = SCRIPTS   / "jobs"       / "prefetch_quality.py"
 CFFEX_CITIC       = SCRIPTS   / "jobs"       / "cffex_citic_positions.py"
+ESCALATOR_SCAN    = SCRIPTS   / "strategies" / "escalator_scan.py"
 
 # ── Bot startup tasks (At Logon trigger) ─────────────────────────────────────
 BOT_TASKS = [
@@ -114,6 +115,7 @@ TASKS = [
     ("quality_Prefetch", "19:00", "quality_prefetch","预热全市场质量指标 (amt/vol_ratio)，不推送", False),
     ("golden_Scan",     "19:30", "gc_scan",        "金叉策略扫描（全A股7项指标共振）推送 📱", True),
     ("sideways_Scan",   "20:00", "sideways_scan",  "横盘策略扫描（全市场+流动性+量比≥0.5）推送 📱", True),
+    ("escalator_Scan",  "20:15", "escalator_scan", "扶梯策略扫描（活跃慢牛 R²+斜率+5日防冲顶）推送 📱", True),
     ("chip_CadScan",    "21:00", "cad_scan",       "筹码扫描 cah/cadm/cad，三者共有T1-T4推送 📱", True),
     ("evening_Strategy", "22:00", "evening_strategy","多策略汇总·晚间（七路合并推送） 📱", True),
 ]
@@ -185,6 +187,9 @@ def _scheduled_bat(task_name: str, slot: str, desc: str):
     elif slot == "sideways_scan":
         path = TASKS_DIR / "run_sideways_scan.bat"
         cmd = f'"{PYTHON}" -X utf8 "{SIDEWAYS_SCAN}" --push >> "{log}\\sideways_scan.log" 2>&1'
+    elif slot == "escalator_scan":
+        path = TASKS_DIR / "run_escalator_scan.bat"
+        cmd = f'"{PYTHON}" -X utf8 "{ESCALATOR_SCAN}" --push >> "{log}\\escalator_scan.log" 2>&1'
     elif slot == "marketcap_scan":
         path = TASKS_DIR / "run_marketcap_scan.bat"
         cmd = f'"{PYTHON}" -X utf8 "{MARKETCAP_SCAN}" --push >> "{log}\\marketcap_scan.log" 2>&1'
