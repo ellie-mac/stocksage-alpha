@@ -13,13 +13,15 @@ if not hist_path.exists():
     sys.exit(1)
 
 raw = json.loads(hist_path.read_text(encoding="utf-8"))
-items = raw if isinstance(raw, list) else raw.get("items", [])
+# history is a list of daily snapshots, each containing `items` (4 stock indices)
+snapshots = raw if isinstance(raw, list) else [raw]
 
 by_sym: dict[str, list] = {}
-for e in items:
-    s = e.get("symbol")
-    if s:
-        by_sym.setdefault(s, []).append(e)
+for snap in snapshots:
+    for e in snap.get("items", []) if isinstance(snap, dict) else []:
+        s = e.get("symbol")
+        if s:
+            by_sym.setdefault(s, []).append(e)
 
 for sym in ("IF", "IH", "IC", "IM"):
     if sym not in by_sym:
