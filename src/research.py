@@ -105,8 +105,9 @@ from factors import (
 
 
 def is_stock_code(s: str) -> bool:
-    """Return True if the string looks like a 6-digit A-share code."""
-    return bool(re.match(r"^\d{6}$", s.strip()))
+    """Return True if the string looks like an A-share code, with optional sh/sz/bj prefix."""
+    s = s.strip().lower()
+    return bool(re.match(r"^(sh|sz|bj)?\d{6}$", s))
 
 
 def research(raw_input: str, weights: FactorWeights = DEFAULT_WEIGHTS) -> dict:
