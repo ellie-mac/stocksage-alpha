@@ -34,8 +34,32 @@ CHART_PATH = DATA / "escalator_perf_chart.png"
 # R² buckets — 边界与 escalator_scan _TIER_SPEC 对齐（E1≥0.80, E2≥0.85）。
 R2_BUCKETS = [(0.80, 0.85), (0.85, 0.90), (0.90, 0.95), (0.95, 1.01)]
 HOLD_PERIODS = [1, 5, 10]
-TIERS = ["E0", "E1", "E2"]   # E0=20d (长窗口最强) / E1=10d / E2=5d
+TIERS = ["E0", "E1"]   # E0=20d / E1=10d (E2 删除，回填验证后预测力为负)
 MIN_SAMPLE_DAYS_WARN = 10   # 样本天数低于此值打 ⚠️
+
+
+def _apply_cooldown(picks: list[dict], cooldown_days: int) -> list[dict]:
+    """同一只 code 在 cooldown_days 个交易日内多次入选只保留首次。
+
+    避免持续触发的票被反复计数（forward window 重叠 + 样本量虚高）。
+    用 picks 里出现过的 unique 日期排序当作交易日 calendar；cooldown 用
+    "在该 calendar 上的 index 差" 度量。
+    """
+    if not picks:
+        return []
+    all_dates = sorted({p["date"] for p in picks})
+    idx_of = {d: i for i, d in enumerate(all_dates)}
+
+    last_idx: dict[str, int] = {}
+    kept: list[dict] = []
+    # 按日期升序处理；同日内顺序不影响（同 code 同日只一条）
+    for p in sorted(picks, key=lambda x: x["date"]):
+        i = idx_of[p["date"]]
+        prev = last_idx.get(p["code"])
+        if prev is None or (i - prev) >= cooldown_days:
+            kept.append(p)
+            last_idx[p["code"]] = i
+    return kept
 
 
 def _r2_bucket(r2: float) -> Optional[str]:
@@ -109,19 +133,27 @@ def _fetch_forward_returns(code: str, pick_date: str, hold_periods: list[int],
 
 
 def _aggregate(picks_with_ret: list[dict]) -> dict:
-    """聚合：{tier: {bucket: {hold_n: {win_rate, avg_ret, n, picks_ret}}}}"""
-    agg: dict = {t: {} for t in TIERS}
+    """聚合：{tier: {bucket: {hold_n: stats}}}。按 (tier, bucket) 分组后再
+    应用 cooldown=n 去重，保证 forward windows 不重叠。"""
+    # 1) 按 (tier, bucket) 分桶
+    by_group: dict = {}
     for p in picks_with_ret:
         tier = p["tier"]
         bucket = _r2_bucket(p["r2"])
         if not bucket or tier not in TIERS:
             continue
+        key = (tier, bucket)
+        by_group.setdefault(key, []).append(p)
+
+    # 2) 每个 (tier, bucket) 各自应用 cooldown 算 stats
+    agg: dict = {t: {} for t in TIERS}
+    for (tier, bucket), picks_in_group in by_group.items():
         if bucket not in agg[tier]:
             agg[tier][bucket] = {n: [] for n in HOLD_PERIODS}
         for n in HOLD_PERIODS:
-            r = p.get(f"ret_t{n}")
-            if r is not None:
-                agg[tier][bucket][n].append(r)
+            relevant = [p for p in picks_in_group if p.get(f"ret_t{n}") is not None]
+            deduped = _apply_cooldown(relevant, cooldown_days=n)
+            agg[tier][bucket][n] = [p[f"ret_t{n}"] for p in deduped]
 
     # 计算 stats
     summary: dict = {t: {} for t in TIERS}
@@ -142,23 +174,25 @@ def _aggregate(picks_with_ret: list[dict]) -> dict:
 
 
 def _tier_overall(picks_with_ret: list[dict], tier: str, by: str = "primary") -> dict:
-    """tier 整体 stats 不分桶。
+    """tier 整体 stats 不分桶；每个 hold period 应用对应天数冷却去重。
 
     by='primary': 按 primary tier 算（first-match-wins，每只票归一档；residual 视图）
     by='criterion': 按 matched_tiers 多重计数（每只票若同时命中多 tier 给每个 tier 都 +1；criterion 评估视图）
     """
     out = {}
     for n in HOLD_PERIODS:
-        rets: list[float] = []
+        # 1) 筛 tier-membership
+        relevant = []
         for p in picks_with_ret:
-            if p.get(f"ret_t{n}") is None:
-                continue
             if by == "primary":
                 hits = [p["tier"]]
             else:
                 hits = p.get("matched_tiers") or [p["tier"]]
-            if tier in hits:
-                rets.append(p[f"ret_t{n}"])
+            if tier in hits and p.get(f"ret_t{n}") is not None:
+                relevant.append(p)
+        # 2) 应用 cooldown=n (对齐 hold period — forward windows 不重叠)
+        deduped = _apply_cooldown(relevant, cooldown_days=n)
+        rets = [p[f"ret_t{n}"] for p in deduped]
         if rets:
             out[n] = {
                 "n": len(rets),
@@ -171,18 +205,21 @@ def _tier_overall(picks_with_ret: list[dict], tier: str, by: str = "primary") ->
 
 
 def _match_count_overall(picks_with_ret: list[dict]) -> dict:
-    """按 matched_tiers 数量分组算 win_rate — 验证"多档共振 → 高胜率"假设。
-    返回 {1: {n: stats}, 2: {n: stats}, 3: {n: stats}}
+    """按 matched_tiers 数量分组算 win_rate（冷却去重），验证"多档共振 → 高胜率"。
+    现在 TIERS 只有 E0/E1，match count 范围 1-2。
     """
     out: dict[int, dict] = {}
-    for cnt in (1, 2, 3):
+    max_cnt = len(TIERS)
+    for cnt in range(1, max_cnt + 1):
         out[cnt] = {}
         for n in HOLD_PERIODS:
-            rets: list[float] = []
+            relevant = []
             for p in picks_with_ret:
-                m = p.get("matched_tiers") or [p["tier"]]
+                m = [t for t in (p.get("matched_tiers") or [p["tier"]]) if t in TIERS]
                 if len(m) == cnt and p.get(f"ret_t{n}") is not None:
-                    rets.append(p[f"ret_t{n}"])
+                    relevant.append(p)
+            deduped = _apply_cooldown(relevant, cooldown_days=n)
+            rets = [p[f"ret_t{n}"] for p in deduped]
             if rets:
                 out[cnt][n] = {
                     "n": len(rets),
@@ -256,12 +293,13 @@ def _format_body(summary: dict, overall_primary: dict, overall_criterion: dict,
     lines.append("```<br>")
 
     # 视图 C：按共振档数分组（验证"多档共振=高胜率"假设）
-    lines.append("**📊 视图 C：按共振档数（命中 1/2/3 档 vs 胜率）**<br>")
+    max_cnt = len(TIERS)
+    lines.append(f"**📊 视图 C：按共振档数（命中 1-{max_cnt} 档 vs 胜率）**<br>")
     lines.append("```")
     lines.append(f"{'matches':<9}{'T+1':>14}{'T+5':>14}{'T+10':>14}")
-    for cnt in (3, 2, 1):
+    for cnt in range(max_cnt, 0, -1):
         s_row = match_count.get(cnt, {})
-        row_label = {3: "3 档共振", 2: "2 档共振", 1: "1 档单中"}[cnt]
+        row_label = f"{cnt} 档共振" if cnt > 1 else "1 档单中"
         row = [f"{row_label:<9}"]
         for n in HOLD_PERIODS:
             s = s_row.get(n, {})
