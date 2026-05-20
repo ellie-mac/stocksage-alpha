@@ -324,8 +324,11 @@ def format_body(report: dict) -> str:
         p20 = it.get('percentile_20')
         p20_s = f"{p20:.0f}%" if p20 is not None else 'NA'
         anomaly = it.get('change_anomaly', 'NA')
+        # A股惯例：🔴=多/涨，🟢=空/跌。净空时打绿，净多时打红。
+        net = (it.get('net_short') or 0)
+        side_emoji = '🟢' if net > 0 else ('🔴' if net < 0 else '⚪')
         lines.append(
-            f"🔴 **{label}**｜空 {sq}({sc_s}) / 多 {lq}({lc_s})｜空多比 {ratio_s}｜P20 {p20_s}｜动量 {anomaly}<br>"
+            f"{side_emoji} **{label}**｜空 {sq}({sc_s}) / 多 {lq}({lc_s})｜空多比 {ratio_s}｜P20 {p20_s}｜动量 {anomaly}<br>"
         )
     lines.append("<br>")
     lines.append("📖 空多比>1.3 偏空 / 1.0-1.1 接近平手｜P20=20日分位｜动量基于10日波动 z-score<br>")
@@ -402,14 +405,15 @@ def _render_chart(report: dict) -> Path | None:
         dates = [datetime.strptime(d, "%Y%m%d") for d, _, _ in data]
         shorts = [s for _, s, _ in data]
         longs = [l for _, _, l in data]
+        # A股惯例：红多绿空。多单红、空单绿；净多区浅红、净空区浅绿。
         ax.fill_between(dates, longs, shorts,
                         where=[s >= l for s, l in zip(shorts, longs)],
-                        color='#ff9999', alpha=0.25, label='净空区')
+                        color='#a5d6a7', alpha=0.35, label='净空区')
         ax.fill_between(dates, longs, shorts,
                         where=[s < l for s, l in zip(shorts, longs)],
-                        color='#99ccff', alpha=0.25, label='净多区')
-        ax.plot(dates, shorts, label='空单', color='#d62728', linewidth=2, marker='o', markersize=3)
-        ax.plot(dates, longs, label='多单', color='#2ca02c', linewidth=2, marker='o', markersize=3)
+                        color='#ffcdd2', alpha=0.35, label='净多区')
+        ax.plot(dates, longs, label='多单', color='#d62728', linewidth=2, marker='o', markersize=3)
+        ax.plot(dates, shorts, label='空单', color='#2ca02c', linewidth=2, marker='o', markersize=3)
         # 今日标注
         if shorts and longs:
             net = shorts[-1] - longs[-1]
