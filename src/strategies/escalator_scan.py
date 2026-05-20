@@ -162,7 +162,9 @@ def _push_results(data: dict) -> None:
     print("[escalator] 微信推送完成", flush=True)
 
 
-def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False) -> dict:
+def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False,
+             as_of_date: str = "") -> dict:
+    """as_of_date: 'YYYYMMDD' 用于回填 — fetch 大窗口后 slice 到 ≤ as_of_date 模拟当日扫描。"""
     import fetcher as _fetcher
     try:
         from strategies._quality import load_name_industry_map, load_universe, compute_metrics, passes_quality, is_blacklisted
@@ -176,9 +178,18 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
     def worker(code: str):
         code6 = code[-6:]
         try:
-            df = _fetcher.get_price_history(code, days=max(_MIN_BARS, 35))
-            if df is None or len(df) < _MIN_BARS:
+            # 回填模式拉 90 天给 slice 留 buffer；live 模式只拉 35 天足够
+            fetch_days = 90 if as_of_date else max(_MIN_BARS, 35)
+            df = _fetcher.get_price_history(code, days=fetch_days)
+            if df is None or df.empty:
                 return None
+            if as_of_date:
+                df = df[df["date"].astype(str) <= as_of_date]
+            if len(df) < _MIN_BARS:
+                return None
+            # 回填时只用最近 35 行（匹配 live 模式 fetch 窗口）
+            if as_of_date:
+                df = df.iloc[-max(_MIN_BARS, 35):]
             closes = df["close"].astype(float).to_numpy()
             highs = df["high"].astype(float).to_numpy()
             lows = df["low"].astype(float).to_numpy()
@@ -231,8 +242,9 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
         tiers_full[t].sort(key=lambda x: (-x["slope_pct"], -x["r2"], -x["amt_5d_yi"]))
 
     tiers = {t: list(tiers_full[t]) for t in _TIER_ORDER}
+    date_str = as_of_date or datetime.now().strftime("%Y%m%d")
     output = {
-        "date": datetime.now().strftime("%Y%m%d"),
+        "date": date_str,
         "strategy": "escalator",
         "version": "强化版v1+5日涨幅8%过滤",
         "tiers": tiers,
@@ -241,7 +253,11 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
         "raw_counts": {t: len(v) for t, v in tiers_full.items()},
     }
     if not dry_run:
-        OUT_LATEST.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 回填模式只写 dated 文件，避免覆盖当日 latest；live 模式两个都写
+        dated_path = ROOT / "data" / f"escalator_{date_str}.json"
+        dated_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+        if not as_of_date:
+            OUT_LATEST.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     raw_counts = " ".join(f"{t}={len(tiers_full[t])}" for t in _TIER_ORDER)
     cap_counts = " ".join(f"{t}={len(tiers[t])}" for t in _TIER_ORDER)
     print(f"[escalator] raw counts: {raw_counts}")
@@ -261,5 +277,22 @@ if __name__ == "__main__":
     parser.add_argument("--push", action="store_true", help="推送微信")
     parser.add_argument("--dry-run", action="store_true", help="仅打印，不落盘")
     parser.add_argument("--tech-only", action="store_true", help="仅保留 TMT 行业")
+    parser.add_argument("--date", type=str, default="", help="回填模式 YYYYMMDD（按该日 as-of 扫描，结果存 escalator_<date>.json，不覆盖 latest）")
+    parser.add_argument("--backfill", type=int, default=0, help="回填最近 N 个交易日，跑完退出（不推送）")
     args = parser.parse_args()
-    run_scan(push=args.push, dry_run=args.dry_run, tech_only=args.tech_only)
+
+    if args.backfill > 0:
+        from datetime import date as _d, timedelta as _td
+        dates = []
+        cur = _d.today()
+        while len(dates) < args.backfill:
+            cur -= _td(days=1)
+            if cur.weekday() < 5:
+                dates.append(cur.strftime("%Y%m%d"))
+        for ds in dates:
+            print(f"\n=== backfill {ds} ===")
+            out = run_scan(push=False, dry_run=False, tech_only=args.tech_only, as_of_date=ds)
+            print(f"[escalator] {ds} counts: {out.get('counts')}")
+    else:
+        run_scan(push=args.push, dry_run=args.dry_run, tech_only=args.tech_only,
+                 as_of_date=args.date)
