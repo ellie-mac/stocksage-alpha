@@ -242,8 +242,13 @@ def push_feishu_image(image_path, caption: str = "") -> None:
                 "Content-Type":  f"multipart/form-data; boundary={boundary}",
             },
         )
-        with urllib.request.urlopen(req, timeout=30) as r:
-            up = json.loads(r.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                up = json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")[:500]
+            print(f"[notify_feishu] 上传 HTTP {e.code}: {err_body}", flush=True)
+            return
         if up.get("code") != 0:
             print(f"[notify_feishu] 图片上传失败: {up}", flush=True)
             return
