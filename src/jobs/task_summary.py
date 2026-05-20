@@ -25,6 +25,30 @@ from task_schedule import ALL_TASKS  # noqa: E402
 
 PROBE_LOG = ROOT / "src" / "logs" / "task_probe.log"
 
+# 产物兜底：probe 找不到时，看任务的关键输出文件今日是否更新。
+# 不是所有任务都有可观测产物（如 _Prefetch、_Warm 类只更新缓存），这里只列
+# 主流 scanner / report 类。
+TASK_OUTPUT_FILES: dict[str, list[Path]] = {
+    "escalator_Scan":    [ROOT / "data" / "escalator_latest.json"],
+    "sideways_Scan":     [ROOT / "data" / "sideways_latest.json"],
+    "golden_Scan":       [ROOT / "data" / "golden_cross_latest.json"],
+    "hot_Scan":          [ROOT / "data" / "hot_scan_latest.json"],
+    "chip_Night":        [ROOT / "data" / "chip_scan_latest.json"],
+    "chip_CadScan":      [ROOT / "data" / "chip_cad_latest.json"],
+    "marketcap_Scan":    [ROOT / "data" / "marketcap_latest.json"],
+    "main_Scan":         [ROOT / "data" / "latest_picks.json"],
+    "evening_Strategy":  [ROOT / "data" / "latest_picks.json"],
+    "cffex_CiticAM":     [ROOT / "data" / "cffex_citic_latest.json"],
+    "escalator_PerfLog": [ROOT / "data" / "escalator_perf.json",
+                          ROOT / "data" / "escalator_daily_perf.json"],
+    "strategy_Compare":  [ROOT / "data" / "strategy_compare.json",
+                          ROOT / "data" / "strategy_compare_latest.json"],
+    "daily_PerfLog":     [ROOT / "data" / "main_daily_perf.json",
+                          ROOT / "data" / "chip_daily_perf.json",
+                          ROOT / "data" / "gc_daily_perf.json"],
+    "watchlist_Updater": [ROOT / "data" / "watchlist_dynamic.json"],
+}
+
 
 def _parse_probe_today(today_yyyymmdd: str) -> dict[str, dict]:
     """解析 task_probe.log，返回 {task_name: {bat_entered, invoking, exit_code, exit_at}}.
@@ -71,23 +95,47 @@ def _parse_probe_today(today_yyyymmdd: str) -> dict[str, dict]:
     return out
 
 
-def _classify(task: dict, probe_info: dict | None, now_hhmm: str) -> tuple[str, str]:
-    """返回 (emoji, note)。emoji ∈ {✅ ❌ ⏳ ⏰ ❓}"""
+def _check_output_files(task_name: str, today_yyyymmdd: str) -> str | None:
+    """产物兜底：检查任务的关键输出文件是否今日更新。
+
+    返回 "HH:MM"（最新文件 mtime）若至少一个文件今日 fresh，否则 None。
+    """
+    paths = TASK_OUTPUT_FILES.get(task_name)
+    if not paths:
+        return None
+    today = datetime.strptime(today_yyyymmdd, "%Y%m%d").date()
+    latest_mtime = 0.0
+    for p in paths:
+        if p.exists():
+            mtime = p.stat().st_mtime
+            if datetime.fromtimestamp(mtime).date() == today and mtime > latest_mtime:
+                latest_mtime = mtime
+    return datetime.fromtimestamp(latest_mtime).strftime("%H:%M") if latest_mtime else None
+
+
+def _classify(task: dict, probe_info: dict | None, now_hhmm: str, today: str) -> tuple[str, str]:
+    """返回 (emoji, note)。emoji ∈ {✅ ❌ ⏳ ⏰ ❓ ·}"""
     sched_time = task["time"]
     if probe_info is None:
-        # 没探针记录
+        # 探针找不到 → 看产物兜底
+        out_mtime = _check_output_files(task["name"], today)
+        if out_mtime:
+            return "✅", f"{out_mtime} (产物)"   # 标 "产物" 区分 probe 来源
         if task["slot"] is None:
-            return "·", "no probe"   # 灰点，不影响计数
+            return "·", "no probe"
         if sched_time > now_hhmm:
             return "⏰", "未到时间"
         return "❓", "应运行但无记录"
     if probe_info["exit_code"] is None:
-        # 有 entered/invoking 但没 exit
         if probe_info["invoking"]:
             return "⏳", f"进行中 {probe_info['invoking']}"
         return "⏳", f"卡在 bat {probe_info['bat_entered']}"
     if probe_info["exit_code"] == 0:
         return "✅", probe_info["exit_at"] or ""
+    # 即使 exit≠0，也检查产物：可能像 monitor.py 那样工作做完了 socket 收尾报错
+    out_mtime = _check_output_files(task["name"], today)
+    if out_mtime:
+        return "✅", f"{out_mtime} (产物，exit={probe_info['exit_code']})"
     return "❌", f"exit={probe_info['exit_code']} @ {probe_info['exit_at']}"
 
 
@@ -119,7 +167,7 @@ def main() -> int:
         if not t.get("display", True):
             continue
         info = probe.get(t["name"])
-        emoji, note = _classify(t, info, now_hhmm)
+        emoji, note = _classify(t, info, now_hhmm, today)
         rows.append(f"{emoji} {t['time']} {t['name']:<22} {note}")
         if emoji == "✅":  ok += 1
         elif emoji == "❌": fail += 1
