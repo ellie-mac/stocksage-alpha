@@ -43,6 +43,7 @@ EVENING_STRATEGY  = SCRIPTS   / "jobs"       / "evening_strategy.py"
 PREFETCH_QUALITY  = SCRIPTS   / "jobs"       / "prefetch_quality.py"
 CFFEX_CITIC       = SCRIPTS   / "jobs"       / "cffex_citic_positions.py"
 ESCALATOR_SCAN    = SCRIPTS   / "strategies" / "escalator_scan.py"
+TASK_SUMMARY      = SCRIPTS   / "jobs"       / "task_summary.py"
 ESCALATOR_PERF    = SCRIPTS   / "jobs"       / "escalator_perf_log.py"
 STRATEGY_COMPARE  = SCRIPTS   / "jobs"       / "strategy_compare.py"
 
@@ -183,6 +184,13 @@ def _scheduled_bat(task_name: str, slot: str, desc: str):
     elif slot == "strategy_compare":
         path = TASKS_DIR / "run_strategy_compare.bat"
         cmd = f'"{PYTHON}" -X utf8 "{STRATEGY_COMPARE}" --push >> "{log}\\strategy_compare.log" 2>&1'
+    elif slot == "task_summary":
+        # 每个 task_Summary_X 共享同一脚本，bat 按 task_name 区分（避免 3 个任务覆盖同一 bat）。
+        # 取 task_name 中 _ 后的部分（如 Midday/Close/Evening）作为脚本 argv，喂入 Feishu 标题。
+        label = task_name.split("_")[-1] if "_" in task_name else ""
+        label_arg = {"Midday": "中午", "Close": "收盘", "Evening": "晚上"}.get(label, label)
+        path = TASKS_DIR / f"run_{task_name.lower()}.bat"
+        cmd = f'"{PYTHON}" -X utf8 "{TASK_SUMMARY}" "{label_arg}" >> "{log}\\task_summary.log" 2>&1'
     else:
         raise ValueError(f"Unknown slot: {slot}")
 

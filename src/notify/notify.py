@@ -308,8 +308,13 @@ def main() -> None:
     desc   = sys.argv[2] if len(sys.argv) > 2 else ""
     status = sys.argv[3] if len(sys.argv) > 3 else ""
 
+    # task_failures.json 仍要更新（用于汇报 / 重跑提示），但只在失败时推送飞书。
+    # started/ok 不再发飞书，避免噪音；汇总信息由 task_summary 在中午/收盘/晚上 3 次推送。
     _update_failures(task, status)
-    _try_feishu(task, desc, status)
+    if status == "failed":
+        _try_feishu(task, desc, status)
+    else:
+        print(f"[notify_feishu] 跳过 {task}/{status or 'ok'}（仅失败才推送，汇总在 12:30/16:45/22:35）", flush=True)
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@ ALL_TASKS: list[dict[str, Any]] = [
     {"name": "integrity_Check",   "time": "08:00", "desc": "数据完整性检查",     "push": False, "slot": "integrity_check","disabled": False, "display": True},
     {"name": "cffex_CiticAM",     "time": "19:00", "desc": "中信期货空单跟踪",   "push": True,  "slot": "cffex_citic",    "disabled": False, "display": True},
     {"name": "concept_Warm",      "time": "08:30", "desc": "概念map预热",        "push": False, "slot": "concept_warm",   "disabled": False, "display": True},
-    {"name": "watchlist_Monitor", "time": "09:15", "desc": "自选股监控",         "push": True,  "slot": None,             "disabled": False, "display": True},
+    {"name": "watchlist_Monitor", "time": "09:15", "desc": "自选股监控",         "push": True,  "slot": None,             "disabled": True,  "display": True},
     {"name": "report_Morning",    "time": "09:25", "desc": "盘前选股报告",       "push": True,  "slot": "chip_morning",   "disabled": True,  "display": True},
     {"name": "watchlist_Scan",    "time": "09:30", "desc": "自选股扫描",         "push": True,  "slot": None,             "disabled": False, "display": True},
 
@@ -73,6 +73,12 @@ ALL_TASKS: list[dict[str, Any]] = [
     {"name": "evening_Strategy",  "time": "22:00", "desc": "多策略汇总·晚间",    "push": True,  "slot": "evening_strategy","disabled": False, "display": True},
     {"name": "main_Night",        "time": "22:30", "desc": "财务缓存预热",       "push": False, "slot": None,             "disabled": False, "display": True},
     {"name": "watchlist_Updater", "time": "23:40", "desc": "自选股更新",         "push": False, "slot": None,             "disabled": False, "display": True},
+
+    # ── 每日 3 次任务汇报（只推飞书）─────────────────────────────────────────
+    # 替代每个任务的 started/ok feishu 噪音；只在固定时间汇总一次今日任务状态。
+    {"name": "task_Summary_Midday",  "time": "12:30", "desc": "任务汇报·中午",     "push": False, "slot": "task_summary",   "disabled": False, "display": False},
+    {"name": "task_Summary_Close",   "time": "16:45", "desc": "任务汇报·收盘",     "push": False, "slot": "task_summary",   "disabled": False, "display": False},
+    {"name": "task_Summary_Evening", "time": "22:35", "desc": "任务汇报·晚上",     "push": False, "slot": "task_summary",   "disabled": False, "display": False},
 ]
 
 
