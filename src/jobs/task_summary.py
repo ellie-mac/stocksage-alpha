@@ -36,12 +36,13 @@ def _parse_probe_today(today_yyyymmdd: str) -> dict[str, dict]:
     if not PROBE_LOG.exists():
         return out
 
-    # 匹配任意位置的 YYYY/MM/DD 和 HH:MM:SS，后面跟 task_name 和 action
+    # 探针行例子（bat 写入，前缀含 %DATE% 可能带星期）:
+    #   [周三 2026/05/20 18:30:01.53] main_Scan bat entered
+    # 也兼容 yyyy-mm-dd 或 mm/dd/yyyy；只要 \[ ... \] 内能找到 YYYY 和 HH:MM 即可。
     rx = re.compile(
-        r"(\d{4})[/-](\d{1,2})[/-](\d{1,2}).*?(\d{1,2}):(\d{2})[:.]\d+[]\s].*?\]\s+(\w+)\s+(.+)"
+        r"\[.*?(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})\s+(\d{1,2}):(\d{2})[:.]?\d*\.?\d*\s*\]"
+        r"\s+(\w+)\s+(.+)"
     )
-    target = (today_yyyymmdd[:4], today_yyyymmdd[4:6].lstrip("0") or "0",
-              today_yyyymmdd[6:8].lstrip("0") or "0")
     target_padded = (today_yyyymmdd[:4], today_yyyymmdd[4:6], today_yyyymmdd[6:8])
 
     for raw in PROBE_LOG.read_text(encoding="utf-8", errors="replace").splitlines():
