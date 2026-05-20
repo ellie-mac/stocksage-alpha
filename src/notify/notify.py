@@ -207,6 +207,69 @@ def push_feishu_card(title: str, lines: list[str]) -> None:
         print(f"[notify_feishu] card推送失败: {e}", flush=True)
 
 
+def push_feishu_image(image_path, caption: str = "") -> None:
+    """上传 PNG/JPG 图片到飞书并发到 notify chat。两步：image upload → 发 image 消息。
+
+    image_path: 本地图片路径（str 或 Path）。caption 当前未使用（image 消息无 caption；
+    需要的话先调 push_feishu_content 发文字、再调本函数发图）。失败只 print，不抛。
+    """
+    from pathlib import Path as _P
+    app_id, secret, chat_id = _feishu_cfg()
+    if not (app_id and secret and chat_id):
+        return
+    p = _P(image_path)
+    if not p.exists():
+        print(f"[notify_feishu] image not found: {p}", flush=True)
+        return
+    try:
+        token = _feishu_token(app_id, secret)
+        # Step 1: upload image (multipart/form-data)
+        boundary = "----stocksageImgBoundary7E1A"
+        parts: list[bytes] = []
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(b'Content-Disposition: form-data; name="image_type"\r\n\r\nmessage\r\n')
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(f'Content-Disposition: form-data; name="image"; filename="{p.name}"\r\n'.encode())
+        parts.append(b"Content-Type: image/png\r\n\r\n")
+        parts.append(p.read_bytes())
+        parts.append(f"\r\n--{boundary}--\r\n".encode())
+        body = b"".join(parts)
+        req = urllib.request.Request(
+            "https://open.feishu.cn/open-apis/im/v1/images",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type":  f"multipart/form-data; boundary={boundary}",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=30) as r:
+            up = json.loads(r.read().decode("utf-8"))
+        if up.get("code") != 0:
+            print(f"[notify_feishu] 图片上传失败: {up}", flush=True)
+            return
+        image_key = up["data"]["image_key"]
+
+        # Step 2: send image message
+        msg_body = json.dumps({
+            "receive_id": chat_id,
+            "msg_type":   "image",
+            "content":    json.dumps({"image_key": image_key}),
+        }).encode("utf-8")
+        req2 = urllib.request.Request(
+            "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            data=msg_body,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        )
+        with urllib.request.urlopen(req2, timeout=10) as r:
+            resp = json.loads(r.read().decode("utf-8"))
+        if resp.get("code") != 0:
+            print(f"[notify_feishu] 图片消息发送失败: {resp}", flush=True)
+        else:
+            print("[notify_feishu] 图片推送成功", flush=True)
+    except Exception as e:
+        print(f"[notify_feishu] 图片推送异常: {e}", flush=True)
+
+
 def push_feishu_content(text: str) -> None:
     """Push plain-text content to the Feishu notify chat. Best-effort, never raises."""
     app_id, secret, chat_id = _feishu_cfg()
