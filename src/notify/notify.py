@@ -17,22 +17,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 _FAILURES_PATH = ROOT / "data" / "task_failures.json"
 
+# notify.py "剩余任务" 显示用的日程清单——理论上应该同步自 setup_scheduler.TASKS，
+# 历史遗留各项时间/名字略漂；只列实际跑的活任务，已 disable 的 report_* 不列。
 _SCHEDULE = [
-    ("chip_Premarket",  "07:00", "筹码盘前兜底"),
-    ("main_Morning",    "07:10", "主策略盘前兜底"),
-    ("integrity_Check", "08:00", "数据完整性检查"),
-    ("concept_Warm",    "08:30", "概念板块预热"),
-    ("xhs_Morning",     "09:25", "盘前筹码推送 📱"),
-    ("xhs_Midday",      "11:35", "午间筹码推送 📱"),
-    ("xhs_Evening",     "15:30", "收盘筹码推送 📱"),
-    ("market_Warm",     "15:35", "市场数据预热"),
-    ("price_Prefetch",  "15:45", "价格历史预热"),
-    ("daily_PerfLog",   "16:00", "收盘胜率对比 📱"),
-    ("chip_Night",      "18:00", "筹码缓存预取"),
-    ("main_Scan",       "18:30", "主策略扫盘 📱"),
-    ("gc_Scan",         "19:30", "金叉策略扫描 📱"),
-    ("chip_CadScan",    "20:30", "筹码扫描推送 📱"),
-    ("main_Night",      "22:30", "财务缓存预热"),
+    ("integrity_Check",  "08:00", "数据完整性检查"),
+    ("cffex_CiticAM",    "08:00", "中信期货空单跟踪 📱"),
+    ("concept_Warm",     "08:30", "概念板块预热"),
+    ("marketcap_Scan",   "15:45", "市值策略扫盘 📱"),
+    ("daily_PerfLog",    "16:05", "胜率统计 📱"),
+    ("hot_Scan",         "16:35", "热榜策略扫描 📱"),
+    ("price_Prefetch",   "17:00", "价格历史预热"),
+    ("fundflow_Prefetch","17:30", "资金流向预热"),
+    ("chip_Night",       "18:00", "筹码缓存预取"),
+    ("main_Scan",        "18:30", "主/ETF/小盘扫盘 📱"),
+    ("quality_Prefetch", "19:00", "质量指标预热"),
+    ("golden_Scan",      "19:30", "金叉策略扫描 📱"),
+    ("sideways_Scan",    "20:00", "横盘策略扫描 📱"),
+    ("escalator_Scan",   "20:15", "扶梯策略扫描 📱"),
+    ("chip_CadScan",     "21:00", "筹码扫描推送 📱"),
+    ("evening_Strategy", "22:00", "多策略汇总·晚间 📱"),
 ]
 
 

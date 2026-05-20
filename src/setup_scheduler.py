@@ -91,6 +91,15 @@ OLD_TASKS = [
     "xhs_Morning", "xhs_Midday", "xhs_Evening",
 ]
 
+# Tasks that get created but immediately disabled (留 config 但不跑)。
+# 这些 task 仍在 TASKS 注册流程里 — 创建后 setup_scheduler 立即 schtasks /Change
+# /DISABLE。想重启某项就从这个集合里移除名字，再跑一次 setup_scheduler。
+DISABLED_TASKS = {
+    "report_Morning",
+    "report_Midday",
+    "report_Evening",
+}
+
 # ── Scheduled tasks ───────────────────────────────────────────────────────────
 TASKS = [
     ("integrity_Check", "08:00", "integrity_check", "每小时数据完整性检查（首次通过后当日跳过）", False),
@@ -245,6 +254,10 @@ def _delete_task(name: str):
     return _run(["schtasks", "/Delete", "/TN", name, "/F"])
 
 
+def _disable_task(name: str):
+    return _run(["schtasks", "/Change", "/TN", name, "/DISABLE"])
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--remove", action="store_true")
@@ -285,10 +298,14 @@ def main():
         bat, content = _scheduled_bat(name, slot, desc)
         bat.write_text(content, encoding="utf-8")
         res = _create_daily_task(name, time_str, bat)
-        if res.returncode == 0:
-            print(f"[OK] {name} @ {time_str}")
-        else:
+        if res.returncode != 0:
             print(f"[FAIL] {name} @ {time_str}: {res.stderr or res.stdout}")
+            continue
+        suffix = ""
+        if name in DISABLED_TASKS:
+            _disable_task(name)
+            suffix = " [DISABLED]"
+        print(f"[OK] {name} @ {time_str}{suffix}")
 
     print("定时任务注册完成")
 
