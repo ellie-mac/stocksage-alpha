@@ -164,14 +164,17 @@ def _push_results(data: dict) -> None:
             amp = p.get("daily_amp") or 0
             amt = p.get("amt_5d_yi") or 0
             ind = p.get("industry", "")
-            lines.append(f"{p['code']} {p['name']} ({ind})<br>收盘 ¥{close:.2f}｜斜率 {sp:+.1f}%｜R² {r2:.2f}｜日振幅 {amp:.1f}%｜5日额 {amt:.1f}亿")
+            matched = p.get("matched_tiers") or []
+            badge = f"  [共振 {'·'.join(matched)}]" if len(matched) > 1 else ""
+            lines.append(f"{p['code']} {p['name']} ({ind}){badge}<br>收盘 ¥{close:.2f}｜斜率 {sp:+.1f}%｜R² {r2:.2f}｜日振幅 {amp:.1f}%｜5日额 {amt:.1f}亿")
         section = f"【{tier} {_TIER_LABEL[tier]}】共{len(picks)}只<br>" + "<br>".join(lines)
         sections.append(section)
 
     legend = (
-        "扶梯策略（强化版 v1）<br>"
-        "档位：E1 20d / E2 10d（已停用30d）<br>"
-        "判定：线性回归累计涨幅在区间 + R² 阈值提高（20d=0.80，10d=0.85） + 日振幅≥2% + 无大跌(≥-5%) + MA多头<br>"
+        "扶梯策略（强化版 v2）<br>"
+        "档位：E0 20d / E1 10d / E2 5d（启动期实验档，回填验证中）<br>"
+        "判定：线性回归累计涨幅在区间 + R²（20d=0.80 / 10d=0.85 / 5d=0.92）+ 日振幅≥2% + 无大跌(≥-5%) + MA多头<br>"
+        "排序：多档共振优先 → 斜率 → R² → 5日额；多档票打 [共振 E0·E1·E2] 标签<br>"
         "新增防冲顶：5日涨幅≤8%<br>"
         "已过滤：死水股(5日均额≥0.5亿+量比≥0.5) + 行业黑名单"
     )
@@ -261,7 +264,13 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False,
     for r in rows:
         tiers_full[r["tier"]].append(r)
     for t in _TIER_ORDER:
-        tiers_full[t].sort(key=lambda x: (-x["slope_pct"], -x["r2"], -x["amt_5d_yi"]))
+        # 多档共振优先 → 斜率 → R² → 5日额；同档内高确定性票浮顶
+        tiers_full[t].sort(key=lambda x: (
+            -len(x.get("matched_tiers") or []),
+            -x["slope_pct"],
+            -x["r2"],
+            -x["amt_5d_yi"],
+        ))
 
     tiers = {t: list(tiers_full[t]) for t in _TIER_ORDER}
     date_str = as_of_date or datetime.now().strftime("%Y%m%d")

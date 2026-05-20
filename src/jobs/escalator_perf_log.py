@@ -170,6 +170,30 @@ def _tier_overall(picks_with_ret: list[dict], tier: str, by: str = "primary") ->
     return out
 
 
+def _match_count_overall(picks_with_ret: list[dict]) -> dict:
+    """按 matched_tiers 数量分组算 win_rate — 验证"多档共振 → 高胜率"假设。
+    返回 {1: {n: stats}, 2: {n: stats}, 3: {n: stats}}
+    """
+    out: dict[int, dict] = {}
+    for cnt in (1, 2, 3):
+        out[cnt] = {}
+        for n in HOLD_PERIODS:
+            rets: list[float] = []
+            for p in picks_with_ret:
+                m = p.get("matched_tiers") or [p["tier"]]
+                if len(m) == cnt and p.get(f"ret_t{n}") is not None:
+                    rets.append(p[f"ret_t{n}"])
+            if rets:
+                out[cnt][n] = {
+                    "n": len(rets),
+                    "win_rate": round(sum(1 for r in rets if r > 0) / len(rets) * 100, 1),
+                    "avg_ret": round(mean(rets), 2),
+                }
+            else:
+                out[cnt][n] = {"n": 0, "win_rate": None, "avg_ret": None}
+    return out
+
+
 def _overlap_stats(picks_with_ret: list[dict]) -> dict:
     """各 tier 之间 matched_tiers 重合率。
     返回 {tier: {"total": N, "also_in_E0": x%, "also_in_E1": y%, "only": z%}}
@@ -195,7 +219,8 @@ def _overlap_stats(picks_with_ret: list[dict]) -> dict:
 
 
 def _format_body(summary: dict, overall_primary: dict, overall_criterion: dict,
-                 overlap: dict, n_days: int, n_picks: int) -> str:
+                 overlap: dict, match_count: dict,
+                 n_days: int, n_picks: int) -> str:
     lines = [f"[扶梯·胜率] {datetime.now():%Y-%m-%d %H:%M}<br>",
              f"样本：{n_days} 天历史 / {n_picks} 个 pick × hold period<br><br>"]
 
@@ -228,6 +253,27 @@ def _format_body(summary: dict, overall_primary: dict, overall_criterion: dict,
     lines.append(f"{'tier':<5}{'T+1':>14}{'T+5':>14}{'T+10':>14}")
     for tier in TIERS:
         lines.append(_tier_row(tier, overall_criterion))
+    lines.append("```<br>")
+
+    # 视图 C：按共振档数分组（验证"多档共振=高胜率"假设）
+    lines.append("**📊 视图 C：按共振档数（命中 1/2/3 档 vs 胜率）**<br>")
+    lines.append("```")
+    lines.append(f"{'matches':<9}{'T+1':>14}{'T+5':>14}{'T+10':>14}")
+    for cnt in (3, 2, 1):
+        s_row = match_count.get(cnt, {})
+        row_label = {3: "3 档共振", 2: "2 档共振", 1: "1 档单中"}[cnt]
+        row = [f"{row_label:<9}"]
+        for n in HOLD_PERIODS:
+            s = s_row.get(n, {})
+            wr = s.get("win_rate"); ret = s.get("avg_ret"); nn = s.get("n", 0)
+            if wr is None or nn == 0:
+                row.append(f"{'-':>14}")
+            else:
+                if n == 5:
+                    row.append(f"**{wr:>4.0f}% {ret:+.1f}% n={nn}**".rjust(14))
+                else:
+                    row.append(f"{wr:>4.0f}% {ret:+.1f}% n={nn:<3}".rjust(14))
+        lines.append("".join(row))
     lines.append("```<br>")
 
     # 重合率
@@ -395,8 +441,10 @@ def main() -> int:
     overall_primary   = {t: _tier_overall(enriched, t, by="primary")   for t in TIERS}
     overall_criterion = {t: _tier_overall(enriched, t, by="criterion") for t in TIERS}
     overlap = _overlap_stats(enriched)
+    match_count = _match_count_overall(enriched)
 
-    body = _format_body(summary, overall_primary, overall_criterion, overlap, n_days, len(enriched))
+    body = _format_body(summary, overall_primary, overall_criterion, overlap,
+                       match_count, n_days, len(enriched))
     print(f"\n{body.replace('<br>', chr(10))}\n")
 
     if args.dry_run:
