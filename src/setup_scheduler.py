@@ -44,6 +44,7 @@ PREFETCH_QUALITY  = SCRIPTS   / "jobs"       / "prefetch_quality.py"
 CFFEX_CITIC       = SCRIPTS   / "jobs"       / "cffex_citic_positions.py"
 ESCALATOR_SCAN    = SCRIPTS   / "strategies" / "escalator_scan.py"
 ESCALATOR_PERF    = SCRIPTS   / "jobs"       / "escalator_perf_log.py"
+STRATEGY_COMPARE  = SCRIPTS   / "jobs"       / "strategy_compare.py"
 
 # ── Bot startup tasks (At Logon trigger) ─────────────────────────────────────
 BOT_TASKS = [
@@ -179,6 +180,9 @@ def _scheduled_bat(task_name: str, slot: str, desc: str):
     elif slot == "escalator_perf_log":
         path = TASKS_DIR / "run_escalator_perf_log.bat"
         cmd = f'"{PYTHON}" -X utf8 "{ESCALATOR_PERF}" --push >> "{log}\\escalator_perf_log.log" 2>&1'
+    elif slot == "strategy_compare":
+        path = TASKS_DIR / "run_strategy_compare.bat"
+        cmd = f'"{PYTHON}" -X utf8 "{STRATEGY_COMPARE}" --push >> "{log}\\strategy_compare.log" 2>&1'
     else:
         raise ValueError(f"Unknown slot: {slot}")
 
