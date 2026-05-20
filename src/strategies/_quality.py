@@ -119,7 +119,7 @@ def load_universe(
     return out
 
 
-def load_marketcap_cache(max_days: int = 7, verbose: bool = True) -> dict[str, float]:
+def load_marketcap_cache(max_days: int = 14, verbose: bool = True) -> dict[str, float]:
     """读取 data/marketcap_cache.json，返回 {6位代码: 总市值(元)}。
 
     max_days 控制过期检查：缓存日期早于 max_days 天前时仍返回旧数据（带 warning）。
