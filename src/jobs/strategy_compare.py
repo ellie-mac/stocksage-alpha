@@ -223,25 +223,17 @@ def main() -> int:
             rows_sorted.append((src["label"], wr, rec_wr, tot, len(s)))
         rows_sorted.sort(key=lambda r: (r[1] is None, -(r[1] or 0)))
         top3 = rows_sorted[:3]
-        top3_str = "、".join(f"{name} 累计 {wr:.1f}% (近5日 {rwr:.1f}% / n={n})"
-                             for name, wr, rwr, n, _ in top3 if wr is not None)
+        top3_lines = "\n".join(
+            f"  • {name} 累计 {wr:.1f}% (近5日 {rwr:.1f}% / n={n})"
+            for name, wr, rwr, n, _ in top3 if wr is not None
+        )
 
         explanation = (
             f"[策略对比·T+1] {datetime.now():%Y-%m-%d %H:%M}\n"
             "==========\n"
-            "📖 这张图怎么读：\n"
-            "• 7 条线 = 7 个策略每日 T+1 open→close 胜率（次开盘到当日收盘涨/跌）\n"
-            "• 实线 = 5 日滚动平均（看趋势）；点线 = 当日原始（看噪声）\n"
-            "• X 轴 = 日期；Y 轴 = 胜率%（50% 横虚线 = coin flip 基线）\n"
-            "• 上方=胜过 50%、稳定 alpha；下方=输/接近 coin flip\n"
-            "==========\n"
-            f"🔑 累计胜率 Top 3：{top3_str or '数据不足'}\n"
-            "==========\n"
-            "📊 看图时盯什么：\n"
-            "1. 哪些策略的实线长期在 50% 上方且波动小 → 稳定 alpha 源\n"
-            "2. 哪些策略上下大幅波动 → 不稳定，遇到合适市况就赚反之就输\n"
-            "3. 跟上次推送对比：top 3 排名有没变？谁掉队？\n"
-            "⚠️ 维度=T+1 open 胜率（daily_perf_log 口径）；扶梯单独追踪 T+5 不在本图"
+            "🔑 累计胜率 Top 3：\n"
+            f"{top3_lines or '  数据不足'}\n"
+            "⚠️ 维度=T+1 open 胜率；扶梯单独追踪 T+5 不在本图"
         )
 
         try:

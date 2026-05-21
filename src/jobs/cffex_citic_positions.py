@@ -546,6 +546,7 @@ def main() -> int:
             return (f"{PRODUCT_LABEL.get(it['symbol'], it['symbol'])}：空 {sq}({sc:+d}) / 多 {lq}({lc:+d})"
                     f"，净空 {it.get('net_short', 0):+d}，空多比 {ratio:.2f}")
 
+        # 自动结论：tone + 衍生洞察
         if total_chg >= 3000 and im_ic_chg > 0:
             tone = "🔻 空仓加速堆积，中小盘是主要压力"
         elif total_chg <= -3000:
@@ -555,28 +556,37 @@ def main() -> int:
         else:
             tone = "⚪ 整体中性，看后续连续累积"
 
+        # 衍生洞察（基于数据自动判断）
+        insights = []
+        # IH 多增 > 空增？(罕见，蓝筹偏正面信号)
+        ih = next((it for it in items if it["symbol"] == "IH"), None)
+        if ih and (ih.get("long_change") or 0) > (ih.get("short_change") or 0):
+            insights.append(f"IH (上证50) 多增 {ih.get('long_change', 0):+d} > 空增 {ih.get('short_change', 0):+d} → 机构对大盘蓝筹偏正面")
+        # 哪个合约空多比最大（结构性偏空最强）
+        ratios = [(it["symbol"], (it.get("short_qty") or 0) / max(it.get("long_qty") or 1, 1)) for it in items]
+        ratios.sort(key=lambda x: -x[1])
+        if ratios:
+            sym0, r0 = ratios[0]
+            if r0 >= 1.4:
+                insights.append(f"{PRODUCT_LABEL.get(sym0, sym0)} 空多比 {r0:.2f} 最高，结构性偏空（IM 长期高位通常是雪球对冲，不一定方向性）")
+        # 单日 z-score 是否触发"异常"
+        anom = [it for it in items if it.get("change_anomaly") == "异常"]
+        if anom:
+            insights.append(f"⚠️ {len(anom)} 个合约今日变动 z-score ≥ 2（{'/'.join(it['symbol'] for it in anom)}），关注是否连续累积")
+
+        insights_block = ""
+        if insights:
+            insights_block = "\n💡 衍生洞察：\n  • " + "\n  • ".join(insights) + "\n"
+
         explanation = (
             f"[期指·中信] {report.get('trade_date', 'NA')} 机构对冲跟踪\n"
             "==========\n"
-            f"📌 {tone}\n"
-            f"  • 4 路空单合计变化 {total_chg:+d} 手\n"
-            f"  • 4 路多单合计变化 {long_total:+d} 手\n"
+            f"📌 结论：{tone}\n"
+            f"  • 4 路空单合计变化 {total_chg:+d} 手 / 多单 {long_total:+d} 手\n"
             f"  • IM+IC 空单变化 {im_ic_chg:+d} 手\n"
+            f"{insights_block}"
             "==========\n"
-            "📊 各合约（按净空降序）：\n  • " + "\n  • ".join(_line(it) for it in items) + "\n"
-            "==========\n"
-            "📖 图怎么读：\n"
-            "• 2×2 panel：IM/IC/IF/IH 各一格\n"
-            "• 红线 = 多单数量 / 绿线 = 空单数量（A股惯例：红多绿空）\n"
-            "• 阴影：浅绿 = 净空区（空>多），浅红 = 净多区（多>空）\n"
-            "• 每格右上角标注今日净空数字\n"
-            "==========\n"
-            "📖 怎么解读机构对冲：\n"
-            "• 空多比 > 1.3 = 偏空；1.0-1.1 = 接近平手\n"
-            "• 双方同时加 = 机构在做 long-short 对冲（不代表方向）\n"
-            "• 空增 + 多减 / 多不变 = 真看空\n"
-            "• IM 长期净空高是结构性（雪球对冲），不代表机构看空中证1000\n"
-            "• IH/IF 接近平手 = 机构用大盘指数做套保的成交主战场"
+            "📊 各合约（按净空降序）：\n  • " + "\n  • ".join(_line(it) for it in items)
         )
 
         try:

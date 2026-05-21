@@ -394,7 +394,8 @@ def _fmt_section(header: str, rows: list[str]) -> str:
 
 
 # 多策略共振：≥MIN_INTERSECT_TAGS 路覆盖才算"强信号"。
-MIN_INTERSECT_TAGS = 3
+# 用 2 而不是 3 — 3+共振日均往往只 0-2 只票太稀少；2+ 给更多 actionable 数据。
+MIN_INTERSECT_TAGS = 2
 
 
 def _intersection_picks(
@@ -527,14 +528,40 @@ def main() -> None:
         min_tags=MIN_INTERSECT_TAGS,
     )
 
-    sections: list[str] = []
+    # 每路策略今日 T+1 stats（compact 一行一个策略）
+    def _stat_line(label, s):
+        if s["n"] == 0:
+            return f"  {label} -- (n=0)"
+        wr_v = s.get("open_win_rate") if s.get("open_win_rate") is not None else s.get("win_rate")
+        ar_v = s.get("open_avg_ret") if s.get("open_avg_ret") is not None else s.get("avg_ret")
+        wr_s = f"{wr_v:.0f}%" if wr_v is not None else "-"
+        ar_s = f"{ar_v:+.2f}%" if ar_v is not None else "-"
+        return f"  {label} {wr_s} avg {ar_s} (n={s['n']})"
+
+    stats_rows = [
+        "📊 各策略今日 T+1 open→close 胜率：",
+        _stat_line("主策略", ms),
+        _stat_line("小盘", scs),
+        _stat_line("筹码", cs),
+        _stat_line("金叉", gs),
+        _stat_line("热榜", hs),
+        _stat_line("监控强买", wl_mon_stats),
+        _stat_line("ETF", etf_stats),
+    ]
+
+    sections: list[str] = ["  \n".join(stats_rows)]
+
     if multi:
         win = sum(1 for p in multi if (p.get("open_pct") or p.get("pct") or 0) > 0)
         win_rate = round(win / len(multi) * 100, 1)
         avg = round(sum((p.get("open_pct") or p.get("pct") or 0) for p in multi) / len(multi), 2)
         emoji = "🟢" if win_rate >= 60 else ("🟡" if win_rate >= 40 else "🔴")
+        # cap picks 列表（避免过长，多到一屏看不完）
+        SHOW_CAP = 15
+        shown = multi[:SHOW_CAP]
+        omitted = len(multi) - len(shown)
         rows = [f"{emoji} **{MIN_INTERSECT_TAGS}+策略共振 {len(multi)}只  胜率{win_rate}%  均{avg:+.2f}%**"]
-        for p in multi:
+        for p in shown:
             tags = "·".join(p["tags"])
             pct_s = f"{p['open_pct']:+.2f}%" if "open_pct" in p else f"{p['pct']:+.2f}%"
             px = p.get("prices")
@@ -544,6 +571,8 @@ def main() -> None:
             else:
                 price_s = ""
             rows.append(f"  {p['name']} {pct_s}  `{tags}`{price_s}")
+        if omitted > 0:
+            rows.append(f"  _...还有 {omitted} 只_")
         sections.append("  \n".join(rows))
     else:
         sections.append(f"今日无 {MIN_INTERSECT_TAGS}+ 策略共振信号")
@@ -615,20 +644,9 @@ def main() -> None:
 
         # 转飞书纯文本：<br> → \n，剥掉 markdown **bold**
         feishu_body = push_body.replace("<br>", "\n").replace("**", "")
-        title = f"[胜率·日] {date_fmt} | {' / '.join(parts)}"
+        title = f"[胜率·日] {date_fmt}"
 
-        explanation = (
-            f"{title}\n"
-            "------\n"
-            "📖 这条统计的是：今日多策略选出的票中，**有 3 路或以上策略同时命中**的票（'多策略共振'），\n"
-            "    及它们今日的 T+1 open→close 表现（开盘到当日收盘涨跌）。\n"
-            "    - 胜率 = 涨的票数/总票数  •  均ret = 平均涨跌幅\n"
-            "    - 共振票通常胜率比单策略高（前期回测 75% vs 52%）\n"
-            "    - 标题里的 主XX% / 筹XX% 是各策略**单独维度**的当日胜率，跟共振表无关\n"
-            "------\n"
-            f"{feishu_body}"
-        )
-        push_feishu_content(explanation)
+        push_feishu_content(f"{title}\n==========\n{feishu_body}")
         print("[daily_perf] 飞书推送成功")
     except Exception as e:
         print(f"[daily_perf] 飞书推送失败: {e}")
