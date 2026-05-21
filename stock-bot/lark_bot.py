@@ -133,6 +133,26 @@ def _dispatch(text: str) -> str:
     return bc.dispatch_ai(t, _anthropic_key())
 
 # ── Feishu event handler ──────────────────────────────────────────────────────
+# 防 websocket 重连后 Feishu 服务器重发积压消息导致重复回复 / 回复过时消息：
+#   1. 跳过 create_time 早于 _STALE_THRESHOLD_SEC 之前的消息（reconnect 时的 backlog）
+#   2. 已处理 message_id LRU 去重（同一消息只回一次）
+_STALE_THRESHOLD_SEC = 300       # 超过 5 分钟前的消息视为过时，丢弃
+from collections import deque
+_PROCESSED_IDS: deque = deque(maxlen=500)
+_PROCESSED_IDS_SET: set[str] = set()
+
+
+def _already_processed(mid: str) -> bool:
+    if mid in _PROCESSED_IDS_SET:
+        return True
+    if len(_PROCESSED_IDS) >= _PROCESSED_IDS.maxlen:
+        old = _PROCESSED_IDS.popleft()
+        _PROCESSED_IDS_SET.discard(old)
+    _PROCESSED_IDS.append(mid)
+    _PROCESSED_IDS_SET.add(mid)
+    return False
+
+
 def _on_message_receive(data: lark.im.v1.P2ImMessageReceiveV1) -> None:
     event  = data.event
     sender = event.sender
@@ -147,6 +167,21 @@ def _on_message_receive(data: lark.im.v1.P2ImMessageReceiveV1) -> None:
         return
 
     if msg.message_type != "text":
+        return
+
+    # 过时消息丢弃（reconnect 时服务器会重推积压消息）
+    try:
+        create_ms = int(msg.create_time)
+        age_sec = (time.time() * 1000 - create_ms) / 1000
+        if age_sec > _STALE_THRESHOLD_SEC:
+            print(f"[MSG-SKIP-STALE] mid={msg.message_id} age={age_sec:.0f}s", flush=True)
+            return
+    except (ValueError, TypeError, AttributeError):
+        pass  # create_time 解析失败，正常处理（不阻塞）
+
+    # 消息 ID 去重（防服务器重推同一消息）
+    if _already_processed(msg.message_id):
+        print(f"[MSG-SKIP-DUP] mid={msg.message_id}", flush=True)
         return
 
     try:
