@@ -1,0 +1,358 @@
+#!/usr/bin/env python3
+"""通用策略回测框架——对所有有 dated json 归档的策略跑 T+N 胜率分析。
+
+输入：
+  - strategy name (escalator/gc/sideways/hot/chip)
+  - 日期范围（默认所有可用）
+  - hold periods (T+N，默认 1/5/10)
+
+输出：
+  - CSV: data/backtest/<strategy>_picks.csv  每一行一个 pick + ret_t1/ret_t5/ret_t10
+  - CSV: data/backtest/summary.csv  各策略汇总 stats
+  - 终端打印简洁 summary 表
+
+冷却去重：同一只 code 在 cooldown_days 个交易日内多次入选只算首次
+（避免持续触发的票被反复计数，forward window 不重叠）。
+
+用法：
+  python -X utf8 src/strategies/backtest/runner.py                    # 全部
+  python -X utf8 src/strategies/backtest/runner.py --strategy escalator gc
+  python -X utf8 src/strategies/backtest/runner.py --start 20260501 --end 20260520
+  python -X utf8 src/strategies/backtest/runner.py --horizons 1 5 10 20
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from pathlib import Path
+from statistics import mean
+from typing import Callable, Optional
+
+ROOT = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
+DATA = ROOT / "data"
+OUT_DIR = DATA / "backtest"
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ── pick extractors ──────────────────────────────────────────────────────────
+# 每个 extractor 接受一个 dated json 的 dict，返回 [{code, name, tier?, close}, ...]
+
+def _extract_escalator(d: dict) -> list[dict]:
+    out = []
+    for tier_name, tier_picks in (d.get("tiers") or {}).items():
+        for p in tier_picks:
+            if not p.get("code"):
+                continue
+            out.append({
+                "code": str(p["code"])[-6:],
+                "name": p.get("name", ""),
+                "tier": tier_name,
+                "close": p.get("close"),
+                "industry": p.get("industry", ""),
+                "matched_tiers": ",".join(p.get("matched_tiers") or []),
+            })
+    return out
+
+
+def _extract_gc(d: dict) -> list[dict]:
+    out = []
+    for tier_name, tier_picks in (d.get("tiers") or {}).items():
+        for p in tier_picks:
+            if not p.get("code"):
+                continue
+            code = str(p["code"])
+            code6 = code[-6:] if len(code) > 6 else code
+            out.append({
+                "code": code6,
+                "name": p.get("name", ""),
+                "tier": tier_name,
+                "close": p.get("close"),
+                "industry": p.get("industry", ""),
+                "matched_tiers": "",
+            })
+    return out
+
+
+def _extract_sideways(d: dict) -> list[dict]:
+    out = []
+    for p in d.get("all_picks", []):
+        if not p.get("code"):
+            continue
+        out.append({
+            "code": str(p["code"])[-6:],
+            "name": p.get("name", ""),
+            "tier": p.get("tier", ""),
+            "close": p.get("close"),
+            "industry": p.get("industry", ""),
+            "matched_tiers": "",
+        })
+    return out
+
+
+def _extract_hot(d: dict) -> list[dict]:
+    out = []
+    for p in d.get("picks", []):
+        if not p.get("code"):
+            continue
+        out.append({
+            "code": str(p["code"])[-6:],
+            "name": p.get("name", ""),
+            "tier": "H1" if p.get("rank_pct", 100) > 5 else "H0",
+            "close": p.get("close"),
+            "industry": p.get("industry", ""),
+            "matched_tiers": "",
+        })
+    return out
+
+
+def _extract_chip(d: dict) -> list[dict]:
+    """chip_scan_<date>.json 的 all_picks，每只票按 tier (C0-C3) 分组。"""
+    out = []
+    for p in d.get("all_picks", []):
+        if not p.get("code"):
+            continue
+        out.append({
+            "code": str(p["code"])[-6:],
+            "name": p.get("name", ""),
+            "tier": p.get("tier", ""),
+            "close": p.get("close"),
+            "industry": p.get("industry", ""),
+            "matched_tiers": "",
+        })
+    return out
+
+
+# ── strategy registry ────────────────────────────────────────────────────────
+
+STRATEGIES: dict[str, dict] = {
+    "escalator":  {"label": "扶梯",   "glob": "escalator_????????.json",     "extract": _extract_escalator},
+    "gc":         {"label": "金叉",   "glob": "golden_cross_????????.json",  "extract": _extract_gc},
+    "sideways":   {"label": "横盘",   "glob": "sideways_????????.json",      "extract": _extract_sideways},
+    "hot":        {"label": "热榜",   "glob": "hot_scan_????????.json",      "extract": _extract_hot},
+    "chip":       {"label": "筹码",   "glob": "chip_scan_????????.json",     "extract": _extract_chip},
+}
+
+# 没有 dated 归档的策略（需 --date 重新回填后才能跑）
+TODO_STRATEGIES = {
+    "main":      "需 main_strategy.py 加 --date / --backfill；当前只有 latest_picks.json",
+    "small":     "同 main，写入 latest_picks.json['smallcap']",
+    "marketcap": "需 marketcap_strategy.py 加 --date；当前只有 marketcap_latest.json",
+    "etf":       "需 etf_strategy.py 加 --date；当前只有 etf_scan_latest.json + etf_picks_<date>.json",
+}
+
+
+# ── core ─────────────────────────────────────────────────────────────────────
+
+def load_picks(strategy: str, start: str = "", end: str = "") -> list[dict]:
+    """读所有 dated 文件，扁平为 [{date, strategy, code, name, tier, close, ...}, ...]"""
+    if strategy not in STRATEGIES:
+        if strategy in TODO_STRATEGIES:
+            print(f"[backtest] {strategy}: {TODO_STRATEGIES[strategy]}", flush=True)
+        else:
+            print(f"[backtest] 未知策略: {strategy}", flush=True)
+        return []
+    cfg = STRATEGIES[strategy]
+    out: list[dict] = []
+    for path in sorted(DATA.glob(cfg["glob"])):
+        date_str = path.stem.split("_")[-1]
+        if len(date_str) != 8 or not date_str.isdigit():
+            continue
+        if start and date_str < start:
+            continue
+        if end and date_str > end:
+            continue
+        try:
+            d = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"[backtest] read failed {path.name}: {e}", flush=True)
+            continue
+        for p in cfg["extract"](d):
+            out.append({"date": date_str, "strategy": strategy, **p})
+    return out
+
+
+def _fetch_forward(code: str, pick_date: str, horizons: list[int],
+                   entry_close: Optional[float]) -> dict[int, Optional[float]]:
+    """T+n forward return % vs entry_close。pick_date YYYYMMDD；fetcher 拉 60 天。"""
+    if entry_close is None or entry_close <= 0:
+        return {n: None for n in horizons}
+    import fetcher as _f
+    import pandas as _pd
+    try:
+        df = _f.get_price_history(code, days=60)
+    except Exception:
+        return {n: None for n in horizons}
+    if df is None or df.empty or "date" not in df.columns:
+        return {n: None for n in horizons}
+    pick_ts = _pd.to_datetime(pick_date, format="%Y%m%d")
+    df = df[df["date"] > pick_ts].sort_values("date")
+    out: dict[int, Optional[float]] = {}
+    for n in horizons:
+        if len(df) < n:
+            out[n] = None
+        else:
+            forward_close = float(df["close"].iloc[n - 1])
+            out[n] = round((forward_close / entry_close - 1) * 100, 2)
+    return out
+
+
+def attach_returns(picks: list[dict], horizons: list[int],
+                   workers: int = 12) -> list[dict]:
+    """并发拉每只 pick 的 T+n forward returns。"""
+    if not picks:
+        return []
+    out = [dict(p) for p in picks]   # shallow copy 防破坏 caller
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {
+            ex.submit(_fetch_forward, p["code"], p["date"], horizons, p.get("close")): i
+            for i, p in enumerate(out)
+        }
+        done = 0
+        for fut in as_completed(futs):
+            i = futs[fut]
+            rets = fut.result()
+            for n in horizons:
+                out[i][f"ret_t{n}"] = rets.get(n)
+            done += 1
+            if done % 200 == 0:
+                print(f"[backtest] forward returns: {done}/{len(out)}", flush=True)
+    return out
+
+
+def _apply_cooldown(picks: list[dict], cooldown_days: int) -> list[dict]:
+    """同一 code 在 cooldown_days 个交易日内多次入选只保留首次。
+    用 picks 内 unique date 排序当 trading-day calendar；cooldown 是该 calendar 上 index 差。"""
+    if not picks or cooldown_days <= 0:
+        return picks
+    all_dates = sorted({p["date"] for p in picks})
+    idx_of = {d: i for i, d in enumerate(all_dates)}
+    last_idx: dict[str, int] = {}
+    kept: list[dict] = []
+    for p in sorted(picks, key=lambda x: x["date"]):
+        i = idx_of[p["date"]]
+        prev = last_idx.get(p["code"])
+        if prev is None or (i - prev) >= cooldown_days:
+            kept.append(p)
+            last_idx[p["code"]] = i
+    return kept
+
+
+def summarize(picks_with_ret: list[dict], horizons: list[int]) -> dict:
+    """计算每个 horizon 的 win_rate / avg_ret / N（已 cooldown 去重）。"""
+    summary: dict = {"n_total": len(picks_with_ret), "n_dates": len({p["date"] for p in picks_with_ret})}
+    for n in horizons:
+        deduped = _apply_cooldown([p for p in picks_with_ret if p.get(f"ret_t{n}") is not None], n)
+        rets = [p[f"ret_t{n}"] for p in deduped]
+        if rets:
+            summary[f"t{n}"] = {
+                "n": len(rets),
+                "win_rate": round(sum(1 for r in rets if r > 0) / len(rets) * 100, 1),
+                "avg_ret": round(mean(rets), 2),
+                "median_ret": round(sorted(rets)[len(rets) // 2], 2),
+            }
+        else:
+            summary[f"t{n}"] = {"n": 0, "win_rate": None, "avg_ret": None, "median_ret": None}
+    return summary
+
+
+# ── output ───────────────────────────────────────────────────────────────────
+
+def _write_picks_csv(picks_with_ret: list[dict], strategy: str, horizons: list[int]) -> Path:
+    out = OUT_DIR / f"{strategy}_picks.csv"
+    cols = ["date", "strategy", "code", "name", "tier", "matched_tiers", "industry", "close"] + [f"ret_t{n}" for n in horizons]
+    with open(out, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+        w.writeheader()
+        for p in picks_with_ret:
+            w.writerow(p)
+    return out
+
+
+def _write_summary_csv(per_strategy: dict[str, dict], horizons: list[int]) -> Path:
+    out = OUT_DIR / "summary.csv"
+    cols = ["strategy", "label", "n_dates", "n_total"]
+    for n in horizons:
+        cols += [f"t{n}_n", f"t{n}_win_rate%", f"t{n}_avg_ret%", f"t{n}_median_ret%"]
+    with open(out, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(cols)
+        for strategy, s in per_strategy.items():
+            row = [strategy, STRATEGIES.get(strategy, {}).get("label", ""), s["n_dates"], s["n_total"]]
+            for n in horizons:
+                tn = s.get(f"t{n}", {})
+                row += [tn.get("n", 0), tn.get("win_rate"), tn.get("avg_ret"), tn.get("median_ret")]
+            w.writerow(row)
+    return out
+
+
+def _print_summary(per_strategy: dict[str, dict], horizons: list[int]) -> None:
+    print()
+    print(f"{'策略':<8} {'天数':>5} {'picks':>7}", end="")
+    for n in horizons:
+        print(f"  {'T+'+str(n)+'_win':>9} {'T+'+str(n)+'_avg':>9} {'T+'+str(n)+'_n':>7}", end="")
+    print()
+    print("-" * (28 + 27 * len(horizons)))
+    for strategy, s in per_strategy.items():
+        label = STRATEGIES.get(strategy, {}).get("label", strategy)
+        print(f"{label:<6} {s['n_dates']:>5} {s['n_total']:>7}", end="")
+        for n in horizons:
+            tn = s.get(f"t{n}", {})
+            wr = tn.get("win_rate")
+            ar = tn.get("avg_ret")
+            nn = tn.get("n", 0)
+            wr_s = f"{wr:.1f}%" if wr is not None else "-"
+            ar_s = f"{ar:+.2f}%" if ar is not None else "-"
+            print(f"  {wr_s:>9} {ar_s:>9} {nn:>7}", end="")
+        print()
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────────
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--strategy", nargs="+",
+                    help=f"策略名，默认全部。可选: {list(STRATEGIES.keys())}")
+    ap.add_argument("--start", default="", help="YYYYMMDD 起始日")
+    ap.add_argument("--end",   default="", help="YYYYMMDD 结束日")
+    ap.add_argument("--horizons", nargs="+", type=int, default=[1, 5, 10],
+                    help="forward return 周期，默认 1 5 10")
+    args = ap.parse_args()
+
+    strategies = args.strategy or list(STRATEGIES.keys())
+    print(f"[backtest] strategies={strategies}, start={args.start or 'auto'}, end={args.end or 'auto'}, horizons={args.horizons}")
+
+    per_strategy: dict[str, dict] = {}
+    for s in strategies:
+        print(f"\n=== {s} ===")
+        picks = load_picks(s, args.start, args.end)
+        if not picks:
+            print(f"[backtest] {s}: 无 picks")
+            per_strategy[s] = {"n_total": 0, "n_dates": 0, **{f"t{n}": {"n": 0} for n in args.horizons}}
+            continue
+        print(f"[backtest] {s}: {len(picks)} picks across {len({p['date'] for p in picks})} dates")
+        enriched = attach_returns(picks, args.horizons)
+        summary = summarize(enriched, args.horizons)
+        per_strategy[s] = summary
+        path = _write_picks_csv(enriched, s, args.horizons)
+        print(f"[backtest] {s}: wrote {len(enriched)} rows → {path.relative_to(ROOT)}")
+
+    summary_path = _write_summary_csv(per_strategy, args.horizons)
+    print(f"\n[backtest] summary → {summary_path.relative_to(ROOT)}")
+    _print_summary(per_strategy, args.horizons)
+
+    if TODO_STRATEGIES:
+        print(f"\n[backtest] 待接入策略（需先加 --date 回填）:")
+        for k, v in TODO_STRATEGIES.items():
+            print(f"  - {k}: {v}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
