@@ -208,19 +208,52 @@ def main() -> int:
             print("[strategy_compare] dry-run 完成")
             return 0
 
-    if args.push:
-        from common import push_wechat
-        title = f"[策略对比·T+1] {datetime.now():%m-%d}"
-        if not args.dry_run:
-            push_wechat(title, body)
-            print("[strategy_compare] 微信推送完成", flush=True)
-        chart = _render_chart(series_map)
-        if chart and not args.dry_run:
-            try:
-                from notify.notify import push_feishu_image
+    if args.push and not args.dry_run:
+        # 给文字解读用：抽出 top-3 策略 + 整体观察
+        rows_sorted = []
+        for src in SOURCES:
+            s = series_map.get(src["tag"], [])
+            if not s:
+                continue
+            tot = sum(x["n"] for x in s)
+            wr = (sum(x["win_rate"] * x["n"] for x in s) / tot) if tot else None
+            recent5 = s[-5:]
+            rec_tot = sum(x["n"] for x in recent5)
+            rec_wr = (sum(x["win_rate"] * x["n"] for x in recent5) / rec_tot) if rec_tot else None
+            rows_sorted.append((src["label"], wr, rec_wr, tot, len(s)))
+        rows_sorted.sort(key=lambda r: (r[1] is None, -(r[1] or 0)))
+        top3 = rows_sorted[:3]
+        top3_str = "、".join(f"{name} 累计 {wr:.1f}% (近5日 {rwr:.1f}% / n={n})"
+                             for name, wr, rwr, n, _ in top3 if wr is not None)
+
+        explanation = (
+            f"[策略对比·T+1] {datetime.now():%Y-%m-%d %H:%M}\n"
+            "==========\n"
+            "📖 这张图怎么读：\n"
+            "• 7 条线 = 7 个策略每日 T+1 open→close 胜率（次开盘到当日收盘涨/跌）\n"
+            "• 实线 = 5 日滚动平均（看趋势）；点线 = 当日原始（看噪声）\n"
+            "• X 轴 = 日期；Y 轴 = 胜率%（50% 横虚线 = coin flip 基线）\n"
+            "• 上方=胜过 50%、稳定 alpha；下方=输/接近 coin flip\n"
+            "==========\n"
+            f"🔑 累计胜率 Top 3：{top3_str or '数据不足'}\n"
+            "==========\n"
+            "📊 看图时盯什么：\n"
+            "1. 哪些策略的实线长期在 50% 上方且波动小 → 稳定 alpha 源\n"
+            "2. 哪些策略上下大幅波动 → 不稳定，遇到合适市况就赚反之就输\n"
+            "3. 跟上次推送对比：top 3 排名有没变？谁掉队？\n"
+            "⚠️ 维度=T+1 open 胜率（daily_perf_log 口径）；扶梯单独追踪 T+5 不在本图"
+        )
+
+        try:
+            from notify.notify import push_feishu_content, push_feishu_image
+            push_feishu_content(explanation)
+            print("[strategy_compare] 飞书文字解读推送成功", flush=True)
+            chart = _render_chart(series_map)
+            if chart:
                 push_feishu_image(chart)
-            except Exception as e:
-                print(f"[strategy_compare] 飞书图失败: {e}", flush=True)
+                print("[strategy_compare] 飞书图推送成功", flush=True)
+        except Exception as e:
+            print(f"[strategy_compare] 飞书推送失败: {e}", flush=True)
 
     return 0
 

@@ -530,16 +530,67 @@ def main() -> int:
     save_history(report)
 
     if args.push:
-        push_wechat('[期指·中信] 持仓跟踪', body)
-        if not args.no_chart:
-            chart_path = _render_chart(report)
-            if chart_path:
-                try:
-                    sys.path.insert(0, str(SRC))
-                    from notify.notify import push_feishu_image
+        # 仅飞书：文字解读 + 折线图（不再推微信）
+        # 抽关键数字给解读用
+        items = [x for x in report.get('items', []) if 'error' not in x]
+        items.sort(key=lambda x: -(x.get('net_short') or 0))
+        ok_items = [x for x in items if x.get('short_change') is not None]
+        total_chg = sum(int(x['short_change']) for x in ok_items)
+        im_ic_chg = sum(int(x['short_change']) for x in ok_items if x['symbol'] in {'IM', 'IC'})
+        long_total = sum(int(x.get('long_change') or 0) for x in ok_items)
+
+        def _line(it):
+            sq, lq = it.get('short_qty', 0), it.get('long_qty', 0)
+            sc, lc = it.get('short_change', 0), it.get('long_change', 0)
+            ratio = (sq / lq) if lq else 0
+            return (f"{PRODUCT_LABEL.get(it['symbol'], it['symbol'])}：空 {sq}({sc:+d}) / 多 {lq}({lc:+d})"
+                    f"，净空 {it.get('net_short', 0):+d}，空多比 {ratio:.2f}")
+
+        if total_chg >= 3000 and im_ic_chg > 0:
+            tone = "🔻 空仓加速堆积，中小盘是主要压力"
+        elif total_chg <= -3000:
+            tone = "🟢 空仓减压，对冲压力下降"
+        elif abs(total_chg) < 1500 and long_total > 2000:
+            tone = "🟡 多空两边都在加 = long-short 策略扩张，不是单向看空"
+        else:
+            tone = "⚪ 整体中性，看后续连续累积"
+
+        explanation = (
+            f"[期指·中信] {report.get('trade_date', 'NA')} 机构对冲跟踪\n"
+            "==========\n"
+            f"📌 {tone}\n"
+            f"  • 4 路空单合计变化 {total_chg:+d} 手\n"
+            f"  • 4 路多单合计变化 {long_total:+d} 手\n"
+            f"  • IM+IC 空单变化 {im_ic_chg:+d} 手\n"
+            "==========\n"
+            "📊 各合约（按净空降序）：\n  • " + "\n  • ".join(_line(it) for it in items) + "\n"
+            "==========\n"
+            "📖 图怎么读：\n"
+            "• 2×2 panel：IM/IC/IF/IH 各一格\n"
+            "• 红线 = 多单数量 / 绿线 = 空单数量（A股惯例：红多绿空）\n"
+            "• 阴影：浅绿 = 净空区（空>多），浅红 = 净多区（多>空）\n"
+            "• 每格右上角标注今日净空数字\n"
+            "==========\n"
+            "📖 怎么解读机构对冲：\n"
+            "• 空多比 > 1.3 = 偏空；1.0-1.1 = 接近平手\n"
+            "• 双方同时加 = 机构在做 long-short 对冲（不代表方向）\n"
+            "• 空增 + 多减 / 多不变 = 真看空\n"
+            "• IM 长期净空高是结构性（雪球对冲），不代表机构看空中证1000\n"
+            "• IH/IF 接近平手 = 机构用大盘指数做套保的成交主战场"
+        )
+
+        try:
+            sys.path.insert(0, str(SRC))
+            from notify.notify import push_feishu_content, push_feishu_image
+            push_feishu_content(explanation)
+            print("[cffex_citic] 飞书文字解读推送成功", flush=True)
+            if not args.no_chart:
+                chart_path = _render_chart(report)
+                if chart_path:
                     push_feishu_image(chart_path)
-                except Exception as e:
-                    print(f"[cffex_citic] 飞书图推送失败: {e}", flush=True)
+                    print("[cffex_citic] 飞书图推送成功", flush=True)
+        except Exception as e:
+            print(f"[cffex_citic] 飞书推送失败: {e}", flush=True)
 
     print(f"[cffex_citic] date={report.get('trade_date')} ok={report['ok_count']} fail={report['fail_count']}")
     return 0 if report['ok_count'] > 0 else 1

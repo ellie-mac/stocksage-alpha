@@ -597,11 +597,11 @@ def main() -> None:
             today, args.force)
     print("[daily_perf] 历史记录已写入")
 
-    # ── 推送 ──────────────────────────────────────────────────────────────────
+    # ── 推送 (仅 Feishu) ──────────────────────────────────────────────────────
     try:
         import sys
         sys.path.insert(0, str(ROOT / "src"))
-        from common import push_wechat
+        from notify.notify import push_feishu_content
         def _tv(s):
             v = s.get("open_win_rate") if s.get("open_win_rate") is not None else s.get("win_rate")
             return v
@@ -612,11 +612,26 @@ def main() -> None:
         if _tv(hs)        is not None: parts.append(f"热{_tv(hs)}%")
         if _tv(wl_mon_stats) is not None: parts.append(f"监{_tv(wl_mon_stats)}%")
         if _tv(etf_stats) is not None: parts.append(f"ETF{_tv(etf_stats)}%")
+
+        # 转飞书纯文本：<br> → \n，剥掉 markdown **bold**
+        feishu_body = push_body.replace("<br>", "\n").replace("**", "")
         title = f"[胜率·日] {date_fmt} | {' / '.join(parts)}"
-        push_wechat(title, push_body)
-        print("[daily_perf] 微信推送成功")
+
+        explanation = (
+            f"{title}\n"
+            "------\n"
+            "📖 这条统计的是：今日多策略选出的票中，**有 3 路或以上策略同时命中**的票（'多策略共振'），\n"
+            "    及它们今日的 T+1 open→close 表现（开盘到当日收盘涨跌）。\n"
+            "    - 胜率 = 涨的票数/总票数  •  均ret = 平均涨跌幅\n"
+            "    - 共振票通常胜率比单策略高（前期回测 75% vs 52%）\n"
+            "    - 标题里的 主XX% / 筹XX% 是各策略**单独维度**的当日胜率，跟共振表无关\n"
+            "------\n"
+            f"{feishu_body}"
+        )
+        push_feishu_content(explanation)
+        print("[daily_perf] 飞书推送成功")
     except Exception as e:
-        print(f"[daily_perf] 微信推送失败: {e}")
+        print(f"[daily_perf] 飞书推送失败: {e}")
 
 
 if __name__ == "__main__":

@@ -492,18 +492,44 @@ def main() -> int:
     _save_history(summary, overall_criterion, n_days, len(enriched))   # 持久化用 criterion 视图（独立预测力更有分析价值）
 
     if args.push:
-        from common import push_wechat
-        title = f"[扶梯·胜率] {datetime.now():%m-%d} | N={n_days}天"
-        push_wechat(title, body)
-        print("[escalator_perf] 微信推送完成", flush=True)
+        # 提取关键摘要数字给文字解读用
+        e0_p = overall_primary.get("E0", {}).get(5, {})
+        e1_p = overall_primary.get("E1", {}).get(5, {})
+        m2 = match_count.get(2, {}).get(5, {})
+        m1 = match_count.get(1, {}).get(5, {})
 
-        chart = _render_chart(summary, overall_criterion)
-        if chart:
-            try:
-                from notify.notify import push_feishu_image
+        explanation = (
+            f"[扶梯·胜率] {datetime.now():%Y-%m-%d %H:%M} | N={n_days}天\n"
+            "==========\n"
+            "📖 这张图怎么读：\n"
+            "• 2 panel：E0 (20天慢牛) / E1 (10天中期)\n"
+            "• X 轴 = R² 分桶（拟合度区间，越右拟合越线性 = 趋势越干净）\n"
+            "• Y 轴 = 胜率%（虚线 50% = coin flip 基线）\n"
+            "• 每个 panel 三条线 = T+1 / T+5 / T+10 三种持有周期，T+5 是扶梯的 sweet spot\n"
+            "• 点旁的 n=N 是该桶样本量，N 越小数字越不可信（<10 仅供参考）\n"
+            "==========\n"
+            "🔑 今日要点：\n"
+            f"• E0 整体 T+5 胜率 {e0_p.get('win_rate','-')}%（n={e0_p.get('n',0)}），avg {e0_p.get('avg_ret','-')}%\n"
+            f"• E1 整体 T+5 胜率 {e1_p.get('win_rate','-')}%（n={e1_p.get('n',0)}），avg {e1_p.get('avg_ret','-')}%\n"
+            f"• 2 档共振 T+5 胜率 {m2.get('win_rate','-')}%（n={m2.get('n',0)}）vs 1 档 {m1.get('win_rate','-')}%（n={m1.get('n',0)}） — 共振 boost {('显著' if (m2.get('win_rate') or 0) > (m1.get('win_rate') or 0) + 15 else '边际')}\n"
+            "==========\n"
+            "📊 看图时盯什么：\n"
+            "1. E0 panel 右半（R²≥0.90）的 T+5 线在不在 70%+ — 决定 R²_min 阈值是否再收紧\n"
+            "2. E1 panel 整体能不能爬过 50% 虚线 — 决定 E1 是否值得保留作信号\n"
+            "3. 同一桶里 T+1/T+5/T+10 的差异 — 持有越久胜率应该越高（趋势策略本意）"
+        )
+
+        try:
+            from notify.notify import push_feishu_content, push_feishu_image
+            push_feishu_content(explanation)
+            print("[escalator_perf] 飞书文字解读推送成功", flush=True)
+
+            chart = _render_chart(summary, overall_criterion)
+            if chart:
                 push_feishu_image(chart)
-            except Exception as e:
-                print(f"[escalator_perf] 飞书图推送失败: {e}", flush=True)
+                print("[escalator_perf] 飞书图推送成功", flush=True)
+        except Exception as e:
+            print(f"[escalator_perf] 飞书推送失败: {e}", flush=True)
 
     return 0
 
