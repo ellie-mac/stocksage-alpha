@@ -24,33 +24,46 @@ TARGET_DATE = "2026-05-20"
 START_DATE = "20260101"
 END_DATE = "20260520"
 
-# ---------- v2 放宽参数 ----------
-LOWER_SHADOW_MIN = 1.2     # v3: 1.2× 实体（v2: 1.5, v1: 2.0）— 仍有显著下影
-UPPER_SHADOW_MAX = 1.0     # 上影不超过实体（保留）
-BODY_PCT_MIN     = 0.3     # 实体 ≥ 0.3% open（防十字星）
-HAMMER_WINDOW    = 5       # v3: 5 天窗口（v2: 3, v1: 相邻 2 天）
-HAMMER_MIN_COUNT = 2       # 窗口内至少 N 个锤子
-VOL_RATIO_MIN    = 0.8     # 量能下限（v1: 1.0）
-AMOUNT_MIN_YI    = 0.3     # 成交额下限·亿（v1: 0.5）
+# ---------- v4 range-based hammer 判定 ----------
+# 之前按 body 比例判定上下影，小实体时 upper ≤ body 极严（body=0.01 时 upper 必须 ≤1%）。
+# 改成按 range = high-low 的比例，更符合经典教科书定义，对小实体宽容。
+RANGE_PCT_MIN    = 0.5     # K 线 range ≥ 0.5% open（防平盘）
+BODY_OVER_RANGE_MAX = 0.4  # 实体 ≤ range 的 40%（hammer 特征：小实体）
+LOWER_OVER_RANGE_MIN = 0.55  # 下影 ≥ range 的 55%（hammer 特征：长下影）
+UPPER_OVER_RANGE_MAX = 0.15  # 上影 ≤ range 的 15%（hammer 特征：短上影）
+
+HAMMER_WINDOW    = 5       # 5 天窗口找锤子
+HAMMER_MIN_COUNT = 2       # 至少 2 个锤子
+VOL_RATIO_MIN    = 0.8     # 量能下限
+AMOUNT_MIN_YI    = 0.3     # 成交额下限·亿
 
 
 # ---------- 形态判定 ----------
 def is_hammer(row):
-    """返回 (是否锤子, 下影占 open 的百分比)。"""
+    """返回 (是否锤子, 下影占 range 的百分比)。
+
+    经典 hammer 定义（range-based）：
+      · range ≥ 0.5% open（有波动）
+      · 实体 ≤ 40% range（小实体）
+      · 下影 ≥ 55% range（长下影）
+      · 上影 ≤ 15% range（短上影）
+    """
     o, c, h, l = row["open"], row["close"], row["high"], row["low"]
-    if o <= 0:
+    if o <= 0 or h <= l:
+        return False, 0.0
+    rng = h - l
+    if rng / o * 100 < RANGE_PCT_MIN:
         return False, 0.0
     body = abs(c - o)
-    body_pct = body / o * 100
-    if body_pct < BODY_PCT_MIN:
+    if body / rng > BODY_OVER_RANGE_MAX:
         return False, 0.0
     lower = min(o, c) - l
     upper = h - max(o, c)
-    if lower < body * LOWER_SHADOW_MIN:
+    if lower / rng < LOWER_OVER_RANGE_MIN:
         return False, 0.0
-    if upper > body * UPPER_SHADOW_MAX:
+    if upper / rng > UPPER_OVER_RANGE_MAX:
         return False, 0.0
-    lower_pct = lower / o * 100
+    lower_pct = lower / rng * 100   # 下影占 range %
     return True, lower_pct
 
 
@@ -154,7 +167,8 @@ def main():
     tasks = list(zip(spot["code"], spot["name"], spot["board"]))
     total = len(tasks)
     print(f"  待扫描：{total}")
-    print(f"  v2 参数: lower≥{LOWER_SHADOW_MIN}*body / vol≥{VOL_RATIO_MIN}*MA5 / amt≥{AMOUNT_MIN_YI}亿 / "
+    print(f"  v4 参数 (range-based): body≤{BODY_OVER_RANGE_MAX*100:.0f}% / lower≥{LOWER_OVER_RANGE_MIN*100:.0f}% / "
+          f"upper≤{UPPER_OVER_RANGE_MAX*100:.0f}% of range / vol≥{VOL_RATIO_MIN}*MA5 / amt≥{AMOUNT_MIN_YI}亿 / "
           f"{HAMMER_WINDOW}天≥{HAMMER_MIN_COUNT}锤")
 
     print("[2/3] 并发扫描...")

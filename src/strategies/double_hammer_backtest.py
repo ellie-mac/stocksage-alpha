@@ -24,27 +24,31 @@ OUT = r"C:/Users/jiapeichen/repos/me/notes/output/double_hammer_v2_backtest.csv"
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 
 # ---------- v2 参数（与 scan 一致）----------
-LOWER_SHADOW_MIN = 1.2     # v3: 1.2× 实体（v2: 1.5, v1: 2.0）
-UPPER_SHADOW_MAX = 1.0
-BODY_PCT_MIN     = 0.3
-HAMMER_WINDOW    = 5       # v3: 5 天窗口（v2: 3, v1: 相邻 2 天）
-HAMMER_MIN_COUNT = 2
-VOL_RATIO_MIN    = 0.8
-AMOUNT_MIN_YI    = 0.3
+# v4: range-based hammer 判定（v1-v3 按 body 比例对小实体过严）
+RANGE_PCT_MIN        = 0.5
+BODY_OVER_RANGE_MAX  = 0.4
+LOWER_OVER_RANGE_MIN = 0.55
+UPPER_OVER_RANGE_MAX = 0.15
+HAMMER_WINDOW        = 5
+HAMMER_MIN_COUNT     = 2
+VOL_RATIO_MIN        = 0.8
+AMOUNT_MIN_YI        = 0.3
 
 
 def is_hammer(o, c, h, l):
-    if o <= 0:
+    if o <= 0 or h <= l:
+        return False
+    rng = h - l
+    if rng / o * 100 < RANGE_PCT_MIN:
         return False
     body = abs(c - o)
-    body_pct = body / o * 100
-    if body_pct < BODY_PCT_MIN:
+    if body / rng > BODY_OVER_RANGE_MAX:
         return False
     lower = min(o, c) - l
     upper = h - max(o, c)
-    if lower < body * LOWER_SHADOW_MIN:
+    if lower / rng < LOWER_OVER_RANGE_MIN:
         return False
-    if upper > body * UPPER_SHADOW_MAX:
+    if upper / rng > UPPER_OVER_RANGE_MAX:
         return False
     return True
 
@@ -128,7 +132,8 @@ def main():
     random.shuffle(codes)
     codes = codes[:SAMPLE_N]
     print(f"  样本: {len(codes)}", flush=True)
-    print(f"  v2 参数: lower≥{LOWER_SHADOW_MIN}*body / vol≥{VOL_RATIO_MIN}*MA5 / "
+    print(f"  v4 (range-based): body≤{BODY_OVER_RANGE_MAX*100:.0f}% / lower≥{LOWER_OVER_RANGE_MIN*100:.0f}% / "
+          f"upper≤{UPPER_OVER_RANGE_MAX*100:.0f}% of range / vol≥{VOL_RATIO_MIN}*MA5 / "
           f"amt≥{AMOUNT_MIN_YI}亿 / {HAMMER_WINDOW}天≥{HAMMER_MIN_COUNT}锤", flush=True)
 
     print("[2/3] 回测中(并发4)...", flush=True)
