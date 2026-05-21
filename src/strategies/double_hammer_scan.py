@@ -25,10 +25,10 @@ START_DATE = "20260101"
 END_DATE = "20260520"
 
 # ---------- v2 放宽参数 ----------
-LOWER_SHADOW_MIN = 1.5     # 下影至少 1.5× 实体（v1: 2.0）
+LOWER_SHADOW_MIN = 1.2     # v3: 1.2× 实体（v2: 1.5, v1: 2.0）— 仍有显著下影
 UPPER_SHADOW_MAX = 1.0     # 上影不超过实体（保留）
 BODY_PCT_MIN     = 0.3     # 实体 ≥ 0.3% open（防十字星）
-HAMMER_WINDOW    = 3       # 近 N 天找锤子（v1: 严格相邻 2 天）
+HAMMER_WINDOW    = 5       # v3: 5 天窗口（v2: 3, v1: 相邻 2 天）
 HAMMER_MIN_COUNT = 2       # 窗口内至少 N 个锤子
 VOL_RATIO_MIN    = 0.8     # 量能下限（v1: 1.0）
 AMOUNT_MIN_YI    = 0.3     # 成交额下限·亿（v1: 0.5）

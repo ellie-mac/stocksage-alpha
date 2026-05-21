@@ -24,10 +24,10 @@ OUT = r"C:/Users/jiapeichen/repos/me/notes/output/double_hammer_v2_backtest.csv"
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 
 # ---------- v2 参数（与 scan 一致）----------
-LOWER_SHADOW_MIN = 1.5
+LOWER_SHADOW_MIN = 1.2     # v3: 1.2× 实体（v2: 1.5, v1: 2.0）
 UPPER_SHADOW_MAX = 1.0
 BODY_PCT_MIN     = 0.3
-HAMMER_WINDOW    = 3
+HAMMER_WINDOW    = 5       # v3: 5 天窗口（v2: 3, v1: 相邻 2 天）
 HAMMER_MIN_COUNT = 2
 VOL_RATIO_MIN    = 0.8
 AMOUNT_MIN_YI    = 0.3
