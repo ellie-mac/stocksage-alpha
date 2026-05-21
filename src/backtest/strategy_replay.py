@@ -14,11 +14,18 @@
 冷却去重：同一只 code 在 cooldown_days 个交易日内多次入选只算首次
 （避免持续触发的票被反复计数，forward window 不重叠）。
 
+跟 src/backtest/ 其他文件的关系：
+  - main.py / run_all.py / etf.py 是 portfolio-style backtest（基于因子打分
+    合成历史 portfolio，看 alpha/Sharpe/drawdown）— 学术风格
+  - strategy_replay.py（本文件）是 scan-output replay backtest（读策略实际
+    选出来的票，看它们后续真实表现）— 更直观
+  两种方法互补：portfolio 看策略**逻辑**的潜力上限，replay 看实际**落地**的胜率
+
 用法：
-  python -X utf8 src/strategies/backtest/runner.py                    # 全部
-  python -X utf8 src/strategies/backtest/runner.py --strategy escalator gc
-  python -X utf8 src/strategies/backtest/runner.py --start 20260501 --end 20260520
-  python -X utf8 src/strategies/backtest/runner.py --horizons 1 5 10 20
+  python -X utf8 src/backtest/strategy_replay.py                  # 全部
+  python -X utf8 src/backtest/strategy_replay.py --strategy escalator gc
+  python -X utf8 src/backtest/strategy_replay.py --start 20260501 --end 20260520
+  python -X utf8 src/backtest/strategy_replay.py --horizons 1 5 10 20
 """
 from __future__ import annotations
 
@@ -32,7 +39,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Callable, Optional
 
-ROOT = Path(__file__).resolve().parent.parent.parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 DATA = ROOT / "data"
