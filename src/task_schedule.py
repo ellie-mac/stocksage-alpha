@@ -74,11 +74,9 @@ ALL_TASKS: list[dict[str, Any]] = [
     {"name": "main_Night",        "time": "22:30", "desc": "财务缓存预热",       "push": False, "slot": None,             "disabled": False, "display": True},
     {"name": "watchlist_Updater", "time": "23:40", "desc": "自选股更新",         "push": False, "slot": None,             "disabled": False, "display": True},
 
-    # ── 每日 3 次任务汇报（只推飞书）─────────────────────────────────────────
-    # 替代每个任务的 started/ok feishu 噪音；只在固定时间汇总一次今日任务状态。
-    {"name": "task_Summary_Midday",  "time": "12:30", "desc": "任务汇报·中午",     "push": False, "slot": "task_summary",   "disabled": False, "display": False},
-    {"name": "task_Summary_Close",   "time": "16:45", "desc": "任务汇报·收盘",     "push": False, "slot": "task_summary",   "disabled": False, "display": False},
-    {"name": "task_Summary_Evening", "time": "22:35", "desc": "任务汇报·晚上",     "push": False, "slot": "task_summary",   "disabled": False, "display": False},
+    # ── 每日 1 次任务汇报（只推飞书，23:00 收尾汇总）────────────────────────────
+    # 替代每个任务的 started/ok feishu 噪音；每天晚上汇总一次今日任务状态。
+    {"name": "task_Summary_Evening", "time": "23:00", "desc": "任务汇报·晚上",     "push": False, "slot": "task_summary",   "disabled": False, "display": False},
 ]
 
 
