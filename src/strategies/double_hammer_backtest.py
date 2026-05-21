@@ -11,9 +11,14 @@ import os, sys, time, random, warnings, io, json
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import pandas as pd
 import numpy as np
-import akshare as ak
 from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings("ignore")
+
+# 用项目自带 fetcher.get_price_history（多源 fallback：EM/TS/TX/BS/TDX）
+# 避免直接 ak.stock_zh_a_hist 在 EM 死锁时 100% 失败
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(_HERE))   # src/
+import fetcher
 
 random.seed(42)
 SAMPLE_N = 200
@@ -53,22 +58,28 @@ def is_hammer(o, c, h, l):
     return True
 
 
-def fetch_hist(code, retries=3):
-    for i in range(retries):
-        try:
-            return ak.stock_zh_a_hist(symbol=code, period="daily",
-                                      start_date=START, end_date=END, adjust="qfq")
-        except Exception:
-            time.sleep(1 + i)
-    return None
+def fetch_hist(code):
+    """用 fetcher.get_price_history（多源 fallback）。返回 5 个月 ~ 110 天日线。"""
+    try:
+        df = fetcher.get_price_history(code, days=130)
+        if df is None or df.empty:
+            return None
+        # fetcher 返回列：open/close/high/low/volume/amount/date 已经是英文
+        # 重命名 volume -> vol, amount -> amt 与原 backtest 兼容
+        df = df.rename(columns={"volume": "vol", "amount": "amt"})
+        return df
+    except Exception:
+        return None
 
 
 def scan_history(code):
     df = fetch_hist(code)
     if df is None or len(df) < 30:
         return []
-    df = df.rename(columns={"日期": "date", "开盘": "open", "收盘": "close",
-                            "最高": "high", "最低": "low", "成交量": "vol", "成交额": "amt"})
+    # 已经是英文列；保证有需要的列
+    needed = {"date", "open", "close", "high", "low", "vol", "amt"}
+    if not needed.issubset(df.columns):
+        return []
     df = df.sort_values("date").reset_index(drop=True)
     df["ma20"] = df["close"].rolling(20).mean()
     df["ma5v"] = df["vol"].rolling(5).mean()
