@@ -520,11 +520,11 @@ def main() -> None:
         if not (len(args.as_of) == 8 and args.as_of.isdigit()):
             print(f"[daily_perf] --as-of 必须是 YYYYMMDD 8 位数字，收到 {args.as_of!r}，退出")
             return
-        if args.as_of > now.strftime("%Y%m%d"):
-            print(f"[daily_perf] --as-of {args.as_of} 大于今天，拒绝读未来，退出")
-            return
         today = args.as_of
-        print(f"[daily_perf] --as-of 生效，today 模拟为 {today}（注意：行情仍取今日 spot）")
+        if today > now.strftime("%Y%m%d"):
+            print(f"[daily_perf] WARN: --as-of {today} 在今天之后，行情仍取今日 spot，结果仅供 demo")
+        else:
+            print(f"[daily_perf] --as-of 生效，today 模拟为 {today}（注意：行情仍取今日 spot）")
     else:
         today = now.strftime("%Y%m%d")
     date_fmt = f"{today[4:6]}/{today[6:]}"
