@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import socket
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
+
+socket.setdefaulttimeout(30)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from report.utils import forward_return, load_json, save_json
@@ -32,27 +36,32 @@ def _save_json_dry(path: Path, obj, dry_run: bool = False) -> None:
     save_json(path, obj)
 
 
-def _get_closes(code: str, start_date: str, end_date: str) -> dict[str, float]:
+def _get_closes(code: str, start_date: str, end_date: str,
+                 max_retries: int = 2) -> dict[str, float]:
     """
     用 akshare 获取复权收盘价，返回 {"YYYY-MM-DD": close, ...}。
     失败时返回空字典并打印 WARN。
     """
-    try:
-        import akshare as ak
-        df = ak.stock_zh_a_hist(
-            symbol=code,
-            period="daily",
-            start_date=start_date.replace("-", ""),
-            end_date=end_date.replace("-", ""),
-            adjust="qfq",
-        )
-        if df is None or df.empty:
-            return {}
-        # 列名: 日期, 收盘
-        return {str(row["日期"])[:10]: float(row["收盘"]) for _, row in df.iterrows()}
-    except Exception as e:
-        print(f"  WARN fetch {code}: {e}")
-        return {}
+    import akshare as ak
+    last_err: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            df = ak.stock_zh_a_hist(
+                symbol=code,
+                period="daily",
+                start_date=start_date.replace("-", ""),
+                end_date=end_date.replace("-", ""),
+                adjust="qfq",
+            )
+            if df is None or df.empty:
+                return {}
+            return {str(row["日期"])[:10]: float(row["收盘"]) for _, row in df.iterrows()}
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries:
+                time.sleep(1)
+    print(f"  WARN fetch {code}: {last_err}")
+    return {}
 
 
 def _enough_time_passed(signal_date: str, n: int, today: str,
