@@ -11,6 +11,8 @@
   热榜策略  — hot_scan_YYYYMMDD.json picks（前日 19:00 扫描）
   ETF策略   — etf_picks_YYYYMMDD.json（etf_strategy 有买入信号时写入）
   监控强买  — wl_strong_buy_log.json（watchlist 信号触发）
+  市值策略  — marketcap_latest.json（前日 16:30 扫盘）
+  横盘策略  — sideways_latest.json（前日 20:00 扫描，合并所有 tier 去重）
 
 用法：
     python -X utf8 src/jobs/daily_perf_log.py [--dry-run] [--force]
@@ -37,6 +39,8 @@ HOT_PERF_PATH   = DATA_DIR / "hot_daily_perf.json"
 ETF_PERF_PATH   = DATA_DIR / "etf_daily_perf.json"
 WL_MON_PERF_PATH = DATA_DIR / "wl_monitor_perf.json"
 WL_MON_LOG_PATH  = DATA_DIR / "wl_strong_buy_log.json"
+MCAP_PERF_PATH  = DATA_DIR / "marketcap_daily_perf.json"
+SW_PERF_PATH    = DATA_DIR / "sideways_daily_perf.json"
 
 CHIP_TIERS = ["C0", "C1", "C2", "C3"]
 GC_TIERS   = ["G0", "G1", "G2"]
@@ -374,6 +378,51 @@ def _load_etf(today: str) -> list[dict]:
             for p in raw.get("picks", []) if p.get("code")]
 
 
+def _load_marketcap(today: str) -> list[dict]:
+    """市值策略：读 marketcap_latest.json；要求文件内 date 严格在 [today-3, today) 范围内，
+    避免读到当日尚未跑出来的旧 latest（口径：前日选股 → 今日表现）。"""
+    from datetime import datetime as _dt, timedelta
+    p = DATA_DIR / "marketcap_latest.json"
+    if not p.exists():
+        return []
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    cutoff = (_dt.strptime(today, "%Y%m%d") - timedelta(days=3)).strftime("%Y%m%d")
+    d = str(raw.get("date", ""))
+    if not (cutoff <= d < today):
+        return []
+    return [{"code": str(p.get("code", "")).zfill(6), "name": p.get("name", "")}
+            for p in raw.get("picks", []) if p.get("code")]
+
+
+def _load_sideways(today: str) -> list[dict]:
+    """横盘策略：读 sideways_latest.json，合并所有 tier 去重；同上要求 date 在 [today-3, today)。"""
+    from datetime import datetime as _dt, timedelta
+    p = DATA_DIR / "sideways_latest.json"
+    if not p.exists():
+        return []
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    cutoff = (_dt.strptime(today, "%Y%m%d") - timedelta(days=3)).strftime("%Y%m%d")
+    d = str(raw.get("date", ""))
+    if not (cutoff <= d < today):
+        return []
+    seen: set[str] = set()
+    out: list[dict] = []
+    for picks in raw.get("tiers", {}).values():
+        for p in picks:
+            code = str(p.get("code", "")).zfill(6)
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            out.append({"code": code, "name": p.get("name", "")})
+    return out
+
+
 def _load_hot(today: str) -> dict[str, list[dict]]:
     """热榜策略：H0=热度top5%，H1=全部picks"""
     raw = _find_prev("hot_scan_????????.json", today, days=3)
@@ -475,19 +524,21 @@ def main() -> None:
     hot_by_tier   = _load_hot(today)
     wl_mon_picks  = _load_wl_monitor(today)
     etf_picks     = _load_etf(today)
+    mcap_picks    = _load_marketcap(today)
+    sw_picks      = _load_sideways(today)
 
     chip_flat = [p for picks in chip_by_tier.values() for p in picks]
     gc_flat   = [p for picks in gc_by_tier.values()   for p in picks]
     hot_flat  = hot_by_tier["H1"]
 
-    print(f"[daily_perf] 主策略 {len(main_picks)}只 / 小票 {len(sc_picks)}只 / 筹码 {len(chip_flat)}只 / 金叉 {len(gc_flat)}只 / 热榜H0:{len(hot_by_tier['H0'])}只/H1:{len(hot_flat)}只 / 监控强买:{len(wl_mon_picks)}只 / ETF:{len(etf_picks)}只")
+    print(f"[daily_perf] 主策略 {len(main_picks)}只 / 小票 {len(sc_picks)}只 / 筹码 {len(chip_flat)}只 / 金叉 {len(gc_flat)}只 / 热榜H0:{len(hot_by_tier['H0'])}只/H1:{len(hot_flat)}只 / 监控强买:{len(wl_mon_picks)}只 / ETF:{len(etf_picks)}只 / 市值:{len(mcap_picks)}只 / 横盘:{len(sw_picks)}只")
 
-    if not main_picks and not sc_picks and not chip_flat and not gc_flat and not hot_flat and not wl_mon_picks and not etf_picks:
+    if not (main_picks or sc_picks or chip_flat or gc_flat or hot_flat or wl_mon_picks or etf_picks or mcap_picks or sw_picks):
         print("[daily_perf] 所有策略均无数据，退出")
         return
 
     # ── 一次性拉取所有行情 ────────────────────────────────────────────────────
-    all_codes = list({p["code"] for p in main_picks + sc_picks + chip_flat + gc_flat + hot_flat + wl_mon_picks + etf_picks})
+    all_codes = list({p["code"] for p in main_picks + sc_picks + chip_flat + gc_flat + hot_flat + wl_mon_picks + etf_picks + mcap_picks + sw_picks})
     print(f"[daily_perf] 获取 {len(all_codes)} 只行情 ...")
     prices, open_prices, raw_prices = _fetch_market_data(all_codes)
     print(f"[daily_perf] 获取到 {len(prices)} 只（今开 {len(open_prices)} 只）")
@@ -503,13 +554,15 @@ def main() -> None:
     hot_tier_stats  = {t: _stats(hot_by_tier[t],  prices, open_prices, raw_prices) for t in HOT_TIERS}
     wl_mon_stats    = _stats(wl_mon_picks, prices, open_prices, raw_prices)
     etf_stats       = _stats(etf_picks,   prices, open_prices, raw_prices)
+    mcap_stats      = _stats(mcap_picks,  prices, open_prices, raw_prices)
+    sw_stats        = _stats(sw_picks,    prices, open_prices, raw_prices)
     cs = _stats(chip_flat, prices, open_prices, raw_prices)
     gs = _stats(gc_flat,   prices, open_prices, raw_prices)
     hs = hot_tier_stats["H1"]
 
     def _sort_key(r): return r.get("open_pct", r["pct"])
 
-    for lbl, s in [("主策略", ms), ("小票", scs), ("筹码", cs), ("金叉", gs), ("热榜H1", hs), ("监控强买", wl_mon_stats), ("ETF", etf_stats)]:
+    for lbl, s in [("主策略", ms), ("小票", scs), ("筹码", cs), ("金叉", gs), ("热榜H1", hs), ("监控强买", wl_mon_stats), ("ETF", etf_stats), ("市值", mcap_stats), ("横盘", sw_stats)]:
         if s["n"] > 0:
             print(f"  [{lbl}] {s['n']}只  今开胜率{_owr(s)}  均{_oar(s)}")
 
@@ -523,6 +576,8 @@ def main() -> None:
             "热":  hot_flat,
             "ETF": etf_picks,
             "监":  wl_mon_picks,
+            "市":  mcap_picks,
+            "横":  sw_picks,
         },
         prices, open_prices, raw_prices,
         min_tags=MIN_INTERSECT_TAGS,
@@ -547,6 +602,8 @@ def main() -> None:
         _stat_line("热榜", hs),
         _stat_line("监控强买", wl_mon_stats),
         _stat_line("ETF", etf_stats),
+        _stat_line("市值", mcap_stats),
+        _stat_line("横盘", sw_stats),
     ]
 
     sections: list[str] = ["  \n".join(stats_rows)]
@@ -624,6 +681,12 @@ def main() -> None:
     _append(ETF_PERF_PATH,
             {"date": today, "logged": ts, **_tier_rec(etf_stats)},
             today, args.force)
+    _append(MCAP_PERF_PATH,
+            {"date": today, "logged": ts, **_tier_rec(mcap_stats)},
+            today, args.force)
+    _append(SW_PERF_PATH,
+            {"date": today, "logged": ts, **_tier_rec(sw_stats)},
+            today, args.force)
     print("[daily_perf] 历史记录已写入")
 
     # ── 推送 (仅 Feishu) ──────────────────────────────────────────────────────
@@ -641,6 +704,8 @@ def main() -> None:
         if _tv(hs)        is not None: parts.append(f"热{_tv(hs)}%")
         if _tv(wl_mon_stats) is not None: parts.append(f"监{_tv(wl_mon_stats)}%")
         if _tv(etf_stats) is not None: parts.append(f"ETF{_tv(etf_stats)}%")
+        if _tv(mcap_stats) is not None: parts.append(f"市{_tv(mcap_stats)}%")
+        if _tv(sw_stats)  is not None: parts.append(f"横{_tv(sw_stats)}%")
 
         # 转飞书纯文本：<br> → \n，剥掉 markdown **bold**
         feishu_body = push_body.replace("<br>", "\n").replace("**", "")
