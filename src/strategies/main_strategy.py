@@ -103,6 +103,17 @@ def save_picks(
         }
         write_json(LATEST_PICKS_PATH, payload, atomic=True)
 
+    # dated 归档：每天一份独立快照供 strategy_replay 回测
+    date_str = datetime.now().strftime("%Y%m%d")
+    dated_path = os.path.join(_ROOT, "data", f"main_picks_{date_str}.json")
+    write_json(dated_path, {
+        "date":         date_str,
+        "timestamp":    datetime.now().isoformat(),
+        "regime":       regime_signal,
+        "regime_score": regime_score,
+        "picks":        [_pick(b) for b in buy_alerts],
+    }, atomic=True)
+
 
 def append_signals_log(buy_alerts: list[dict], run_time: str,
                        regime_score: Optional[float], source: str = "main") -> None:

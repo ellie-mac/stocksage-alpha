@@ -135,6 +135,28 @@ def _extract_chip(d: dict) -> list[dict]:
     return out
 
 
+def _extract_picks_list(d: dict) -> list[dict]:
+    """通用 picks 抽取器：main/sc/etf/marketcap 都是 {"picks": [{"code","name",...}]} 格式。
+
+    'close' 字段：main/sc 写 'price' (买入分时收盘价)，marketcap 写 'price'，etf 没有
+    close。统一映射到 close = price / None。
+    """
+    out = []
+    for p in d.get("picks", []):
+        if not p.get("code"):
+            continue
+        close = p.get("close") if p.get("close") is not None else p.get("price")
+        out.append({
+            "code": str(p["code"])[-6:],
+            "name": p.get("name", ""),
+            "tier": p.get("tier", ""),
+            "close": close,
+            "industry": p.get("industry", ""),
+            "matched_tiers": "",
+        })
+    return out
+
+
 # ── strategy registry ────────────────────────────────────────────────────────
 
 STRATEGIES: dict[str, dict] = {
@@ -143,15 +165,17 @@ STRATEGIES: dict[str, dict] = {
     "sideways":   {"label": "横盘",   "glob": "sideways_????????.json",      "extract": _extract_sideways},
     "hot":        {"label": "热榜",   "glob": "hot_scan_????????.json",      "extract": _extract_hot},
     "chip":       {"label": "筹码",   "glob": "chip_scan_????????.json",     "extract": _extract_chip},
+    "main":       {"label": "主策略", "glob": "main_picks_????????.json",    "extract": _extract_picks_list},
+    "small":      {"label": "小盘",   "glob": "sc_picks_????????.json",      "extract": _extract_picks_list},
+    "etf":        {"label": "ETF",    "glob": "etf_picks_????????.json",     "extract": _extract_picks_list},
+    "marketcap":  {"label": "市值",   "glob": "marketcap_????????.json",     "extract": _extract_picks_list},
 }
 
-# 没有 dated 归档的策略（需 --date 重新回填后才能跑）
-TODO_STRATEGIES = {
-    "main":      "需 main_strategy.py 加 --date / --backfill；当前只有 latest_picks.json",
-    "small":     "同 main，写入 latest_picks.json['smallcap']",
-    "marketcap": "需 marketcap_strategy.py 加 --date；当前只有 marketcap_latest.json",
-    "etf":       "需 etf_strategy.py 加 --date；当前只有 etf_scan_latest.json + etf_picks_<date>.json",
-}
+# main/sc/etf 因为依赖 score_one_buy 因子链（每个因子用当下数据），
+# 没法历史 as-of 回填。它们的 dated 归档是每天 live 跑时新写的，
+# 样本会随时间累积；目前样本少属于正常。
+# marketcap 用 close × 隐含股本重建市值实现了 --backfill，可以填历史。
+TODO_STRATEGIES: dict = {}
 
 
 # ── core ─────────────────────────────────────────────────────────────────────

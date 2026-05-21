@@ -137,6 +137,17 @@ def save_picks(candidates: list[dict], regime_signal: str, regime_score: float |
         }
         write_json(LATEST_PICKS_PATH, payload, atomic=True)
 
+    # dated 归档：供 strategy_replay 回测用
+    date_str = datetime.now().strftime("%Y%m%d")
+    dated_path = os.path.join(_ROOT, "data", f"sc_picks_{date_str}.json")
+    write_json(dated_path, {
+        "date":         date_str,
+        "timestamp":    datetime.now().isoformat(),
+        "regime":       regime_signal,
+        "regime_score": regime_score,
+        "picks":        [_pick(b) for b in candidates],
+    }, atomic=True)
+
 
 # ── 推送/副作用（与 scan 分离，供适配器复用）──────────────────────────────────
 

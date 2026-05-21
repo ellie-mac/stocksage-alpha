@@ -169,8 +169,13 @@ def _get_marketcap_from_baostock(spot: pd.DataFrame) -> dict[str, float]:
 
 # ── 核心筛选 ──────────────────────────────────────────────────────────────────
 
-def scan() -> list[dict]:
-    """返回全市场市值最低 TOP_N 只（过滤后），按市值升序。"""
+def scan(as_of_date: str = "") -> list[dict]:
+    """返回市值最低 TOP_N 只。
+
+    as_of_date='YYYYMMDD' 时回填：用 close_at_D × 隐含股本 重建当日市值，
+    隐含股本 = 当前总市值 / 当前价（短期内股本相对稳定，分红/送转/增发误差可控）。
+    ST/科创/北证过滤用当前名单当代理（历史 ST 状态难恢复，影响样本极少）。
+    """
     spot, _ = get_spot_with_marketcap()
     if spot.empty or "总市值" not in spot.columns:
         print("[marketcap] 无法执行筛选，缺少必要数据")
@@ -186,18 +191,23 @@ def scan() -> list[dict]:
     df = df[~df["代码"].str.startswith("688")]
     # 过滤北证 (8xxxxx / 43xxxx / 9xxxxx for 920xxx)
     df = df[~(df["代码"].str.startswith("8") | df["代码"].str.startswith("43") | df["代码"].str.startswith("9"))]
-    # 过滤股价 ≤ 2 元
+    # 过滤市值/价格异常
     price_col = pd.to_numeric(df["最新价"], errors="coerce")
-    df = df[price_col > MIN_PRICE]
-    # 过滤市值为空或零
     mv_col = pd.to_numeric(df["总市值"], errors="coerce")
-    df = df[mv_col > 0].copy()
-    df["_mv"] = pd.to_numeric(df["总市值"], errors="coerce")
+    df = df[(price_col > 0) & (mv_col > 0)].copy()
+    df["_curr_price"] = pd.to_numeric(df["最新价"], errors="coerce")
+    df["_curr_mv"] = pd.to_numeric(df["总市值"], errors="coerce")
 
-    # 多取一些候选给质量门槛筛（部分会被流动性/量比剔除）
-    df = df.nsmallest(TOP_N * 3, "_mv")
+    if as_of_date:
+        # 回填模式：先按当前市值预筛 top 500 候选（小盘股池短期内不会剧烈漂移），
+        # 再逐个拉历史算 as-of 市值排序
+        df = df.nsmallest(500, "_curr_mv")
+    else:
+        # live：直接用当前价过滤 + nsmallest
+        df = df[df["_curr_price"] > MIN_PRICE]
+        df = df.nsmallest(TOP_N * 3, "_curr_mv")
 
-    # 流动性 / 量能 enrichment + 行业黑名单
+    # 流动性 / 量能 enrichment + 行业黑名单 + as-of 价格/市值
     import fetcher as _f
     from strategies._quality import compute_metrics, passes_quality, is_blacklisted, load_name_industry_map
     from concurrent.futures import ThreadPoolExecutor as _TPE
@@ -210,19 +220,44 @@ def scan() -> list[dict]:
         if is_blacklisted(_ind_map.get(code6, "")):
             return None
         try:
-            ddf = _f.get_price_history(code6, days=65)
+            # 回填模式拉 120 天给 slice 留 buffer；live 只拉 65 天足够 quality
+            fetch_days = 120 if as_of_date else 65
+            ddf = _f.get_price_history(code6, days=fetch_days)
+            if ddf is None or ddf.empty:
+                return None
         except Exception:
             return None
+
+        if as_of_date:
+            cutoff_ts = pd.to_datetime(as_of_date, format="%Y%m%d")
+            ddf = ddf[ddf["date"] <= cutoff_ts]
+            if ddf.empty:
+                return None
+            last_close = float(ddf["close"].iloc[-1])
+            last_pct = float(ddf["pct_chg"].iloc[-1]) if "pct_chg" in ddf.columns else 0.0
+            curr_price = float(row["_curr_price"])
+            curr_mv = float(row["_curr_mv"])
+            # as-of 市值 = 当前市值 × (当日 close / 当前价) — 短期内股本近似不变
+            mv_at_d = curr_mv * (last_close / curr_price) if curr_price > 0 else 0
+            if last_close <= MIN_PRICE or mv_at_d <= 0:
+                return None
+            price_use = last_close
+            change_use = last_pct
+            mv_yi = mv_at_d / 1e8
+        else:
+            price_use = float(row["_curr_price"])
+            change_use = float(pd.to_numeric(row.get("涨跌幅", 0), errors="coerce") or 0)
+            mv_yi = float(row["_curr_mv"]) / 1e8
+
         m = compute_metrics(ddf, code6)
         if not passes_quality(m):
             return None
-        mv_yi = row["_mv"] / 1e8 if row["_mv"] > 0 else 0
         return {
             "code":         code6,
             "name":         row["名称"],
             "industry":     _ind_map.get(code6, ""),
-            "price":        float(pd.to_numeric(row["最新价"], errors="coerce") or 0),
-            "change_pct":   float(pd.to_numeric(row.get("涨跌幅", 0), errors="coerce") or 0),
+            "price":        round(price_use, 2),
+            "change_pct":   round(change_use, 2),
             "marketcap_yi": round(mv_yi, 2),
             "amt_5d_yi":    m["amt_5d_yi"],
             "vol_ratio":    m["vol_ratio"],
@@ -231,20 +266,40 @@ def scan() -> list[dict]:
     rows = list(df.to_dict("records"))
     with _TPE(max_workers=10) as ex:
         enriched = list(ex.map(_enrich, rows))
-    results = [r for r in enriched if r is not None][:TOP_N]
+    candidates = [r for r in enriched if r is not None]
+    # 回填模式按 as-of 市值升序再取 TOP_N（_enrich 出来还是预筛序）
+    if as_of_date:
+        candidates.sort(key=lambda r: r["marketcap_yi"])
+    results = candidates[:TOP_N]
 
-    print(f"[marketcap] 筛选完成，共 {len(results)} 只（候选 {len(rows)}，过质量门槛后取 top {TOP_N}）")
+    print(f"[marketcap] 筛选完成，共 {len(results)} 只（候选 {len(rows)}，过质量门槛 {len(candidates)} 只）")
     return results
 
 
 # ── 持久化 ────────────────────────────────────────────────────────────────────
 
-def save_results(picks: list[dict]) -> None:
+def save_results(picks: list[dict], as_of_date: str = "") -> None:
+    date_str = as_of_date or datetime.now().strftime("%Y%m%d")
     payload = {
-        "date":      datetime.now().strftime("%Y%m%d"),
+        "date":      date_str,
         "timestamp": datetime.now().isoformat(),
         "picks":     picks,
     }
+
+    # dated 归档（始终写，供 strategy_replay）
+    dated_path = ROOT / "data" / f"marketcap_{date_str}.json"
+    try:
+        tmp = str(dated_path) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, dated_path)
+    except Exception as e:
+        print(f"[marketcap] dated 归档失败: {e}")
+
+    # latest 只在 live 模式写，避免回填覆盖当日
+    if as_of_date:
+        print(f"[marketcap] 已保存 {len(picks)} 只 → marketcap_{date_str}.json")
+        return
     tmp = str(_OUT_LATEST) + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
@@ -261,6 +316,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--push",    action="store_true")
+    parser.add_argument("--date",     type=str, default="", help="回填模式 YYYYMMDD（按该日 as-of 扫描，存 marketcap_<date>.json，不覆盖 latest）")
+    parser.add_argument("--backfill", type=int, default=0,  help="回填最近 N 个交易日，跑完退出（不推送）")
     args = parser.parse_args()
 
     config_path = ROOT / "alert_config.json"
@@ -268,13 +325,36 @@ def main() -> None:
         config = json.load(f)
     sendkey = setup_push(config)
 
-    picks = scan()
-    if not picks:
+    if args.backfill > 0:
+        from datetime import date as _d, timedelta as _td
+        dates = []
+        cur = _d.today()
+        while len(dates) < args.backfill:
+            cur -= _td(days=1)
+            if cur.weekday() < 5:
+                dates.append(cur.strftime("%Y%m%d"))
+        for ds in dates:
+            print(f"\n=== backfill {ds} ===")
+            picks = scan(as_of_date=ds)
+            if picks:
+                save_results(picks, as_of_date=ds)
+            else:
+                # 写空 picks dated 文件，标记当日扫了无结果
+                save_results([], as_of_date=ds)
+        return
+
+    picks = scan(as_of_date=args.date)
+    if not picks and not args.date:
         print("[marketcap] 无结果，退出")
         return
 
     if not args.dry_run:
-        save_results(picks)
+        save_results(picks, as_of_date=args.date)
+
+    if args.date:
+        # 回填单日模式不推送
+        print(f"[marketcap] {args.date} 完成，{len(picks)} 只")
+        return
 
     rows = [f"*{datetime.now():%Y-%m-%d %H:%M}*<br>**市值最低 {TOP_N} 只**（排除ST/科创/北证/≤{MIN_PRICE}元）"]
     for i, p in enumerate(picks, 1):
