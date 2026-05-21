@@ -21,12 +21,20 @@ sys.path.insert(0, os.path.dirname(_HERE))   # src/
 import fetcher
 
 random.seed(42)
-SAMPLE_N = 200
 START = "20260101"
 END   = "20260520"
 HORIZONS = [1, 3, 5, 10]
 OUT = r"C:/Users/jiapeichen/repos/me/notes/output/double_hammer_v2_backtest.csv"
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
+
+# 样本数：用 --sample N 覆盖；0/负数 = 全 A
+import argparse
+_p = argparse.ArgumentParser()
+_p.add_argument("--sample", type=int, default=200, help="样本数；0 = 全 A 股")
+_p.add_argument("--workers", type=int, default=8, help="并发 worker 数")
+_args = _p.parse_args()
+SAMPLE_N = _args.sample if _args.sample > 0 else 99999
+MAX_WORKERS = _args.workers
 
 # ---------- v2 参数（与 scan 一致）----------
 # v4: range-based hammer 判定（v1-v3 按 body 比例对小实体过严）
@@ -147,11 +155,11 @@ def main():
           f"upper≤{UPPER_OVER_RANGE_MAX*100:.0f}% of range / vol≥{VOL_RATIO_MIN}*MA5 / "
           f"amt≥{AMOUNT_MIN_YI}亿 / {HAMMER_WINDOW}天≥{HAMMER_MIN_COUNT}锤", flush=True)
 
-    print("[2/3] 回测中(并发4)...", flush=True)
+    print(f"[2/3] 回测中(并发{MAX_WORKERS})...", flush=True)
     all_recs = []
     done = 0
     t0 = time.time()
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         futs = {ex.submit(scan_history, c): c for c in codes}
         for f in as_completed(futs):
             done += 1
