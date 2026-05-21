@@ -39,23 +39,45 @@ def _save_json_dry(path: Path, obj, dry_run: bool = False) -> None:
 def _get_closes(code: str, start_date: str, end_date: str,
                  max_retries: int = 2) -> dict[str, float]:
     """
-    用 akshare 获取复权收盘价，返回 {"YYYY-MM-DD": close, ...}。
-    失败时返回空字典并打印 WARN。
+    获取复权收盘价（用 fetcher.get_price_history 多源 fallback），
+    返回 {"YYYY-MM-DD": close, ...}。失败时返回空字典并打印 WARN。
+
+    之前直接用 ak.stock_zh_a_hist 在 EM 死锁时 100% 失败。改用 fetcher
+    后享受 EM/TS/TX/BS/TDX 多源兜底 + 本地价格缓存复用，稳定且快。
     """
-    import akshare as ak
+    import sys
+    import os
+    from datetime import datetime as _dt
+    _here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, os.path.dirname(_here))   # src/
+    import fetcher
+
+    # 把 [start_date, end_date] 转成 fetcher 需要的 days（从今天往回算到 start_date）
+    try:
+        sd = _dt.strptime(start_date.replace("-", "")[:8], "%Y%m%d").date()
+        days_back = (_dt.now().date() - sd).days + 5   # buffer 5 天
+    except Exception:
+        days_back = 90
+    days_back = max(days_back, 30)
+
     last_err: Exception | None = None
     for attempt in range(max_retries + 1):
         try:
-            df = ak.stock_zh_a_hist(
-                symbol=code,
-                period="daily",
-                start_date=start_date.replace("-", ""),
-                end_date=end_date.replace("-", ""),
-                adjust="qfq",
-            )
+            df = fetcher.get_price_history(code, days=days_back)
             if df is None or df.empty:
                 return {}
-            return {str(row["日期"])[:10]: float(row["收盘"]) for _, row in df.iterrows()}
+            # fetcher 返回英文列 date / close；过滤到 [start_date, end_date]
+            result: dict[str, float] = {}
+            for _, row in df.iterrows():
+                d = str(row.get("date", ""))[:10]
+                if not d:
+                    continue
+                if start_date <= d <= end_date:
+                    try:
+                        result[d] = float(row["close"])
+                    except (ValueError, TypeError):
+                        pass
+            return result
         except Exception as e:
             last_err = e
             if attempt < max_retries:
