@@ -505,6 +505,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force",   action="store_true")
+    parser.add_argument("--as-of",   default=None, metavar="YYYYMMDD",
+                        help="把 today 模拟成指定日期（用于复跑/demo）；不能大于今天")
     args = parser.parse_args()
 
     now = datetime.now()
@@ -514,7 +516,17 @@ def main() -> None:
             print(f"[daily_perf] 当前 {now:%H:%M}，需 15:55 后运行，跳过")
             return
 
-    today    = now.strftime("%Y%m%d")
+    if args.as_of:
+        if not (len(args.as_of) == 8 and args.as_of.isdigit()):
+            print(f"[daily_perf] --as-of 必须是 YYYYMMDD 8 位数字，收到 {args.as_of!r}，退出")
+            return
+        if args.as_of > now.strftime("%Y%m%d"):
+            print(f"[daily_perf] --as-of {args.as_of} 大于今天，拒绝读未来，退出")
+            return
+        today = args.as_of
+        print(f"[daily_perf] --as-of 生效，today 模拟为 {today}（注意：行情仍取今日 spot）")
+    else:
+        today = now.strftime("%Y%m%d")
     date_fmt = f"{today[4:6]}/{today[6:]}"
 
     # ── 加载各策略选股 ────────────────────────────────────────────────────────
