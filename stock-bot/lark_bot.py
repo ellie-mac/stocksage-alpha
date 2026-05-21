@@ -89,7 +89,19 @@ def reply_text(message_id: str, text: str) -> None:
             )
             .build()
         )
-        _client.im.v1.message.reply(req)
+        # Feishu 偶发 SSL EOF / 网络抖动；重试 2 次后吞掉避免守护线程异常累积导致进程退出
+        last_err = None
+        for attempt in range(3):
+            try:
+                _client.im.v1.message.reply(req)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+        if last_err is not None:
+            print(f"[reply_text] giving up mid={message_id}: {last_err!r}", flush=True)
 
 def send_to_chat(chat_id: str, text: str) -> None:
     if not text or not chat_id:
@@ -199,10 +211,15 @@ def _on_message_receive(data: lark.im.v1.P2ImMessageReceiveV1) -> None:
     print(f"[MSG] open_id={open_id} chat_id={chat_id} text={text!r}", flush=True)
 
     def handle():
-        if text.lower() in ("chatid", "chat_id"):
-            reply_text(message_id, f"chat_id: {chat_id}\nopen_id: {open_id}")
-            return
-        reply_text(message_id, _dispatch(text))
+        try:
+            if text.lower() in ("chatid", "chat_id"):
+                reply_text(message_id, f"chat_id: {chat_id}\nopen_id: {open_id}")
+                return
+            reply_text(message_id, _dispatch(text))
+        except Exception as e:
+            # 守护线程未捕获异常虽然不会立即杀主进程，但 lark_oapi 内部 SDK
+            # 状态可能受影响导致 ws 断流，统一在此兜底打印
+            print(f"[handle] uncaught: {e!r}", flush=True)
 
     threading.Thread(target=handle, daemon=True).start()
 
