@@ -169,6 +169,30 @@ def _get_marketcap_from_baostock(spot: pd.DataFrame) -> dict[str, float]:
 
 # ── 核心筛选 ──────────────────────────────────────────────────────────────────
 
+def _build_candidates_from_cache() -> pd.DataFrame:
+    """spot 不可用时（akshare EM 端 RemoteDisconnected 等），用 marketcap_cache +
+    name_industry_map 构造候选清单。只在 as_of_date 回填模式下用——live 仍走
+    spot 才能拿当前价/涨跌幅。
+
+    构造的 df 没有 "最新价" / "涨跌幅" 列，scan() 必须从 history 拉。
+    """
+    from strategies._quality import load_marketcap_cache, load_name_industry_map
+    cached = load_marketcap_cache()
+    if not cached:
+        return pd.DataFrame()
+    name_map, _ = load_name_industry_map()
+    rows = []
+    for code6, mv in cached.items():
+        rows.append({
+            "代码": code6,
+            "名称": name_map.get(code6, code6),
+            "总市值": float(mv),
+        })
+    df = pd.DataFrame(rows)
+    print(f"[marketcap] spot 不可用，回填走 marketcap_cache fallback ({len(df)} 候选)")
+    return df
+
+
 def scan(as_of_date: str = "") -> list[dict]:
     """返回市值最低 TOP_N 只。
 
@@ -177,9 +201,14 @@ def scan(as_of_date: str = "") -> list[dict]:
     ST/科创/北证过滤用当前名单当代理（历史 ST 状态难恢复，影响样本极少）。
     """
     spot, _ = get_spot_with_marketcap()
-    if spot.empty or "总市值" not in spot.columns:
-        print("[marketcap] 无法执行筛选，缺少必要数据")
-        return []
+    spot_ok = (not spot.empty) and "总市值" in spot.columns
+    if not spot_ok:
+        if as_of_date:
+            spot = _build_candidates_from_cache()
+            spot_ok = not spot.empty
+        if not spot_ok:
+            print("[marketcap] 无法执行筛选，缺少必要数据")
+            return []
 
     df = spot.copy()
     # 规一化代码：Sina 数据带 sh/sz/bj 前缀，EM 数据是纯 6 位
@@ -191,19 +220,27 @@ def scan(as_of_date: str = "") -> list[dict]:
     df = df[~df["代码"].str.startswith("688")]
     # 过滤北证 (8xxxxx / 43xxxx / 9xxxxx for 920xxx)
     df = df[~(df["代码"].str.startswith("8") | df["代码"].str.startswith("43") | df["代码"].str.startswith("9"))]
-    # 过滤市值/价格异常
-    price_col = pd.to_numeric(df["最新价"], errors="coerce")
+    # 过滤市值异常
     mv_col = pd.to_numeric(df["总市值"], errors="coerce")
-    df = df[(price_col > 0) & (mv_col > 0)].copy()
-    df["_curr_price"] = pd.to_numeric(df["最新价"], errors="coerce")
+    df = df[mv_col > 0].copy()
     df["_curr_mv"] = pd.to_numeric(df["总市值"], errors="coerce")
+
+    has_live_price = "最新价" in df.columns
+    if has_live_price:
+        df["_curr_price"] = pd.to_numeric(df["最新价"], errors="coerce")
+        df = df[df["_curr_price"] > 0].copy()
+    else:
+        df["_curr_price"] = float("nan")  # 由 _enrich 用 history 推算
 
     if as_of_date:
         # 回填模式：先按当前市值预筛 top 500 候选（小盘股池短期内不会剧烈漂移），
         # 再逐个拉历史算 as-of 市值排序
         df = df.nsmallest(500, "_curr_mv")
     else:
-        # live：直接用当前价过滤 + nsmallest
+        # live：必须有最新价做价格过滤
+        if not has_live_price:
+            print("[marketcap] live 模式无最新价，无法过滤")
+            return []
         df = df[df["_curr_price"] > MIN_PRICE]
         df = df.nsmallest(TOP_N * 3, "_curr_mv")
 
@@ -230,13 +267,18 @@ def scan(as_of_date: str = "") -> list[dict]:
 
         if as_of_date:
             cutoff_ts = pd.to_datetime(as_of_date, format="%Y%m%d")
+            ddf_full = ddf  # 完整 history 用来推 implied shares（最新 close）
             ddf = ddf[ddf["date"] <= cutoff_ts]
             if ddf.empty:
                 return None
             last_close = float(ddf["close"].iloc[-1])
             last_pct = float(ddf["pct_chg"].iloc[-1]) if "pct_chg" in ddf.columns else 0.0
-            curr_price = float(row["_curr_price"])
             curr_mv = float(row["_curr_mv"])
+            # 推算 implied shares：优先用 row["_curr_price"]（spot 路径），否则用
+            # history 最末日（fallback 路径）— 都代表"当前/最近"价
+            curr_price = float(row.get("_curr_price") or 0)
+            if not (curr_price > 0):
+                curr_price = float(ddf_full["close"].iloc[-1])
             # as-of 市值 = 当前市值 × (当日 close / 当前价) — 短期内股本近似不变
             mv_at_d = curr_mv * (last_close / curr_price) if curr_price > 0 else 0
             if last_close <= MIN_PRICE or mv_at_d <= 0:
