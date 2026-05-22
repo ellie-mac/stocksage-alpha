@@ -106,20 +106,47 @@ def _push(title: str, body: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--date",        type=str, default=None)
+    parser.add_argument("--backfill",    type=int, default=0,
+                        help="回填最近 N 个交易日，跑完退出（不推送）")
     parser.add_argument("--dry-run",     action="store_true")
     parser.add_argument("--high-filter", action="store_true",
-                        help="剔除处于半年高位的股票（close/6m_high >= 90%）")
+                        help="剔除处于半年高位的股票（close/6m_high >= 90%%）")
     parser.add_argument("--ak",          action="store_true",
                         help="强制使用 akshare 自算模式，不消耗 Tushare 额度")
     parser.add_argument("--boll",        action="store_true",
-                        help="启用 BOLL中轨±8% 过滤（默认关闭）")
+                        help="启用 BOLL中轨±8%% 过滤（默认关闭）")
     parser.add_argument("--no-kcb",      action="store_true",
                         help="剔除科创板股票（688xxx）")
     parser.add_argument("--no-push",     action="store_true",
                         help="只预取缓存，不发微信通知（夜间预热用）")
     args = parser.parse_args()
 
+    # 回填模式：循环每个交易日，强制 --no-push + --ak 走自算（Tushare 没历史额度）
+    if args.backfill > 0:
+        from datetime import date as _d, timedelta as _td
+        args.no_push = True
+        args.ak = True   # 历史回填只能走 akshare 自算
+        dates = []
+        cur = _d.today()
+        while len(dates) < args.backfill:
+            cur -= _td(days=1)
+            if cur.weekday() < 5:
+                dates.append(cur.strftime("%Y%m%d"))
+        for ds in dates:
+            print(f"\n=== chip backfill {ds} ===", flush=True)
+            args.date = ds
+            try:
+                _run_scan_for_date(ds, args)
+            except Exception as e:
+                print(f"[chip backfill] {ds} 失败: {e}", flush=True)
+        return
+
     trade_date = args.date or _latest_trade_date()
+    _run_scan_for_date(trade_date, args)
+
+
+def _run_scan_for_date(trade_date: str, args) -> None:
+    """单日 chip scan —— 原 main() 主体逻辑，从 trade_date 开始。"""
     print(f"[scan] trade_date={trade_date}", flush=True)
 
     names = load_names()
