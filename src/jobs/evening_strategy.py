@@ -343,19 +343,19 @@ def _regime_recommendation(score: float | None) -> list[str]:
         return []
     lines = []
     if score >= 7:
-        lines.append(f"🎯 **Regime: {score:.0f}/10 (bull) — 大盘多头**")
+        lines.append(f"🎯 **大盘 {score:.0f}/10 (多头) — MA 多头排列**")
         lines.append("  ✅ 优先：**筹+市共振** / 筹 T+10 hold (62% win) / 扶梯 T+10 (61% win)")
-        lines.append("  ❌ 避开：**市值单策略短打**（bull 时小盘跑输大盘 T+1=46%）")
+        lines.append("  ❌ 避开：**市值单策略短打**（多头时小盘跑输大盘 T+1=46%）")
     elif score >= 5:
-        lines.append(f"🎯 **Regime: {score:.0f}/10 (neutral+) — 方向未明**")
+        lines.append(f"🎯 **大盘 {score:.0f}/10 (中性) — 方向未明**")
         lines.append("  ⚠️ 回测显示各策略此 regime **表现最差**（接近随机），建议谨慎")
-        lines.append("  ⚪ 信号弱时优先观望，等明确 bull 或 bear 信号")
+        lines.append("  ⚪ 信号弱时优先观望，等明确多头或熊市信号")
     elif score >= 3:
-        lines.append(f"🎯 **Regime: {score:.0f}/10 (caution) — 大盘走弱**")
-        lines.append("  ✅ 优先：**市值 T+1 短打**（caution 桶 T+1=76% 胜率 / +2.6% 均收益）")
+        lines.append(f"🎯 **大盘 {score:.0f}/10 (走弱) — 跌破 MA20**")
+        lines.append("  ✅ 优先：**市值 T+1 短打**（走弱期 T+1=76% 胜率 / +2.6% 均收益）")
         lines.append("  ❌ 避开：**长 hold**（T+5+ 显著走弱）")
     else:
-        lines.append(f"🎯 **Regime: {score:.0f}/10 (bear) — 熊市**")
+        lines.append(f"🎯 **大盘 {score:.0f}/10 (熊市) — 跌破 MA60**")
         lines.append("  ✅ 优先：**市值 / 热榜 T+1 反弹**（短打 50%+ 胜率）")
         lines.append("  ❌ 避开：**任何 hold > T+1**（T+5/T+10 普遍负预期）")
     return lines
