@@ -66,7 +66,7 @@ ALL_TASKS: list[dict[str, Any]] = [
     {"name": "chip_Night",        "time": "18:00", "desc": "筹码缓存预取",       "push": False, "slot": "chip_night",     "disabled": False, "display": True},
     {"name": "main_Scan",         "time": "18:30", "desc": "主/小/ETF 扫盘",     "push": True,  "slot": "monitor_scan",   "disabled": False, "display": True},
     {"name": "quality_Prefetch",  "time": "19:10", "desc": "质量指标预热",       "push": False, "slot": "quality_prefetch","disabled": False, "display": True},
-    {"name": "merge_Sessions",    "time": "19:14", "desc": "Lark会话合并",       "push": False, "slot": None,             "disabled": False, "display": True},
+    {"name": "merge_Sessions",    "time": "23:14", "desc": "Lark会话合并",       "push": False, "slot": None,             "disabled": False, "display": True},
     {"name": "golden_Scan",       "time": "19:30", "desc": "金叉策略扫描",       "push": True,  "slot": "gc_scan",        "disabled": False, "display": True},
     {"name": "sideways_Scan",     "time": "20:00", "desc": "横盘策略扫描",       "push": True,  "slot": "sideways_scan",  "disabled": False, "display": True},
     {"name": "escalator_Scan",    "time": "20:15", "desc": "扶梯策略扫描",       "push": True,  "slot": "escalator_scan", "disabled": False, "display": True},
