@@ -51,6 +51,7 @@ ALL_TASKS: list[dict[str, Any]] = [
 
     # ── 收盘 (15-16) ────────────────────────────────────────────────────────
     {"name": "closing_Batch",     "time": "15:05", "desc": "收盘批处理",         "push": False, "slot": None,             "disabled": False, "display": True},
+    {"name": "signal_Tracker",    "time": "15:25", "desc": "信号绩效跟踪",       "push": False, "slot": None,             "disabled": False, "display": True},
     {"name": "report_Evening",    "time": "15:30", "desc": "收盘报告",           "push": True,  "slot": "chip_evening",   "disabled": True,  "display": True},
     {"name": "market_Warm",       "time": "15:35", "desc": "市场数据预热",       "push": False, "slot": "market_warm",    "disabled": False, "display": True},
     {"name": "marketcap_Scan",    "time": "16:30", "desc": "市值策略扫盘",       "push": True,  "slot": "marketcap_scan", "disabled": False, "display": True},
