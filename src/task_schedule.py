@@ -27,7 +27,7 @@ from typing import Any
 ALL_TASKS: list[dict[str, Any]] = [
     # ── 凌晨/盘前外 ──────────────────────────────────────────────────────────
     {"name": "weekly_PerfReport", "time": "00:00", "desc": "周度绩效报告",       "push": True,  "slot": None,             "disabled": False, "display": True},
-    {"name": "sync_Knowledge",    "time": "02:00", "desc": "知识库同步",         "push": False, "slot": None,             "disabled": False, "display": True},
+    {"name": "sync_Knowledge",    "time": "02:00", "desc": "知识库同步",         "push": False, "slot": None,             "disabled": True,  "display": False},
     {"name": "factor_Analysis",   "time": "03:00", "desc": "因子IC分析",         "push": False, "slot": None,             "disabled": False, "display": True},
     {"name": "institution_Scan",  "time": "04:00", "desc": "机构扫盘",           "push": True,  "slot": None,             "disabled": False, "display": True},
 
