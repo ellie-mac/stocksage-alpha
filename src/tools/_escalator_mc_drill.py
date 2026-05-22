@@ -33,7 +33,7 @@ print(f"escalator∩marketcap (with possibly more): {len(em_any)}")
 
 print()
 print(f"{'date':<10}{'code':<8}{'name':<12}{'strats':<28}{'rank':>5}{'mv_yi':>9}  {'T+1':>6}{'T+5':>7}{'T+10':>7}")
-for k, v in sorted(em_any, key=lambda x: (x[0][0], v.get('mv_rank', 0) if isinstance(v.get('mv_rank'), int) else 999)):
+for k, v in sorted(em_any, key=lambda x: (x[0][0], x[1].get('mv_rank') or 999)):
     d, c = k
     strats = "+".join(sorted(v["strategies"]))
     rk = v.get("mv_rank", "-")
