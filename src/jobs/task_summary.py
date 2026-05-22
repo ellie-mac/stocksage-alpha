@@ -121,10 +121,12 @@ def _classify(task: dict, probe_info: dict | None, now_hhmm: str, today: str) ->
         out_mtime = _check_output_files(task["name"], today)
         if out_mtime:
             return "✅", f"{out_mtime} (产物)"   # 标 "产物" 区分 probe 来源
-        if task["slot"] is None:
-            return "·", "no probe"
+        # 时间还没到：不管 slot 都显示 ⏰，不要因为 slot=None 就吃掉
         if sched_time > now_hhmm:
             return "⏰", "未到时间"
+        # 时间过了但无 probe：slot=None 多半是没装 probe 的手写 bat，标 · no probe
+        if task["slot"] is None:
+            return "·", "no probe"
         return "❓", "应运行但无记录"
     if probe_info["exit_code"] is None:
         if probe_info["invoking"]:
