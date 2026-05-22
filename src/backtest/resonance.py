@@ -36,7 +36,7 @@ def _parse_float(s: str) -> Optional[float]:
 
 
 def load_all() -> dict[tuple[str, str], dict]:
-    """(date, code) → {strategies: set, ret_t1, ret_t3, ..., mv_rank, mv_yi}"""
+    """(date, code) → {strategies: set, ret_t1, ret_t3, ..., mv_rank, mv_yi, regime_score}"""
     agg: dict[tuple[str, str], dict] = {}
     for s in STRATEGIES:
         p = PICKS_DIR / f"{s}_picks.csv"
@@ -62,7 +62,23 @@ def load_all() -> dict[tuple[str, str], dict]:
                     my = _parse_float(r.get("mv_yi", ""))
                     if my is not None:
                         entry["mv_yi"] = my
+                # regime_score: 同一日所有策略都有同样值；regime_attach.py 写入
+                rs = _parse_float(r.get("regime_score", ""))
+                if rs is not None and "regime_score" not in entry:
+                    entry["regime_score"] = rs
     return agg
+
+
+def _regime_bucket(score: Optional[float]) -> str:
+    if score is None:
+        return "unknown"
+    if score >= 7:
+        return "bull (7-9)"
+    if score >= 5:
+        return "neutral+ (5-6)"
+    if score >= 3:
+        return "caution (3-4)"
+    return "bear (1-2)"
 
 
 def _rank_bucket(rk: int) -> str:
@@ -150,6 +166,55 @@ def main() -> int:
             else:
                 print(f"  {'-':>10}{'-':>10}", end="")
         print()
+
+    # 按 regime 切桶 — 单策略 / 共振一起拆，看 alpha 是不是 regime-conditional
+    print(f"\n按 regime 切桶（同一桶内不分共振，整体 alpha）：")
+    print(f"  {'regime':<18}{'n':>6}", end="")
+    for h in args.horizons:
+        print(f"  {'T+'+str(h)+'_win':>10}{'T+'+str(h)+'_avg':>10}{'T+'+str(h)+'_n':>8}", end="")
+    print()
+    regime_buckets: dict[str, list[dict]] = defaultdict(list)
+    for entry in agg.values():
+        regime_buckets[_regime_bucket(entry.get("regime_score"))].append(entry)
+    for b in ["bull (7-9)", "neutral+ (5-6)", "caution (3-4)", "bear (1-2)", "unknown"]:
+        entries = regime_buckets.get(b, [])
+        if not entries:
+            continue
+        print(f"  {b:<18}{len(entries):>6}", end="")
+        for h in args.horizons:
+            rets = [e[f"ret_t{h}"] for e in entries if f"ret_t{h}" in e]
+            if rets:
+                wr = sum(1 for r in rets if r > 0) / len(rets) * 100
+                avg = mean(rets)
+                print(f"  {wr:>9.1f}% {avg:>+9.2f}% {len(rets):>8}", end="")
+            else:
+                print(f"  {'-':>10}{'-':>10}{0:>8}", end="")
+        print()
+
+    # 按 (regime, 策略) 二维切：看每个策略在不同 regime 的表现差异
+    print(f"\n按 (策略, regime) 二维切（仅单策略 unique pick，不含共振）：")
+    print(f"  {'策略':<12}{'regime':<18}{'n':>6}", end="")
+    for h in args.horizons:
+        print(f"  {'T+'+str(h)+'_win':>10}{'T+'+str(h)+'_avg':>10}", end="")
+    print()
+    for s in STRATEGIES:
+        s_entries = [e for e in agg.values() if e["strategies"] == {s}]
+        if not s_entries:
+            continue
+        for b in ["bull (7-9)", "neutral+ (5-6)", "caution (3-4)", "bear (1-2)"]:
+            bucket_entries = [e for e in s_entries if _regime_bucket(e.get("regime_score")) == b]
+            if not bucket_entries:
+                continue
+            print(f"  {s:<12}{b:<18}{len(bucket_entries):>6}", end="")
+            for h in args.horizons:
+                rets = [e[f"ret_t{h}"] for e in bucket_entries if f"ret_t{h}" in e]
+                if rets:
+                    wr = sum(1 for r in rets if r > 0) / len(rets) * 100
+                    avg = mean(rets)
+                    print(f"  {wr:>9.1f}% {avg:>+9.2f}%", end="")
+                else:
+                    print(f"  {'-':>10}{'-':>10}", end="")
+            print()
 
     # chip ∩ marketcap by mv_rank bucket（核心实验）
     chip_mc_entries = [e for e in agg.values()
