@@ -193,12 +193,13 @@ def _build_candidates_from_cache() -> pd.DataFrame:
     return df
 
 
-def scan(as_of_date: str = "") -> list[dict]:
-    """返回市值最低 TOP_N 只。
+def scan(as_of_date: str = "", top_n: int = TOP_N) -> list[dict]:
+    """返回市值最低 top_n 只。
 
     as_of_date='YYYYMMDD' 时回填：用 close_at_D × 隐含股本 重建当日市值，
     隐含股本 = 当前总市值 / 当前价（短期内股本相对稳定，分红/送转/增发误差可控）。
     ST/科创/北证过滤用当前名单当代理（历史 ST 状态难恢复，影响样本极少）。
+    top_n: 默认 20（生产值）；回填实验时可调大看 alpha 是否衰减。
     """
     spot, _ = get_spot_with_marketcap()
     spot_ok = (not spot.empty) and "总市值" in spot.columns
@@ -233,16 +234,16 @@ def scan(as_of_date: str = "") -> list[dict]:
         df["_curr_price"] = float("nan")  # 由 _enrich 用 history 推算
 
     if as_of_date:
-        # 回填模式：先按当前市值预筛 top 500 候选（小盘股池短期内不会剧烈漂移），
-        # 再逐个拉历史算 as-of 市值排序
-        df = df.nsmallest(500, "_curr_mv")
+        # 回填模式：先按当前市值预筛 top max(500, top_n*3) 候选给质量门槛留余量
+        prefilt = max(500, top_n * 3)
+        df = df.nsmallest(prefilt, "_curr_mv")
     else:
         # live：必须有最新价做价格过滤
         if not has_live_price:
             print("[marketcap] live 模式无最新价，无法过滤")
             return []
         df = df[df["_curr_price"] > MIN_PRICE]
-        df = df.nsmallest(TOP_N * 3, "_curr_mv")
+        df = df.nsmallest(top_n * 3, "_curr_mv")
 
     # 流动性 / 量能 enrichment + 行业黑名单 + as-of 价格/市值
     import fetcher as _f
@@ -309,10 +310,13 @@ def scan(as_of_date: str = "") -> list[dict]:
     with _TPE(max_workers=10) as ex:
         enriched = list(ex.map(_enrich, rows))
     candidates = [r for r in enriched if r is not None]
-    # 回填模式按 as-of 市值升序再取 TOP_N（_enrich 出来还是预筛序）
+    # 回填模式按 as-of 市值升序再取 top_n（_enrich 出来还是预筛序）
     if as_of_date:
         candidates.sort(key=lambda r: r["marketcap_yi"])
-    results = candidates[:TOP_N]
+    # 给每只标 mv_rank（1-based）方便下游 bucket 分析
+    for i, c in enumerate(candidates[:top_n], 1):
+        c["mv_rank"] = i
+    results = candidates[:top_n]
 
     print(f"[marketcap] 筛选完成，共 {len(results)} 只（候选 {len(rows)}，过质量门槛 {len(candidates)} 只）")
     return results
@@ -360,6 +364,7 @@ def main() -> None:
     parser.add_argument("--push",    action="store_true")
     parser.add_argument("--date",     type=str, default="", help="回填模式 YYYYMMDD（按该日 as-of 扫描，存 marketcap_<date>.json，不覆盖 latest）")
     parser.add_argument("--backfill", type=int, default=0,  help="回填最近 N 个交易日，跑完退出（不推送）")
+    parser.add_argument("--top-n",    type=int, default=TOP_N, help=f"取市值最低 N 只（默认 {TOP_N}，实验扩样可调大）")
     args = parser.parse_args()
 
     config_path = ROOT / "alert_config.json"
@@ -376,8 +381,8 @@ def main() -> None:
             if cur.weekday() < 5:
                 dates.append(cur.strftime("%Y%m%d"))
         for ds in dates:
-            print(f"\n=== backfill {ds} ===")
-            picks = scan(as_of_date=ds)
+            print(f"\n=== backfill {ds} (top_n={args.top_n}) ===")
+            picks = scan(as_of_date=ds, top_n=args.top_n)
             if picks:
                 save_results(picks, as_of_date=ds)
             else:
@@ -385,7 +390,7 @@ def main() -> None:
                 save_results([], as_of_date=ds)
         return
 
-    picks = scan(as_of_date=args.date)
+    picks = scan(as_of_date=args.date, top_n=args.top_n)
     if not picks and not args.date:
         print("[marketcap] 无结果，退出")
         return
@@ -395,7 +400,7 @@ def main() -> None:
 
     if args.date:
         # 回填单日模式不推送
-        print(f"[marketcap] {args.date} 完成，{len(picks)} 只")
+        print(f"[marketcap] {args.date} 完成，{len(picks)} 只 (top_n={args.top_n})")
         return
 
     rows = [f"*{datetime.now():%Y-%m-%d %H:%M}*<br>**市值最低 {TOP_N} 只**（排除ST/科创/北证/≤{MIN_PRICE}元）"]

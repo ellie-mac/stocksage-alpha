@@ -140,6 +140,7 @@ def _extract_picks_list(d: dict) -> list[dict]:
 
     'close' 字段：main/sc 写 'price' (买入分时收盘价)，marketcap 写 'price'，etf 没有
     close。统一映射到 close = price / None。
+    marketcap 还透传 mv_rank / marketcap_yi 供 bucket 分析。
     """
     out = []
     for p in d.get("picks", []):
@@ -153,6 +154,8 @@ def _extract_picks_list(d: dict) -> list[dict]:
             "close": close,
             "industry": p.get("industry", ""),
             "matched_tiers": "",
+            "mv_rank": p.get("mv_rank"),
+            "mv_yi": p.get("marketcap_yi"),
         })
     return out
 
@@ -309,7 +312,8 @@ def summarize(picks_with_ret: list[dict], horizons: list[int]) -> dict:
 
 def _write_picks_csv(picks_with_ret: list[dict], strategy: str, horizons: list[int]) -> Path:
     out = OUT_DIR / f"{strategy}_picks.csv"
-    cols = ["date", "strategy", "code", "name", "tier", "matched_tiers", "industry", "close"] + [f"ret_t{n}" for n in horizons]
+    cols = ["date", "strategy", "code", "name", "tier", "matched_tiers", "industry", "close",
+            "mv_rank", "mv_yi"] + [f"ret_t{n}" for n in horizons]
     with open(out, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
         w.writeheader()

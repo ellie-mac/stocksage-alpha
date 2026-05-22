@@ -36,7 +36,7 @@ def _parse_float(s: str) -> Optional[float]:
 
 
 def load_all() -> dict[tuple[str, str], dict]:
-    """(date, code) → {strategies: set, ret_t1, ret_t3, ...}"""
+    """(date, code) → {strategies: set, ret_t1, ret_t3, ..., mv_rank, mv_yi}"""
     agg: dict[tuple[str, str], dict] = {}
     for s in STRATEGIES:
         p = PICKS_DIR / f"{s}_picks.csv"
@@ -47,13 +47,32 @@ def load_all() -> dict[tuple[str, str], dict]:
                 key = (r["date"], r["code"])
                 entry = agg.setdefault(key, {"strategies": set(), "name": r.get("name", "")})
                 entry["strategies"].add(s)
-                # 各策略的 forward return 应该一致（同一只票同一天的 T+N），
-                # 直接覆盖即可。空字符串才跳过。
                 for h in (1, 3, 5, 10, 20):
                     v = _parse_float(r.get(f"ret_t{h}", ""))
                     if v is not None:
                         entry[f"ret_t{h}"] = v
+                # mv_rank / mv_yi 只在 marketcap 策略写入（其他策略 CSV 列空）
+                if s == "marketcap":
+                    rk = r.get("mv_rank", "")
+                    if rk:
+                        try:
+                            entry["mv_rank"] = int(rk)
+                        except ValueError:
+                            pass
+                    my = _parse_float(r.get("mv_yi", ""))
+                    if my is not None:
+                        entry["mv_yi"] = my
     return agg
+
+
+def _rank_bucket(rk: int) -> str:
+    if rk <= 20:
+        return "1-20"
+    if rk <= 50:
+        return "21-50"
+    if rk <= 100:
+        return "51-100"
+    return "101-200"
 
 
 def _bucket(n: int) -> str:
@@ -131,6 +150,31 @@ def main() -> int:
             else:
                 print(f"  {'-':>10}{'-':>10}", end="")
         print()
+
+    # chip ∩ marketcap by mv_rank bucket（核心实验）
+    chip_mc_entries = [e for e in agg.values()
+                       if {"chip", "marketcap"}.issubset(e["strategies"]) and "mv_rank" in e]
+    if chip_mc_entries:
+        print(f"\nchip ∩ marketcap 按 mv_rank 拆档 (共 {len(chip_mc_entries)} unique picks)：")
+        rank_buckets: dict[str, list[dict]] = defaultdict(list)
+        for e in chip_mc_entries:
+            rank_buckets[_rank_bucket(e["mv_rank"])].append(e)
+        print(f"  {'rank 桶':<10}{'n':>5}", end="")
+        for h in args.horizons:
+            print(f"  {'T+'+str(h)+'_win':>10}{'T+'+str(h)+'_avg':>10}{'T+'+str(h)+'_n':>8}", end="")
+        print()
+        for b in ["1-20", "21-50", "51-100", "101-200"]:
+            entries = rank_buckets.get(b, [])
+            print(f"  {b:<10}{len(entries):>5}", end="")
+            for h in args.horizons:
+                rets = [e[f"ret_t{h}"] for e in entries if f"ret_t{h}" in e]
+                if rets:
+                    wr = sum(1 for r in rets if r > 0) / len(rets) * 100
+                    avg = mean(rets)
+                    print(f"  {wr:>9.1f}% {avg:>+9.2f}% {len(rets):>8}", end="")
+                else:
+                    print(f"  {'-':>10}{'-':>10}{0:>8}", end="")
+            print()
 
     # 3+ 共振具体票（如果有）
     triplets = [e for e in buckets["3+"]]
