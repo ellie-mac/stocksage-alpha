@@ -176,19 +176,22 @@ def _push_results(data: dict) -> None:
     print("[sideways] 微信推送完成", flush=True)
 
 
-def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False) -> dict:
+def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False,
+             as_of_date: str = "") -> dict:
+    """as_of_date='YYYYMMDD' 用于回填 — fetch 大窗口后 slice 到 ≤ as_of_date 模拟当日扫描。"""
     import fetcher as _fetcher
-    try:
-        from data_freshness import wait_for_fresh_prices
-        wait_for_fresh_prices()
-    except Exception:
-        pass
+    if not as_of_date:  # live 模式才等数据新鲜；回填用历史快照
+        try:
+            from data_freshness import wait_for_fresh_prices
+            wait_for_fresh_prices()
+        except Exception:
+            pass
 
     from strategies._quality import load_name_industry_map, load_universe
     name_map, ind_map = load_name_industry_map()
     print(f"[sideways] 名称缓存 {len(name_map)} 条", flush=True)
     universe = load_universe()
-    date = datetime.now().strftime("%Y%m%d")
+    date = as_of_date or datetime.now().strftime("%Y%m%d")
 
     if tech_only:
         before = len(universe)
@@ -196,7 +199,8 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
         print(f"[sideways] 科技行业过滤: {before} → {len(universe)} 只", flush=True)
 
     from strategies._quality import compute_metrics, passes_quality, is_blacklisted, load_quality_cache
-    quality_cache = load_quality_cache()
+    # quality_cache 是当日 metrics 缓存，回填模式不能用（要用历史切片重算）
+    quality_cache = {} if as_of_date else load_quality_cache()
     if quality_cache:
         print(f"[sideways] 命中 quality cache（{len(quality_cache)} 只）", flush=True)
 
@@ -205,12 +209,21 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
             code6 = code[-6:]
             if is_blacklisted(ind_map.get(code6, "")):
                 return None
-            # cache 命中且不过质量门槛 → 早退，省 fetch
             cached_m = quality_cache.get(code6)
             if cached_m is not None and not passes_quality(cached_m):
                 return None
-            df = _fetcher.get_price_history(code, days=_MIN_BARS + 5)
-            if df is None or len(df) < 5:
+            fetch_days = 90 if as_of_date else (_MIN_BARS + 5)
+            df = _fetcher.get_price_history(code, days=fetch_days)
+            if df is None or df.empty:
+                return None
+            if as_of_date:
+                import pandas as _pd
+                cutoff_ts = _pd.to_datetime(as_of_date, format="%Y%m%d")
+                df = df[df["date"] <= cutoff_ts]
+                if df.empty:
+                    return None
+                df = df.iloc[-(_MIN_BARS + 5):]
+            if len(df) < 5:
                 return None
             name = name_map.get(code6, code6)
             if "ST" in name.upper():
@@ -218,7 +231,8 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
             close = float(df["close"].iloc[-1])
             if not (3.0 <= close <= 500.0):
                 return None
-            metrics = cached_m if cached_m is not None else compute_metrics(df, code6)
+            # 回填模式 bypass cache 重新算 metrics（cache 是 live 当日值）
+            metrics = cached_m if (cached_m is not None and not as_of_date) else compute_metrics(df, code6)
             if not passes_quality(metrics):
                 return None
             sw = _classify(df["close"].values)
@@ -271,12 +285,16 @@ def run_scan(push: bool = False, dry_run: bool = False, tech_only: bool = False)
     output = {"date": date, "tiers": tiers, "all_picks": capped_results}
 
     if not dry_run:
-        OUT_LATEST.write_text(
-            json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
         dated = ROOT / "data" / f"sideways_{date}.json"
         dated.write_text(
             json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"[sideways] 已保存 → sideways_latest.json")
+        # 回填模式只写 dated，避免覆盖当日 latest
+        if not as_of_date:
+            OUT_LATEST.write_text(
+                json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"[sideways] 已保存 → sideways_latest.json")
+        else:
+            print(f"[sideways] 已保存 → sideways_{date}.json")
 
     if push and not dry_run:
         try:
@@ -311,8 +329,25 @@ def main() -> None:
     parser.add_argument("--dry-run",   action="store_true", help="打印不落盘")
     parser.add_argument("--tech-only", action="store_true",
                         help="仅扫描科技 TMT（默认扫全市场，靠流动性+量比过滤死水股）")
+    parser.add_argument("--date",     type=str, default="", help="回填模式 YYYYMMDD（按该日 as-of 扫描，存 sideways_<date>.json，不覆盖 latest）")
+    parser.add_argument("--backfill", type=int, default=0,  help="回填最近 N 个交易日，跑完退出（不推送）")
     args = parser.parse_args()
-    run_scan(push=args.push, dry_run=args.dry_run, tech_only=args.tech_only)
+
+    if args.backfill > 0:
+        from datetime import date as _d, timedelta as _td
+        dates = []
+        cur = _d.today()
+        while len(dates) < args.backfill:
+            cur -= _td(days=1)
+            if cur.weekday() < 5:
+                dates.append(cur.strftime("%Y%m%d"))
+        for ds in dates:
+            print(f"\n=== backfill {ds} ===")
+            run_scan(push=False, dry_run=False, tech_only=args.tech_only, as_of_date=ds)
+        return
+
+    run_scan(push=args.push, dry_run=args.dry_run, tech_only=args.tech_only,
+             as_of_date=args.date)
 
 
 if __name__ == "__main__":

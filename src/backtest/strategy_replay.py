@@ -210,9 +210,10 @@ def load_picks(strategy: str, start: str = "", end: str = "") -> list[dict]:
 
 def _fetch_forward(code: str, pick_date: str, horizons: list[int],
                    entry_close: Optional[float]) -> dict[int, Optional[float]]:
-    """T+n forward return % vs entry_close。pick_date YYYYMMDD；fetcher 拉 60 天。"""
-    if entry_close is None or entry_close <= 0:
-        return {n: None for n in horizons}
+    """T+n forward return % vs entry_close。pick_date YYYYMMDD；fetcher 拉 60 天。
+
+    entry_close 缺失时（etf_picks 不存 close）从 history 取 pick_date 当日 close 兜底。
+    """
     import fetcher as _f
     import pandas as _pd
     try:
@@ -222,6 +223,18 @@ def _fetch_forward(code: str, pick_date: str, horizons: list[int],
     if df is None or df.empty or "date" not in df.columns:
         return {n: None for n in horizons}
     pick_ts = _pd.to_datetime(pick_date, format="%Y%m%d")
+
+    if entry_close is None or entry_close <= 0:
+        entry_df = df[df["date"] <= pick_ts]
+        if entry_df.empty:
+            return {n: None for n in horizons}
+        try:
+            entry_close = float(entry_df["close"].iloc[-1])
+        except Exception:
+            return {n: None for n in horizons}
+        if entry_close <= 0:
+            return {n: None for n in horizons}
+
     df = df[df["date"] > pick_ts].sort_values("date")
     out: dict[int, Optional[float]] = {}
     for n in horizons:
