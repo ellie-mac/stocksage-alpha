@@ -314,6 +314,53 @@ def _load_marketcap() -> list[dict]:
     ]
 
 
+def _load_regime() -> dict | None:
+    """Read regime score from latest_picks.json (main_strategy writes it).
+    Returns {"score": float, "signal": str} or None.
+    """
+    d = _load(DATA / "latest_picks.json")
+    if not d:
+        return None
+    score = d.get("regime_score")
+    if score is None:
+        return None
+    return {
+        "score": float(score),
+        "signal": d.get("regime", ""),
+    }
+
+
+def _regime_recommendation(score: float | None) -> list[str]:
+    """根据回测得出的 regime × strategy 矩阵给当日策略建议。
+
+    数据来源：80 天 marketcap + 20-22 天其他策略 backfill 结果（2026-05-22 跑出）：
+      score ≤ 4 (caution/bear)：marketcap T+1 = 76%/+2.6% (caution) / 53.6%/+0.3% (bear)
+      score 5-6 (neutral+)：各项接近 50%（最差 regime）
+      score ≥ 7 (bull)：chip+marketcap 共振 T+5=55.2% / chip T+10=62.1% / 扶梯 T+10=61.5%
+                       但 marketcap 单策略 bull regime T+1 只有 45.8%
+    """
+    if score is None:
+        return []
+    lines = []
+    if score >= 7:
+        lines.append(f"🎯 **Regime: {score:.0f}/10 (bull) — 大盘多头**")
+        lines.append("  ✅ 优先：**筹+市共振** / 筹 T+10 hold (62% win) / 扶梯 T+10 (61% win)")
+        lines.append("  ❌ 避开：**市值单策略短打**（bull 时小盘跑输大盘 T+1=46%）")
+    elif score >= 5:
+        lines.append(f"🎯 **Regime: {score:.0f}/10 (neutral+) — 方向未明**")
+        lines.append("  ⚠️ 回测显示各策略此 regime **表现最差**（接近随机），建议谨慎")
+        lines.append("  ⚪ 信号弱时优先观望，等明确 bull 或 bear 信号")
+    elif score >= 3:
+        lines.append(f"🎯 **Regime: {score:.0f}/10 (caution) — 大盘走弱**")
+        lines.append("  ✅ 优先：**市值 T+1 短打**（caution 桶 T+1=76% 胜率 / +2.6% 均收益）")
+        lines.append("  ❌ 避开：**长 hold**（T+5+ 显著走弱）")
+    else:
+        lines.append(f"🎯 **Regime: {score:.0f}/10 (bear) — 熊市**")
+        lines.append("  ✅ 优先：**市值 / 热榜 T+1 反弹**（短打 50%+ 胜率）")
+        lines.append("  ❌ 避开：**任何 hold > T+1**（T+5/T+10 普遍负预期）")
+    return lines
+
+
 def _load_escalator() -> list[dict]:
     """Returns [{code, name, score, tier, close, slope_pct, r2, daily_amp}, ...]
     from escalator_latest.json (E0/E1/E2)."""
@@ -474,6 +521,7 @@ def _build_message(
     registry: dict[str, dict],
     tech_only: bool = False,
     source_status: dict[str, dict] | None = None,
+    regime: dict | None = None,
 ) -> tuple[str, str]:
     label = "[多策略·晚间·科技]" if tech_only else "[多策略·晚间]"
     if not registry:
@@ -493,6 +541,12 @@ def _build_message(
     single = [c for c in sorted_codes if len(registry[c]["tags"]) == 1]
 
     parts: list[str] = [f"*{now_str}*"]
+
+    # Regime-conditional strategy recommendations（基于 2026-05-22 80 天回测结果）
+    if regime is not None:
+        rec_lines = _regime_recommendation(regime.get("score"))
+        if rec_lines:
+            parts.extend(rec_lines)
 
     # Freshness banner — explicitly flag missing/stale sources at the top
     if source_status:
@@ -658,7 +712,12 @@ def main() -> None:
     multi_count = sum(1 for e in registry.values() if len(e["tags"]) >= 2)
     print(f"[evening_strategy] 去重后 {unique} 只（多策略共振 {multi_count} 只）")
 
-    title, body = _build_message(registry, tech_only=args.tech_only, source_status=source_status)
+    regime_info = _load_regime()
+    if regime_info:
+        print(f"[evening_strategy] regime score={regime_info['score']:.1f} ({regime_info.get('signal','')})")
+
+    title, body = _build_message(registry, tech_only=args.tech_only,
+                                  source_status=source_status, regime=regime_info)
 
     print(f"\n{'='*40}")
     print(f"{title}")
