@@ -390,6 +390,7 @@ def main() -> None:
     ap.add_argument("--dry-run",   action="store_true",  help="不写文件、不推送")
     ap.add_argument("--push-only", action="store_true",  help="仅推送已保存的结果，不重新扫描")
     ap.add_argument("--date",      default="",           help="回填日期 YYYYMMDD，默认当日")
+    ap.add_argument("--backfill",  type=int, default=0,  help="回填最近 N 个交易日，跑完退出（不推送）")
     ap.set_defaults(push=False)
     args = ap.parse_args()
     if args.push_only:
@@ -399,6 +400,20 @@ def main() -> None:
         data = json.loads(OUT_LATEST.read_text(encoding="utf-8"))
         _push_results(data)
         return
+
+    if args.backfill > 0:
+        from datetime import date as _d, timedelta as _td
+        dates = []
+        cur = _d.today()
+        while len(dates) < args.backfill:
+            cur -= _td(days=1)
+            if cur.weekday() < 5:
+                dates.append(cur.strftime("%Y%m%d"))
+        for ds in dates:
+            print(f"\n=== backfill {ds} ===")
+            run_scan(push=False, dry_run=False, as_of_date=ds)
+        return
+
     run_scan(push=args.push, dry_run=args.dry_run, as_of_date=args.date)
 
 
