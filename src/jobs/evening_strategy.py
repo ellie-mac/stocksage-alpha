@@ -682,16 +682,31 @@ def _build_message(
         if rec_lines:
             parts.extend(rec_lines)
 
-    # 🎯 今日精选 —— 命中 backtest 高 alpha 组合的票，按优先级排序、标 T+N hold
+    # 🎯 今日精选 —— 按 hold 周期分组，每组内按 alpha priority 排序
     today_picks = _build_today_picks(registry, max_picks=15)
     if today_picks:
-        parts.append(f"<br>🎯 **今日精选** ({len(today_picks)} 只，按 alpha 优先级)")
-        parts.append("```")
-        parts.append("hold  代码    名称        价格     期望      命中组合")
+        # group by hold horizon
+        from collections import defaultdict as _dd
+        by_hold: _dd[str, list] = _dd(list)
         for code, entry, cls in today_picks:
-            parts.append(_fmt_today_pick(code, entry, cls).replace("**", "").replace("_", ""))
-        parts.append("```")
-        parts.append("> T+1=次日卖｜T+5=持 5 交易日｜T+10=持 10 交易日")
+            by_hold[cls["hold"]].append((code, entry, cls))
+        # 显示顺序：T+1 → T+3 → T+5 → T+10 → T+20
+        _hold_order = ["T+1", "T+3", "T+5", "T+10", "T+20"]
+        _hold_desc = {
+            "T+1":  "次日卖出 — 短打反弹",
+            "T+3":  "持 3 个交易日",
+            "T+5":  "持 5 个交易日 — 一周内",
+            "T+10": "持 10 个交易日 — 两周内",
+            "T+20": "持 20 个交易日 — 一个月",
+        }
+        parts.append(f"<br>🎯 **今日精选** (共 {len(today_picks)} 只，按 hold 周期分组)")
+        for hold in _hold_order:
+            picks_in_hold = by_hold.get(hold, [])
+            if not picks_in_hold:
+                continue
+            parts.append(f"<br>📍 **{hold} hold** ({len(picks_in_hold)} 只) — _{_hold_desc[hold]}_")
+            for code, entry, cls in picks_in_hold:
+                parts.append("  " + _fmt_today_pick(code, entry, cls))
 
     # Freshness banner — explicitly flag missing/stale sources at the top
     if source_status:
