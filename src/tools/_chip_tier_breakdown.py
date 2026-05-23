@@ -63,7 +63,7 @@ for r in rows:
     key = (r["tier"], _regime_bucket(score))
     buckets[key].append(r)
 
-for tier in ["T1", "T2", "T3", "T4"]:
+for tier in sorted({r["tier"] for r in rows}):
     for regime in ["bull", "neutral+", "caution", "bear", "unknown"]:
         entries = buckets.get((tier, regime), [])
         if not entries:
