@@ -300,7 +300,7 @@ def _load_sideways() -> list[dict]:
 
 
 def _load_marketcap() -> list[dict]:
-    """Returns [{code, name, price, marketcap_yi}, ...] from marketcap_latest.json."""
+    """Returns [{code, name, price, marketcap_yi, mv_rank}, ...] from marketcap_latest.json."""
     d = _load(DATA / "marketcap_latest.json")
     if not d:
         return []
@@ -309,7 +309,8 @@ def _load_marketcap() -> list[dict]:
         return []
     return [
         {"code": p["code"], "name": p.get("name", ""), "score": 0,
-         "price": p.get("price"), "marketcap_yi": p.get("marketcap_yi")}
+         "price": p.get("price"), "marketcap_yi": p.get("marketcap_yi"),
+         "mv_rank": p.get("mv_rank")}
         for p in d.get("picks", []) if p.get("code")
     ]
 
