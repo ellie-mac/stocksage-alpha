@@ -59,19 +59,10 @@ def main() -> None:
     trade_date = now.strftime("%Y-%m-%d")
     print(f"[closing_batch] 开始 {now:%Y-%m-%d %H:%M}")
 
-    # 1. XHS evening post
-    writer = os.path.join(_ROOT, "src", "report", "reporter.py")
-    if os.path.exists(writer):
-        if args.dry_run:
-            print("[closing_batch] dry-run: XHS evening 跳过")
-        else:
-            t0 = time.monotonic()
-            ok = _run("XHS evening", [_PY, "-X", "utf8", writer, "evening", "--style", "auto"],
-                      timeout=120)
-            log_run("closing_batch/reporter", trade_date, success=ok,
-                    duration_sec=round(time.monotonic() - t0, 1))
-    else:
-        print("[closing_batch] xhs/reporter.py 不存在，跳过")
+    # 1. XHS evening post — 已退役（用户不用小红书，且该 reporter 顺带推 "Day N 收盘总结"
+    #    微信噪音）。保留 signal_tracker + auto_tune。
+    # writer = os.path.join(_ROOT, "src", "report", "reporter.py")
+    # if os.path.exists(writer): ...
 
     # 2. signal_tracker.py
     tracker = os.path.join(_ROOT, "src", "tools", "signal_tracker.py")

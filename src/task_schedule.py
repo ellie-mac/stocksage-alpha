@@ -51,13 +51,13 @@ ALL_TASKS: list[dict[str, Any]] = [
 
     # ── 收盘 (15-16) ────────────────────────────────────────────────────────
     {"name": "closing_Batch",     "time": "15:05", "desc": "收盘批处理",         "push": False, "slot": None,             "disabled": False, "display": True},
-    {"name": "signal_Tracker",    "time": "15:25", "desc": "信号绩效跟踪",       "push": False, "slot": None,             "disabled": False, "display": True},
+    {"name": "signal_Tracker",    "time": "15:25", "desc": "信号绩效跟踪",       "push": False, "slot": None,             "disabled": True,  "display": True},
     {"name": "report_Evening",    "time": "15:30", "desc": "收盘报告",           "push": True,  "slot": "chip_evening",   "disabled": True,  "display": True},
     {"name": "market_Warm",       "time": "15:35", "desc": "市场数据预热",       "push": False, "slot": "market_warm",    "disabled": False, "display": True},
     {"name": "marketcap_Scan",    "time": "16:30", "desc": "市值策略扫盘",       "push": True,  "slot": "marketcap_scan", "disabled": False, "display": True},
     {"name": "daily_PerfLog",     "time": "16:05", "desc": "胜率统计",           "push": True,  "slot": "daily_perf_log", "disabled": False, "display": True},
-    {"name": "escalator_PerfLog", "time": "16:15", "desc": "扶梯策略胜率分析",   "push": True,  "slot": "escalator_perf_log","disabled": False, "display": True},
-    {"name": "strategy_Compare",  "time": "16:20", "desc": "多策略胜率对比",     "push": True,  "slot": "strategy_compare","disabled": False, "display": True},
+    {"name": "escalator_PerfLog", "time": "16:15", "desc": "扶梯策略胜率分析",   "push": True,  "slot": "escalator_perf_log","disabled": True, "display": True},
+    {"name": "strategy_Compare",  "time": "16:20", "desc": "多策略胜率对比",     "push": True,  "slot": "strategy_compare","disabled": True, "display": True},
     {"name": "hot_Scan",          "time": "16:35", "desc": "热榜策略扫描",       "push": True,  "slot": "hot_scan",       "disabled": False, "display": True},
 
     # ── 收盘后扫描/预热 (17-22) ───────────────────────────────────────────
