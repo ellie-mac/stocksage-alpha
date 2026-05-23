@@ -135,6 +135,33 @@ def _extract_chip(d: dict) -> list[dict]:
     return out
 
 
+def _extract_institution(d: dict) -> list[dict]:
+    """institution_scan_<date>.json: hits 数组，每项 {stock_code, stock_name, fund_count, buyers}.
+    用 fund_count 当 tier（H = ≥5 funds, M = 3-4, L = 1-2）。
+    """
+    out = []
+    for h in d.get("hits", []):
+        code = h.get("stock_code")
+        if not code:
+            continue
+        fc = h.get("fund_count", 0) or 0
+        if fc >= 5:
+            tier = "INS_H"
+        elif fc >= 3:
+            tier = "INS_M"
+        else:
+            tier = "INS_L"
+        out.append({
+            "code": str(code)[-6:],
+            "name": h.get("stock_name", ""),
+            "tier": tier,
+            "close": None,
+            "industry": "",
+            "matched_tiers": "",
+        })
+    return out
+
+
 def _extract_picks_list(d: dict) -> list[dict]:
     """通用 picks 抽取器：main/sc/etf/marketcap 都是 {"picks": [{"code","name",...}]} 格式。
 
@@ -172,6 +199,7 @@ STRATEGIES: dict[str, dict] = {
     "small":      {"label": "小盘",   "glob": "sc_picks_????????.json",      "extract": _extract_picks_list},
     "etf":        {"label": "ETF",    "glob": "etf_picks_????????.json",     "extract": _extract_picks_list},
     "marketcap":  {"label": "市值",   "glob": "marketcap_????????.json",     "extract": _extract_picks_list},
+    "institution": {"label": "机构",  "glob": "institution_scan_????????.json", "extract": _extract_institution},
 }
 
 # main/sc/etf 因为依赖 score_one_buy 因子链（每个因子用当下数据），

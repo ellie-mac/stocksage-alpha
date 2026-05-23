@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 PICKS_DIR = ROOT / "data" / "backtest"
 
 # 排除 sideways（归档只有 3 天，没法做有意义聚合）
-STRATEGIES = ["escalator", "gc", "hot", "chip", "marketcap", "etf"]
+STRATEGIES = ["escalator", "gc", "hot", "chip", "marketcap", "etf", "institution"]
 
 
 def _parse_float(s: str) -> Optional[float]:

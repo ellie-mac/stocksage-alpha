@@ -12,7 +12,7 @@ from statistics import mean
 ROOT = Path(__file__).resolve().parent.parent.parent
 PICKS_DIR = ROOT / "data" / "backtest"
 
-STRATEGIES = ["chip", "gc", "escalator", "sideways", "marketcap", "hot"]
+STRATEGIES = ["chip", "gc", "escalator", "sideways", "marketcap", "hot", "institution"]
 
 
 def _f(s):
