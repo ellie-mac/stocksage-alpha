@@ -423,6 +423,139 @@ def _merge(
     return registry
 
 
+# ── 今日精选（基于回测组合优先级 + T+N hold 标注）────────────────────────────────
+
+# 优先级越小越靠前；hold = 推荐持有周期；expected = 回测期望（仅展示）
+# 命中多个规则时取 priority 最小的（最强信号）
+_PICKS_RULES: list[dict] = [
+    # 3-way + 小盘：n=12 / T+10 = 100% / +10.7% — 最强信号
+    {"need": {"筹", "叉", "市"}, "chip": None, "gc": None, "mv_max": 50,
+     "hold": "T+10", "expected": "75-100% / +10%", "priority": 0},
+    # gc[G1]+市 TOP20：T+1 = 100% / +2.62% — 短线最稳
+    {"need": {"叉", "市"}, "gc": "G1", "mv_max": 20,
+     "hold": "T+1", "expected": "100% / +2.62%", "priority": 1},
+    # gc[G2]+市 TOP20：T+1 = 90.5% / +2.56% — 短线次选
+    {"need": {"叉", "市"}, "gc": "G2", "mv_max": 20,
+     "hold": "T+1", "expected": "90% / +2.56%", "priority": 2},
+    # chip[C1]+gc[G0]：T+10 = 75% / +17.70% — 中线王炸
+    {"need": {"筹", "叉"}, "chip": "C1", "gc": "G0",
+     "hold": "T+10", "expected": "75% / +17.70%", "priority": 3},
+    # gc[G2]+市 TOP21-50：T+10 = 100% / +6.50%
+    {"need": {"叉", "市"}, "gc": "G2", "mv_max": 50, "mv_min": 21,
+     "hold": "T+10", "expected": "100% / +6.50%", "priority": 4},
+    # chip[C0]+市 TOP20：T+5 = 83.3% / +3.95% (T+10=66.7%)
+    {"need": {"筹", "市"}, "chip": "C0", "mv_max": 20,
+     "hold": "T+5", "expected": "83% / +3.95%", "priority": 5},
+    # chip[C1]+市 TOP20：T+10 = 100% / +17.95%（小样本）
+    {"need": {"筹", "市"}, "chip": "C1", "mv_max": 20,
+     "hold": "T+10", "expected": "100% / +17.95% (n小)", "priority": 6},
+    # chip[C0/C1]+gc[G2]：T+10 = 73-74% / +9-11% — 中线大样本
+    {"need": {"筹", "叉"}, "chip": "C0", "gc": "G2",
+     "hold": "T+10", "expected": "73% / +9.85%", "priority": 7},
+    {"need": {"筹", "叉"}, "chip": "C1", "gc": "G2",
+     "hold": "T+10", "expected": "74% / +11.30%", "priority": 8},
+    # escalator[E0] 单：T+10 = 69% / +8.25%
+    {"need": {"扶"}, "alone": True, "escalator": "E0",
+     "hold": "T+10", "expected": "69% / +8.25%", "priority": 9},
+]
+
+
+def _classify_pick(code: str, entry: dict) -> dict | None:
+    """匹配第一个适用规则。返回 {"hold", "expected", "priority", "rule_desc"} 或 None。"""
+    tags = set(entry["tags"])
+    det  = entry["details"]
+    chip_tier = det.get("筹", {}).get("tier", "")
+    gc_tier   = det.get("叉", {}).get("tier", "")
+    esc_tier  = det.get("扶", {}).get("tier", "")
+    mv_rank   = det.get("市", {}).get("mv_rank")
+    try:
+        mv_rank = int(mv_rank) if mv_rank is not None else None
+    except (TypeError, ValueError):
+        mv_rank = None
+
+    for rule in _PICKS_RULES:
+        if not rule["need"].issubset(tags):
+            continue
+        if rule.get("alone") and tags != rule["need"]:
+            continue
+        if rule.get("chip") and chip_tier != rule["chip"]:
+            continue
+        if rule.get("gc") and gc_tier != rule["gc"]:
+            continue
+        if rule.get("escalator") and esc_tier != rule["escalator"]:
+            continue
+        if rule.get("mv_max"):
+            if mv_rank is None or mv_rank > rule["mv_max"]:
+                continue
+            if rule.get("mv_min") and mv_rank < rule["mv_min"]:
+                continue
+        # 命中
+        return {
+            "hold": rule["hold"],
+            "expected": rule["expected"],
+            "priority": rule["priority"],
+            "rule_tags": "+".join(sorted(rule["need"])),
+        }
+    return None
+
+
+def _build_today_picks(registry: dict[str, dict], max_picks: int = 15) -> list[tuple[str, dict, dict]]:
+    """返回 [(code, entry, classification), ...] 按 priority + mv_rank 升序，最多 max_picks 个"""
+    classified: list[tuple[str, dict, dict]] = []
+    for code, entry in registry.items():
+        c = _classify_pick(code, entry)
+        if c is not None:
+            classified.append((code, entry, c))
+    # priority 升序 → mv_rank 升序（小盘优先）→ code
+    classified.sort(key=lambda x: (
+        x[2]["priority"],
+        x[1]["details"].get("市", {}).get("mv_rank") or 9999,
+        x[0],
+    ))
+    return classified[:max_picks]
+
+
+def _fmt_today_pick(code: str, entry: dict, cls: dict) -> str:
+    """⭐ T+10  000123 ABC ¥10.50 ┃ 75%/+9.85% ┃ 筹C0+叉G2"""
+    name = entry["name"]
+    det  = entry["details"]
+    # price
+    price = None
+    for tag in ("市", "主", "小"):
+        p = det.get(tag, {}).get("price")
+        if p:
+            price = float(p)
+            break
+    if price is None:
+        for tag in ("叉", "筹", "热", "横", "扶"):
+            close = det.get(tag, {}).get("close")
+            if close:
+                price = float(close)
+                break
+    price_str = f" ¥{price:.2f}" if price else ""
+    # tier annotations (compact)
+    pieces = []
+    if "筹" in det:
+        t = det["筹"].get("tier", "")
+        if t:
+            pieces.append(f"筹{t}")
+    if "叉" in det:
+        t = det["叉"].get("tier", "")
+        if t:
+            pieces.append(f"叉{t}")
+    if "扶" in det:
+        t = det["扶"].get("tier", "")
+        if t:
+            pieces.append(f"扶{t}")
+    if "市" in det:
+        rk = det["市"].get("mv_rank")
+        if rk:
+            pieces.append(f"市#{rk}")
+    tier_str = "+".join(pieces) if pieces else cls["rule_tags"]
+    return (f"**[{cls['hold']}]** {code} {name}{price_str} ┃ "
+            f"_{cls['expected']}_ ┃ {tier_str}")
+
+
 # ── Format ────────────────────────────────────────────────────────────────────
 
 def _tag_str(tags: list[str]) -> str:
@@ -548,6 +681,17 @@ def _build_message(
         rec_lines = _regime_recommendation(regime.get("score"))
         if rec_lines:
             parts.extend(rec_lines)
+
+    # 🎯 今日精选 —— 命中 backtest 高 alpha 组合的票，按优先级排序、标 T+N hold
+    today_picks = _build_today_picks(registry, max_picks=15)
+    if today_picks:
+        parts.append(f"<br>🎯 **今日精选** ({len(today_picks)} 只，按 alpha 优先级)")
+        parts.append("```")
+        parts.append("hold  代码    名称        价格     期望      命中组合")
+        for code, entry, cls in today_picks:
+            parts.append(_fmt_today_pick(code, entry, cls).replace("**", "").replace("_", ""))
+        parts.append("```")
+        parts.append("> T+1=次日卖｜T+5=持 5 交易日｜T+10=持 10 交易日")
 
     # Freshness banner — explicitly flag missing/stale sources at the top
     if source_status:
