@@ -574,7 +574,9 @@ def main() -> None:
 
     def _sort_key(r): return r.get("open_pct", r["pct"])
 
-    for lbl, s in [("主策略", ms), ("小票", scs), ("筹码", cs), ("金叉", gs), ("热榜H1", hs), ("监控强买", wl_mon_stats), ("ETF", etf_stats), ("市值", mcap_stats), ("横盘", sw_stats)]:
+    # 热榜统计仍写入历史 json（用于未来研究），但不参与终端打印/推送展示
+    # 回测显示热榜是反转信号 (T+10=22% win)，统计它会误导
+    for lbl, s in [("主策略", ms), ("小票", scs), ("筹码", cs), ("金叉", gs), ("监控强买", wl_mon_stats), ("ETF", etf_stats), ("市值", mcap_stats), ("横盘", sw_stats)]:
         if s["n"] > 0:
             print(f"  [{lbl}] {s['n']}只  今开胜率{_owr(s)}  均{_oar(s)}")
 
@@ -605,13 +607,13 @@ def main() -> None:
         ar_s = f"{ar_v:+.2f}%" if ar_v is not None else "-"
         return f"  {label} {wr_s} avg {ar_s} (n={s['n']})"
 
+    # 热榜不在推送里展示（反 alpha 信号，统计会误导）
     stats_rows = [
         "📊 各策略今日 T+1 open→close 胜率：",
         _stat_line("主策略", ms),
         _stat_line("小盘", scs),
         _stat_line("筹码", cs),
         _stat_line("金叉", gs),
-        _stat_line("热榜", hs),
         _stat_line("监控强买", wl_mon_stats),
         _stat_line("ETF", etf_stats),
         _stat_line("市值", mcap_stats),
