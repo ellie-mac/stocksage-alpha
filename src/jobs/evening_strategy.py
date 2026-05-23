@@ -885,6 +885,9 @@ def main() -> None:
     print(body.replace("<br>", "\n"))
     print(f"{'='*40}\n")
 
+    # 落盘当日精选 picks log（无论 dry_run / push 都落盘，便于跟踪验证）
+    _save_picks_log(registry, regime_info)
+
     if args.dry_run:
         return
 
@@ -895,6 +898,50 @@ def main() -> None:
         except Exception as e:
             print(f"[evening_strategy] 推送失败: {e}")
             sys.exit(1)
+
+
+def _save_picks_log(registry: dict, regime_info: dict | None) -> None:
+    """把今日精选落盘到 data/evening_picks_log_<date>.json，供 evening_perf_track 复盘"""
+    regime_score = regime_info.get("score") if regime_info else None
+    today_picks = _build_today_picks(registry, max_picks=15, regime_score=regime_score)
+    if not today_picks:
+        return
+    out: list[dict] = []
+    for code, entry, cls in today_picks:
+        det = entry["details"]
+        # 取入场价（优先 市 价格，否则 主/小/筹/叉/扶 等）
+        price = None
+        for tag in ("市", "主", "小"):
+            p = det.get(tag, {}).get("price")
+            if p:
+                price = float(p); break
+        if price is None:
+            for tag in ("叉", "筹", "热", "横", "扶"):
+                c = det.get(tag, {}).get("close")
+                if c:
+                    price = float(c); break
+        out.append({
+            "code":     code,
+            "name":     entry.get("name", ""),
+            "price":    price,
+            "hold":     cls["hold"],
+            "expected": cls["expected"],
+            "priority": cls["priority"],
+            "rule_tags": cls["rule_tags"],
+        })
+    today_str = datetime.now().strftime("%Y%m%d")
+    payload = {
+        "date":         today_str,
+        "timestamp":    datetime.now().isoformat(),
+        "regime_score": regime_score,
+        "regime_signal": regime_info.get("signal", "") if regime_info else "",
+        "picks":        out,
+    }
+    path = DATA / f"evening_picks_log_{today_str}.json"
+    tmp  = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    print(f"[evening_strategy] 精选 log 已落盘: {path.name} ({len(out)} 只)")
 
 
 if __name__ == "__main__":
