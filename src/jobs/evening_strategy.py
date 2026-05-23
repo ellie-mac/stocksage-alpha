@@ -763,37 +763,8 @@ def _build_message(
         if omitted_multi:
             parts.append(f"_...还有{omitted_multi}只_")
 
-    # ── Per-strategy sections (capped at MAX_SINGLE each) ────────────────────
-    tag_order = ["主", "小", "叉", "筹", "市", "热", "横", "扶"]
-    tag_label = {"主": "主策略", "小": "小盘策略", "叉": "金叉", "筹": "筹码",
-                 "市": "低市值", "热": "热榜", "横": "横盘", "扶": "扶梯"}
-
-    for tag in tag_order:
-        tag_codes = [c for c in single if registry[c]["tags"] == [tag]]
-        if not tag_codes:
-            in_multi_with_tag = [c for c in multi if tag in registry[c]["tags"]]
-            if not in_multi_with_tag:
-                continue
-            else:
-                continue  # already shown in multi block
-        if tag in ("叉", "筹", "横", "扶"):
-            tag_codes.sort(key=lambda c, _t=tag: (
-                _TIER_ORDER.get(registry[c]["details"][_t].get("tier", ""), 99),
-                -registry[c]["details"][_t].get("score", 0),
-            ))
-        elif tag in ("主", "小"):
-            tag_codes.sort(key=lambda c, _t=tag: -registry[c]["details"][_t].get("score", 0))
-        elif tag == "市":
-            tag_codes.sort(key=lambda c: registry[c]["details"]["市"].get("marketcap_yi") or float("inf"))
-        elif tag == "热":
-            tag_codes.sort(key=lambda c: registry[c]["details"]["热"].get("rank") or 9999)
-        shown = tag_codes[:MAX_SINGLE]
-        omitted = len(tag_codes) - len(shown)
-        parts.append(f"<br>**【{tag_label[tag]}】{len(tag_codes)}只**")
-        for code in shown:
-            parts.append(_fmt_pick(code, registry[code]))
-        if omitted:
-            parts.append(f"_...还有{omitted}只_")
+    # 单策略板块已移除（用户反馈太长，回测显示单策略 alpha 弱于共振）
+    # 想看 raw picks 可以查 data/<strategy>_latest.json，但日常下单不依赖
 
     parts.append("<br>> 仅供参考，不构成投资建议")
     body = "<br>".join(parts)
