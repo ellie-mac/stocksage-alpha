@@ -30,7 +30,7 @@ from common import send_wechat, setup_push
 _OUT_LATEST     = ROOT / "data" / "marketcap_latest.json"
 _MARKETCAP_CACHE = ROOT / "data" / "marketcap_cache.json"
 
-TOP_N      = 20
+TOP_N      = 50       # 回测验证 rank 1-50 都有 alpha（21-50 T+10 win 75%），TOP_N=20 太窄
 MIN_PRICE  = 2.0      # 股价门槛（严格大于）
 
 
