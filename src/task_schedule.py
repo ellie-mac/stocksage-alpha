@@ -37,7 +37,7 @@ ALL_TASKS: list[dict[str, Any]] = [
     {"name": "concept_Warm",      "time": "08:30", "desc": "概念map预热",        "push": False, "slot": "concept_warm",   "disabled": False, "display": True},
     {"name": "watchlist_Monitor", "time": "09:15", "desc": "自选股监控",         "push": True,  "slot": None,             "disabled": True,  "display": True},
     {"name": "report_Morning",    "time": "09:25", "desc": "盘前选股报告",       "push": True,  "slot": "chip_morning",   "disabled": True,  "display": True},
-    {"name": "watchlist_Scan",    "time": "09:30", "desc": "自选股扫描",         "push": True,  "slot": None,             "disabled": False, "display": True},
+    {"name": "watchlist_Scan",    "time": "09:30", "desc": "自选股扫描",         "push": True,  "slot": None,             "disabled": True,  "display": True},
 
     # ── 盘中热榜快照（hidden from display，仅注册）────────────────────────────
     {"name": "hot_Rank_0935",     "time": "09:35", "desc": "热榜快照 09:35",     "push": False, "slot": "hot_rank",       "disabled": False, "display": False},
