@@ -52,12 +52,36 @@ def load_all() -> dict[tuple[str, str], dict]:
     return agg
 
 
+def _apply_cooldown(entries: list[dict], cooldown_days: int) -> list[dict]:
+    """同一 code 在 cooldown_days 个 pick-date 内多次入选只保留首次。"""
+    if not entries or cooldown_days <= 0:
+        return entries
+    all_dates = sorted({e["_date_key"] for e in entries})
+    idx_of = {d: i for i, d in enumerate(all_dates)}
+    last_idx: dict[str, int] = {}
+    kept = []
+    for e in sorted(entries, key=lambda x: x["_date_key"]):
+        i = idx_of[e["_date_key"]]
+        # entry's code is the second part of key; we don't have it here directly
+        # but we stored it elsewhere. Let's use e.get("_code") which we'll add in load.
+        code = e.get("_code") or ""
+        prev = last_idx.get(code)
+        if prev is None or (i - prev) >= cooldown_days:
+            kept.append(e)
+            last_idx[code] = i
+    return kept
+
+
 def stats(entries: list[dict]) -> dict | None:
+    """对每个 horizon，先做 cooldown=N 去重，再算 win rate / avg ret"""
     if not entries:
         return None
     out = {"n": len(entries)}
     for h in (1, 3, 5, 10):
-        rets = [e[f"ret_t{h}"] for e in entries if f"ret_t{h}" in e]
+        # filter to entries with valid ret + apply cooldown matching horizon
+        valid = [e for e in entries if f"ret_t{h}" in e]
+        deduped = _apply_cooldown(valid, h)
+        rets = [e[f"ret_t{h}"] for e in deduped]
         out[f"t{h}_n"] = len(rets)
         if rets:
             out[f"t{h}_wr"] = sum(1 for r in rets if r > 0) / len(rets) * 100
@@ -79,9 +103,13 @@ def mv_bucket(rk):
 
 def main() -> None:
     agg = load_all()
+    # attach code into each entry for cooldown
+    for (d, c), e in agg.items():
+        e["_date_key"] = d
+        e["_code"] = c
     all_dates = sorted({d for (d, c) in agg.keys()})
     n_days = len(all_dates)
-    print(f"总样本: {len(agg)} unique picks, 跨 {n_days} 日\n")
+    print(f"总样本: {len(agg)} unique picks, 跨 {n_days} 日 (cooldown=horizon applied)\n")
 
     results: list[tuple[str, dict, float]] = []   # (label, stats, picks/day)
 
