@@ -440,28 +440,47 @@ _PICKS_RULES: list[dict] = [
     # chip[C1]+gc[G0]：T+10 = 75% / +17.70% — 中线王炸
     {"need": {"筹", "叉"}, "chip": "C1", "gc": "G0",
      "hold": "T+10", "expected": "75% / +17.70%", "priority": 3},
+    # chip[C1]+escalator[E0]：T+10 = 100% / +11.49%（n=13）— 漏补
+    {"need": {"筹", "扶"}, "chip": "C1", "escalator": "E0",
+     "hold": "T+10", "expected": "100% / +11.49% (n=13)", "priority": 4},
     # gc[G2]+市 TOP21-50：T+10 = 100% / +6.50%
     {"need": {"叉", "市"}, "gc": "G2", "mv_max": 50, "mv_min": 21,
-     "hold": "T+10", "expected": "100% / +6.50%", "priority": 4},
+     "hold": "T+10", "expected": "100% / +6.50%", "priority": 5},
     # chip[C0]+市 TOP20：T+5 = 83.3% / +3.95% (T+10=66.7%)
     {"need": {"筹", "市"}, "chip": "C0", "mv_max": 20,
-     "hold": "T+5", "expected": "83% / +3.95%", "priority": 5},
+     "hold": "T+5", "expected": "83% / +3.95%", "priority": 6},
     # chip[C1]+市 TOP20：T+10 = 100% / +17.95%（小样本）
     {"need": {"筹", "市"}, "chip": "C1", "mv_max": 20,
-     "hold": "T+10", "expected": "100% / +17.95% (n小)", "priority": 6},
+     "hold": "T+10", "expected": "100% / +17.95% (n小)", "priority": 7},
+    # chip[C2]+市 TOP20：T+10 = 100% / +7.13%（n=10）— 漏补
+    {"need": {"筹", "市"}, "chip": "C2", "mv_max": 20,
+     "hold": "T+10", "expected": "100% / +7.13% (n=10)", "priority": 8},
+    # 3-way mv51-100：T+10 = 75% / +6.03%（n=14）— 漏补
+    {"need": {"筹", "叉", "市"}, "chip": None, "gc": None, "mv_max": 100, "mv_min": 51,
+     "hold": "T+10", "expected": "75% / +6.03%", "priority": 9},
     # chip[C0/C1]+gc[G2]：T+10 = 73-74% / +9-11% — 中线大样本
     {"need": {"筹", "叉"}, "chip": "C0", "gc": "G2",
-     "hold": "T+10", "expected": "73% / +9.85%", "priority": 7},
+     "hold": "T+10", "expected": "73% / +9.85%", "priority": 10},
     {"need": {"筹", "叉"}, "chip": "C1", "gc": "G2",
-     "hold": "T+10", "expected": "74% / +11.30%", "priority": 8},
+     "hold": "T+10", "expected": "74% / +11.30%", "priority": 11},
     # escalator[E0] 单：T+10 = 69% / +8.25%
     {"need": {"扶"}, "alone": True, "escalator": "E0",
-     "hold": "T+10", "expected": "69% / +8.25%", "priority": 9},
+     "hold": "T+10", "expected": "69% / +8.25%", "priority": 12},
+    # ── Regime-conditional fallback（具体组合都不命中时启用）──
+    # caution + 筹 + mv≤20：T+1 ≈ 80%（基于 chip caution T+1=83%）
+    {"need": {"筹", "市"}, "mv_max": 20, "regime_max": 4,
+     "hold": "T+1", "expected": "80% (regime caution)", "priority": 20},
+    # bull + 筹[C0/C1] + mv≤20：T+20 ≈ 80%（基于 chip bull T+20=79.6%）
+    {"need": {"筹", "市"}, "chip_in": {"C0", "C1"}, "mv_max": 20, "regime_min": 7,
+     "hold": "T+20", "expected": "80% / +18% (regime bull, 重 hold)", "priority": 21},
 ]
 
 
-def _classify_pick(code: str, entry: dict) -> dict | None:
-    """匹配第一个适用规则。返回 {"hold", "expected", "priority", "rule_desc"} 或 None。"""
+def _classify_pick(code: str, entry: dict, regime_score: float | None = None) -> dict | None:
+    """匹配第一个适用规则。返回 {"hold", "expected", "priority", "rule_desc"} 或 None。
+
+    regime_score: 当前 CSI300 regime（1-9）；某些 fallback 规则要求 regime 区间。
+    """
     tags = set(entry["tags"])
     det  = entry["details"]
     chip_tier = det.get("筹", {}).get("tier", "")
@@ -480,6 +499,8 @@ def _classify_pick(code: str, entry: dict) -> dict | None:
             continue
         if rule.get("chip") and chip_tier != rule["chip"]:
             continue
+        if rule.get("chip_in") and chip_tier not in rule["chip_in"]:
+            continue
         if rule.get("gc") and gc_tier != rule["gc"]:
             continue
         if rule.get("escalator") and esc_tier != rule["escalator"]:
@@ -488,6 +509,13 @@ def _classify_pick(code: str, entry: dict) -> dict | None:
             if mv_rank is None or mv_rank > rule["mv_max"]:
                 continue
             if rule.get("mv_min") and mv_rank < rule["mv_min"]:
+                continue
+        # regime conditional gates
+        if rule.get("regime_max") is not None:
+            if regime_score is None or regime_score > rule["regime_max"]:
+                continue
+        if rule.get("regime_min") is not None:
+            if regime_score is None or regime_score < rule["regime_min"]:
                 continue
         # 命中
         return {
@@ -499,11 +527,12 @@ def _classify_pick(code: str, entry: dict) -> dict | None:
     return None
 
 
-def _build_today_picks(registry: dict[str, dict], max_picks: int = 15) -> list[tuple[str, dict, dict]]:
+def _build_today_picks(registry: dict[str, dict], max_picks: int = 15,
+                        regime_score: float | None = None) -> list[tuple[str, dict, dict]]:
     """返回 [(code, entry, classification), ...] 按 priority + mv_rank 升序，最多 max_picks 个"""
     classified: list[tuple[str, dict, dict]] = []
     for code, entry in registry.items():
-        c = _classify_pick(code, entry)
+        c = _classify_pick(code, entry, regime_score=regime_score)
         if c is not None:
             classified.append((code, entry, c))
     # priority 升序 → mv_rank 升序（小盘优先）→ code
@@ -683,7 +712,8 @@ def _build_message(
             parts.extend(rec_lines)
 
     # 🎯 今日精选 —— 按 hold 周期分组，每组内按 alpha priority 排序
-    today_picks = _build_today_picks(registry, max_picks=15)
+    today_picks = _build_today_picks(registry, max_picks=15,
+                                       regime_score=(regime.get("score") if regime else None))
     if today_picks:
         # group by hold horizon
         from collections import defaultdict as _dd
