@@ -427,52 +427,55 @@ def _merge(
 
 # 优先级越小越靠前；hold = 推荐持有周期；expected = 回测期望（仅展示）
 # 命中多个规则时取 priority 最小的（最强信号）
+# entry 字段：入场时点建议（基于 _entry_timing.py backtest 结论）
+#   开盘抢   = D close 入场实测最强但当前 22:00 架构来不及，必须 D+1 open 抢，涨停就放弃
+#   开盘买   = D+1 open 入场仍强（chip+gc[G0] D close 多赚 7pp avg，但 open 也能拿主体 alpha）
+#   任意时点 = D+1 open / close 都行（escalator E0 / chip+gc[G2] 长 hold 不敏感）
+#   尾盘谨慎 = D+1 close 入场会少赚一半 avg（chip[C1]+gc[G0] 类型）
 _PICKS_RULES: list[dict] = [
     # 3-way + 小盘：n=12 / T+10 = 100% / +10.7% — 最强信号
     {"need": {"筹", "叉", "市"}, "chip": None, "gc": None, "mv_max": 50,
-     "hold": "T+10", "expected": "75-100% / +10%", "priority": 0},
-    # gc[G1]+市 TOP20：T+1 = 100% / +2.62% — 短线最稳
+     "hold": "T+10", "expected": "75-100% / +10%", "entry": "任意时点", "priority": 0},
+    # gc[G1]+市 TOP20：T+1 = 100% / +2.62% — 短线最稳（D+1 close 入场退化到 57%）
     {"need": {"叉", "市"}, "gc": "G1", "mv_max": 20,
-     "hold": "T+1", "expected": "100% / +2.62%", "priority": 1},
+     "hold": "T+1", "expected": "100% / +2.62%", "entry": "开盘抢", "priority": 1},
     # gc[G2]+市 TOP20：T+1 = 90.5% / +2.56% — 短线次选
     {"need": {"叉", "市"}, "gc": "G2", "mv_max": 20,
-     "hold": "T+1", "expected": "90% / +2.56%", "priority": 2},
-    # chip[C1]+gc[G0]：T+10 = 75% / +17.70% — 中线王炸
+     "hold": "T+1", "expected": "90% / +2.56%", "entry": "开盘抢", "priority": 2},
+    # chip[C1]+gc[G0]：T+10 = 75% / +17.70% — 中线王炸（D+1 close 少赚 7pp avg）
     {"need": {"筹", "叉"}, "chip": "C1", "gc": "G0",
-     "hold": "T+10", "expected": "75% / +17.70%", "priority": 3},
+     "hold": "T+10", "expected": "75% / +17.70%", "entry": "开盘买", "priority": 3},
     # chip[C1]+escalator[E0]：T+10 = 100% / +11.49%（n=13）— 漏补
     {"need": {"筹", "扶"}, "chip": "C1", "escalator": "E0",
-     "hold": "T+10", "expected": "100% / +11.49% (n=13)", "priority": 4},
+     "hold": "T+10", "expected": "100% / +11.49% (n=13)", "entry": "开盘买", "priority": 4},
     # gc[G2]+市 TOP21-50：T+10 = 100% / +6.50%
     {"need": {"叉", "市"}, "gc": "G2", "mv_max": 50, "mv_min": 21,
-     "hold": "T+10", "expected": "100% / +6.50%", "priority": 5},
+     "hold": "T+10", "expected": "100% / +6.50%", "entry": "开盘买", "priority": 5},
     # chip[C0]+市 TOP20：T+5 = 83.3% / +3.95% (T+10=66.7%)
     {"need": {"筹", "市"}, "chip": "C0", "mv_max": 20,
-     "hold": "T+5", "expected": "83% / +3.95%", "priority": 6},
+     "hold": "T+5", "expected": "83% / +3.95%", "entry": "开盘买", "priority": 6},
     # chip[C1]+市 TOP20：T+10 = 100% / +17.95%（小样本）
     {"need": {"筹", "市"}, "chip": "C1", "mv_max": 20,
-     "hold": "T+10", "expected": "100% / +17.95% (n小)", "priority": 7},
+     "hold": "T+10", "expected": "100% / +17.95% (n小)", "entry": "开盘买", "priority": 7},
     # chip[C2]+市 TOP20：T+10 = 100% / +7.13%（n=10）— 漏补
     {"need": {"筹", "市"}, "chip": "C2", "mv_max": 20,
-     "hold": "T+10", "expected": "100% / +7.13% (n=10)", "priority": 8},
+     "hold": "T+10", "expected": "100% / +7.13% (n=10)", "entry": "开盘买", "priority": 8},
     # 3-way mv51-100：T+10 = 75% / +6.03%（n=14）— 漏补
     {"need": {"筹", "叉", "市"}, "chip": None, "gc": None, "mv_max": 100, "mv_min": 51,
-     "hold": "T+10", "expected": "75% / +6.03%", "priority": 9},
-    # chip[C0/C1]+gc[G2]：T+10 = 73-74% / +9-11% — 中线大样本
+     "hold": "T+10", "expected": "75% / +6.03%", "entry": "任意时点", "priority": 9},
+    # chip[C0/C1]+gc[G2]：T+10 = 73-74% / +9-11% — 中线大样本（三种入场差不多）
     {"need": {"筹", "叉"}, "chip": "C0", "gc": "G2",
-     "hold": "T+10", "expected": "73% / +9.85%", "priority": 10},
+     "hold": "T+10", "expected": "73% / +9.85%", "entry": "任意时点", "priority": 10},
     {"need": {"筹", "叉"}, "chip": "C1", "gc": "G2",
-     "hold": "T+10", "expected": "74% / +11.30%", "priority": 11},
-    # escalator[E0] 单：T+10 = 69% / +8.25%
+     "hold": "T+10", "expected": "74% / +11.30%", "entry": "任意时点", "priority": 11},
+    # escalator[E0] 单：T+10 = 69% / +8.25%（三种入场都 88-91% win）
     {"need": {"扶"}, "alone": True, "escalator": "E0",
-     "hold": "T+10", "expected": "69% / +8.25%", "priority": 12},
+     "hold": "T+10", "expected": "69% / +8.25%", "entry": "任意时点", "priority": 12},
     # ── Regime-conditional fallback（具体组合都不命中时启用）──
-    # caution + 筹 + mv≤20：T+1 ≈ 80%（基于 chip caution T+1=83%）
     {"need": {"筹", "市"}, "mv_max": 20, "regime_max": 4,
-     "hold": "T+1", "expected": "80% (regime caution)", "priority": 20},
-    # bull + 筹[C0/C1] + mv≤20：T+20 ≈ 80%（基于 chip bull T+20=79.6%）
+     "hold": "T+1", "expected": "80% (regime caution)", "entry": "开盘抢", "priority": 20},
     {"need": {"筹", "市"}, "chip_in": {"C0", "C1"}, "mv_max": 20, "regime_min": 7,
-     "hold": "T+20", "expected": "80% / +18% (regime bull, 重 hold)", "priority": 21},
+     "hold": "T+20", "expected": "80% / +18% (regime bull, 重 hold)", "entry": "任意时点", "priority": 21},
 ]
 
 
@@ -521,6 +524,7 @@ def _classify_pick(code: str, entry: dict, regime_score: float | None = None) ->
         return {
             "hold": rule["hold"],
             "expected": rule["expected"],
+            "entry": rule.get("entry", "开盘买"),
             "priority": rule["priority"],
             "rule_tags": "+".join(sorted(rule["need"])),
         }
@@ -581,7 +585,10 @@ def _fmt_today_pick(code: str, entry: dict, cls: dict) -> str:
         if rk:
             pieces.append(f"市#{rk}")
     tier_str = "+".join(pieces) if pieces else cls["rule_tags"]
-    return (f"**[{cls['hold']}]** {code} {name}{price_str} ┃ "
+    # entry 标签前缀：开盘抢 → 🚨 强提示 / 开盘买 → 📈 / 任意时点 → ⚪
+    entry = cls.get("entry", "开盘买")
+    entry_icon = {"开盘抢": "🚨", "开盘买": "📈", "任意时点": "⚪", "尾盘谨慎": "⚠️"}.get(entry, "")
+    return (f"**[{cls['hold']}]** {entry_icon}{entry} ┃ {code} {name}{price_str} ┃ "
             f"_{cls['expected']}_ ┃ {tier_str}")
 
 
@@ -730,6 +737,7 @@ def _build_message(
             "T+20": "持 20 个交易日 — 一个月",
         }
         parts.append(f"<br>🎯 **今日精选** (共 {len(today_picks)} 只，按 hold 周期分组)")
+        parts.append("> 🚨开盘抢=必须 9:30 买/涨停就放弃｜📈开盘买=优先开盘｜⚪任意时点=尾盘也行")
         for hold in _hold_order:
             picks_in_hold = by_hold.get(hold, [])
             if not picks_in_hold:
@@ -926,6 +934,7 @@ def _save_picks_log(registry: dict, regime_info: dict | None) -> None:
             "price":    price,
             "hold":     cls["hold"],
             "expected": cls["expected"],
+            "entry":    cls.get("entry", "开盘买"),
             "priority": cls["priority"],
             "rule_tags": cls["rule_tags"],
         })
