@@ -241,13 +241,18 @@ def concept_rotation(mode: str = "evening", top_n: int = 15,
         k: _percentile_rank(v) for k, v in factor_values.items()
     }
 
-    # Step 4: 加权合成
+    # Step 4: 加权合成 + 量价背离惩罚
     for i, c in enumerate(concepts):
         score = sum(
             weights.get(factor, 0) * factor_pcts[factor][i]
             for factor in factor_pcts
             if factor in weights
         )
+
+        # 量价背离惩罚: 量比>1.5 且 主力净流出 → 放量出货信号, 扣15分
+        if c["volume_ratio"] > 1.5 and c["net_inflow"] < 0:
+            score -= 0.15
+
         c["score"] = round(score * 100, 1)
         # 保存各因子百分位供展示
         for factor in weights:
