@@ -4,15 +4,18 @@
 
 因子:
   1. 今日涨跌幅 (f3)           — 即时动量
-  2. 主力净流入 (f62)          — 聪明钱方向
-  3. 上涨家数占比 (f104/(f104+f105)) — 板块广度（非个股独秀）
+  2. 主力净流入 (f62)          — 聪明钱方向（可靠性有限，降权）
+  3. 上涨家数占比 (f104/(f104+f105)) — 板块广度（硬指标不可伪造）
   4. 近3日累计涨幅 (kline)     — 趋势延续性
-  5. 超大单净流入 (f164)       — 机构级别资金
+  5. 超大单净流入 (f164)       — 机构级别资金（同主力，降权）
+  6. 换手率 (f8)              — 资金活跃度/市场关注度
+  7. 龙头溢价率 (f136/f3)     — 负向惩罚：龙头独秀说明跟风弱
 
 评分逻辑:
   - 各因子在全板块中排名 → 百分位 (0~1)
   - 加权合成总分:
-      动量 20% + 主力流入 25% + 广度 20% + 3日趋势 20% + 超大单 15%
+      动量 15% + 主力流入 15% + 广度 20% + 3日趋势 20% +
+      超大单 10% + 换手率 10% + 龙头溢价 -10%（负向惩罚）
   - 附加信号:
       🔥 强势轮入: 总分Top10 且 3日趋势>0
       🌱 蓄势待发: 今日涨幅<2% 但 主力净流入Top20 且 超大单为正
@@ -39,13 +42,15 @@ DATA = ROOT / "data"
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
-# 权重配置
+# 权重配置（正向因子 + 负向惩罚因子，绝对值之和=1.0）
 WEIGHTS = {
-    "momentum": 0.20,       # 今日涨幅
-    "net_inflow": 0.25,     # 主力净流入
-    "breadth": 0.20,        # 上涨家数占比
-    "trend_3d": 0.20,       # 近3日累计涨幅
-    "big_order": 0.15,      # 超大单净流入
+    "momentum": 0.15,       # 今日涨幅 — 即时动量，略降避免追高
+    "net_inflow": 0.15,     # 主力净流入 — 东财数据可靠性有限，降权
+    "breadth": 0.20,        # 上涨家数占比 — 硬指标不可伪造
+    "trend_3d": 0.20,       # 近3日累计涨幅 — 趋势延续性
+    "big_order": 0.10,      # 超大单净流入 — 同主力，降权
+    "turnover": 0.10,       # 换手率 — 资金活跃度/关注度
+    "leader_premium": -0.10,  # 龙头溢价率 — 负向惩罚，龙头独秀=不健康
 }
 
 NOISE_KEYWORDS = [
@@ -114,6 +119,11 @@ def _fetch_all_concepts(session: requests.Session) -> list[dict]:
             "leader_name": item.get("f128", ""),
             "leader_code": item.get("f140", ""),
             "leader_pct": item.get("f136", 0) or 0,
+            # 龙头溢价率: 龙头涨幅 / 板块涨幅，越高说明龙头独秀、跟风弱
+            "leader_premium": (
+                round((item.get("f136", 0) or 0) / (item.get("f3", 0) or 0.01), 2)
+                if (item.get("f3", 0) or 0) > 0.5 else 1.0
+            ),
         })
     return results
 
@@ -216,21 +226,27 @@ def concept_rotation(top_n: int = 15, use_proxy: bool = True) -> dict:
     breadth_vals = [c["breadth"] for c in concepts]
     trend_vals = [c["trend_3d"] for c in concepts]
     bigorder_vals = [c["big_order"] for c in concepts]
+    turnover_vals = [c["turnover"] for c in concepts]
+    premium_vals = [c["leader_premium"] for c in concepts]
 
     momentum_pct = _percentile_rank(momentum_vals)
     inflow_pct = _percentile_rank(inflow_vals)
     breadth_pct = _percentile_rank(breadth_vals)
     trend_pct = _percentile_rank(trend_vals)
     bigorder_pct = _percentile_rank(bigorder_vals)
+    turnover_pct = _percentile_rank(turnover_vals)
+    premium_pct = _percentile_rank(premium_vals)  # 越高=龙头越独秀=越差
 
-    # Step 4: 加权合成
+    # Step 4: 加权合成（leader_premium 为负向因子）
     for i, c in enumerate(concepts):
         score = (
             WEIGHTS["momentum"] * momentum_pct[i] +
             WEIGHTS["net_inflow"] * inflow_pct[i] +
             WEIGHTS["breadth"] * breadth_pct[i] +
             WEIGHTS["trend_3d"] * trend_pct[i] +
-            WEIGHTS["big_order"] * bigorder_pct[i]
+            WEIGHTS["big_order"] * bigorder_pct[i] +
+            WEIGHTS["turnover"] * turnover_pct[i] +
+            WEIGHTS["leader_premium"] * premium_pct[i]  # 负权重：溢价率高则扣分
         )
         c["score"] = round(score * 100, 1)
         c["momentum_pct"] = round(momentum_pct[i] * 100, 1)
@@ -238,6 +254,8 @@ def concept_rotation(top_n: int = 15, use_proxy: bool = True) -> dict:
         c["breadth_pct"] = round(breadth_pct[i] * 100, 1)
         c["trend_pct"] = round(trend_pct[i] * 100, 1)
         c["bigorder_pct"] = round(bigorder_pct[i] * 100, 1)
+        c["turnover_pct"] = round(turnover_pct[i] * 100, 1)
+        c["premium_pct"] = round(premium_pct[i] * 100, 1)
 
     # Sort by composite score
     concepts.sort(key=lambda x: -x["score"])
@@ -304,7 +322,8 @@ def main():
     print(f"  概念板块轮动评分  {ts}  (共{result['total_concepts']}个概念)")
     print(f"  权重: 动量{int(WEIGHTS['momentum']*100)}% | 主力流入{int(WEIGHTS['net_inflow']*100)}% | "
           f"广度{int(WEIGHTS['breadth']*100)}% | 3日趋势{int(WEIGHTS['trend_3d']*100)}% | "
-          f"超大单{int(WEIGHTS['big_order']*100)}%")
+          f"超大单{int(WEIGHTS['big_order']*100)}% | 换手{int(WEIGHTS['turnover']*100)}% | "
+          f"龙头溢价{int(WEIGHTS['leader_premium']*100)}%")
     print(f"{'='*85}")
 
     # 强势轮入
