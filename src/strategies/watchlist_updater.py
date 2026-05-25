@@ -209,11 +209,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    cfg_path = ROOT / "alert_config.json"
-    try:
-        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    except Exception:
-        cfg = {}
+    from common import load_config
+    cfg = load_config()
 
     # Manual codes — never touch these
     raw_manual = cfg.get("watchlist", [])

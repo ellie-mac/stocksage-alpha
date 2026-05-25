@@ -367,7 +367,7 @@ def main() -> None:
     parser.add_argument("--top-n",    type=int, default=TOP_N, help=f"取市值最低 N 只（默认 {TOP_N}，实验扩样可调大）")
     args = parser.parse_args()
 
-    config_path = ROOT / "alert_config.json"
+    config_path = ROOT / "config.json"
     with open(config_path, encoding="utf-8") as f:
         config = json.load(f)
     sendkey = setup_push(config)

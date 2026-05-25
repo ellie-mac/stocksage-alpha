@@ -46,7 +46,7 @@ from common import is_trading_hours, next_session_seconds, send_wechat, setup_pu
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 _ROOT            = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-CONFIG_PATH      = os.path.join(_ROOT, "alert_config.json")
+CONFIG_PATH      = os.path.join(_ROOT, "watchlist.json")
 SIGNALS_LOG_PATH = os.path.join(_ROOT, "data", "signals_log.json")
 
 # No cooldowns for ETF: T+0 means each signal can represent a new partial trade tranche.

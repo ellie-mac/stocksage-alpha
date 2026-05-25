@@ -47,9 +47,8 @@ MARKET_CLOSE         = (15, 5)
 # ── 工具函数 ──────────────────────────────────────────────────────────────────
 
 def _load_config() -> dict:
-    cfg_path = ROOT / "alert_config.json"
-    with open(cfg_path, encoding="utf-8") as f:
-        return json.load(f)
+    from common import load_config
+    return load_config()
 
 
 def _load_watchlist(cfg: dict) -> list[str]:

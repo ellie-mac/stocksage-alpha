@@ -55,7 +55,7 @@ from common import (
 # ── Paths ──────────────────────────────────────────────────────────────────────
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOLDINGS_PATH = os.path.join(_ROOT, "holdings.json")
-CONFIG_PATH   = os.path.join(_ROOT, "alert_config.json")
+CONFIG_PATH   = os.path.join(_ROOT, "config.json")
 SIGNALS_LOG_PATH  = os.path.join(_ROOT, "data", "signals_log.json")
 LATEST_PICKS_PATH = os.path.join(_ROOT, "data", "latest_picks.json")
 SCAN_CACHE_PATH   = os.path.join(_ROOT, "data", "watchlist_scan_latest.json")

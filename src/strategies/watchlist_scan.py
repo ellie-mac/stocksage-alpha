@@ -62,7 +62,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    config_path = os.path.join(_ROOT, "alert_config.json")
+    config_path = os.path.join(_ROOT, "config.json")
     with open(config_path, encoding="utf-8") as f:
         config = json.load(f)
     thresholds = config.get("thresholds", {})

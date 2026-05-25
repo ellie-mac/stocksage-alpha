@@ -52,7 +52,7 @@ files = [
     ("signals_log.json",        ROOT / "data" / "signals_log.json"),
     ("last_run.json",           ROOT / "data" / "last_run.json"),
     ("universe_main.json",      ROOT / "data" / "universe_main.json"),
-    ("alert_config.json",       ROOT / "alert_config.json"),
+    ("config.json",             ROOT / "config.json"),
 ]
 for label, p in files:
     print(f"  {label:30s}  {file_age_str(p)}")

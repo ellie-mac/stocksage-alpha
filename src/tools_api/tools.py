@@ -283,7 +283,7 @@ _KEY_FILES = {
     "factor_ic_main": "data/factor_ic_main.json",
     "chip_scan":      "data/chip_scan_latest.json",
     "hot_scan":       "data/hot_scan_latest.json",
-    "alert_config":   "alert_config.json",
+    "config":         "config.json",
 }
 
 _STALE_HOURS = {

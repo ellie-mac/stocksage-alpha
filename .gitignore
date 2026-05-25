@@ -16,7 +16,8 @@ src/.cache/
 src/cache/
 src/.monitor_state.json
 .env
-alert_config.json
+config.json
+watchlist.json
 holdings.json
 *.egg-info/
 dist/

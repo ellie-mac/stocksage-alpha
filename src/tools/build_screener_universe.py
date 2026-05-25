@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Build screener_universe for alert_config.json + update screener_universe.md.
+Build screener_universe → data/screener_universe.json + update screener_universe.md.
+Also updates watchlist.json with watchlist + etf_watchlist.
 
 Selection strategy per sector:
   Sort all constituent stocks by hybrid rank: average of 成交额-rank and 成交量-rank.
@@ -27,7 +28,8 @@ socket.setdefaulttimeout(40)
 import akshare as ak
 
 _ROOT   = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-CONFIG_PATH = os.path.join(_ROOT, "alert_config.json")
+CONFIG_PATH = os.path.join(_ROOT, "watchlist.json")
+UNIVERSE_PATH = os.path.join(_ROOT, "data", "screener_universe.json")
 MD_PATH     = os.path.join(_ROOT, "docs", "screener_universe.md")
 
 # ── Sector list ────────────────────────────────────────────────────────────────
@@ -625,18 +627,21 @@ def main() -> None:
     # Build ETF watchlist (all exchange ETFs, max 3 per theme, same-index dedup)
     etf_watchlist = build_etf_watchlist(max_per_theme=3)
 
-    # Update alert_config.json
+    # Update watchlist.json with watchlist + etf_watchlist
     with open(CONFIG_PATH, encoding="utf-8") as f:
         config = json.load(f)
-    config["screener_universe"] = universe
     config["watchlist"]         = watchlist          # [{code, name}, ...]
-    config.pop("watchlist_names", None)              # removed — names now in watchlist objects
     config["etf_watchlist"]     = etf_watchlist
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
-    print(f"Config written to {CONFIG_PATH}  "
-          f"(universe={len(universe)}, watchlist={len(watchlist)}, "
-          f"etf_watchlist={len(etf_watchlist)})")
+
+    # Update data/screener_universe.json
+    with open(UNIVERSE_PATH, "w", encoding="utf-8") as f:
+        json.dump(universe, f, ensure_ascii=False, indent=2)
+
+    print(f"Watchlist written to {CONFIG_PATH}  "
+          f"(watchlist={len(watchlist)}, etf_watchlist={len(etf_watchlist)})")
+    print(f"Universe written to {UNIVERSE_PATH}  ({len(universe)} stocks)")
 
     # Update screener_universe.md
     write_markdown(sector_map, len(universe))

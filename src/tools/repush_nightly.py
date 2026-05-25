@@ -52,7 +52,7 @@ def _repush_main(date: str, dry_run: bool) -> None:
         s.setdefault("buy_score", s.get("score", 0))
         s.setdefault("name", s.get("code", ""))
 
-    config       = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
+    config       = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     regime_label = (dict(snap_rows[0])["regime_label"] if snap_rows else None) or "unknown"
 
     print(f"[repush] 主策略  buy={len(buy_alerts)}  cands={len(scored)}"
@@ -89,7 +89,7 @@ def _repush_small(date: str, dry_run: bool) -> None:
             "market_cap_b": None,
         })
 
-    config   = json.loads((ROOT / "alert_config.json").read_text(encoding="utf-8"))
+    config   = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     run_time = date
 
     print(f"[repush] 小盘策略  cands={len(candidates)}"

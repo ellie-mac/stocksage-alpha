@@ -25,8 +25,15 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 DATA = ROOT / "data"
 
-# 东财开放平台 AppKey（从环境变量读取）
-APPKEY = os.environ.get("EASTMONEY_APPKEY", "")
+from common import load_config
+
+
+def _get_appkey() -> str:
+    """从 config.json 读取 eastmoney appkey，fallback 到环境变量。"""
+    key = load_config().get("eastmoney", {}).get("appkey", "")
+    if not key:
+        key = os.environ.get("EASTMONEY_APPKEY", "")
+    return key
 
 HISTORY_FILE = DATA / "concept_leaders_history.json"
 
@@ -36,7 +43,7 @@ HISTORY_FILE = DATA / "concept_leaders_history.json"
 def get_all_blocks() -> list[dict]:
     """获取所有概念/行业板块列表。"""
     url = "https://openapi.eastmoney.com/data/v1/block/list"
-    params = {"appkey": APPKEY}
+    params = {"appkey": _get_appkey()}
     try:
         res = requests.get(url, params=params, timeout=15).json()
         return res.get("data", {}).get("list", [])
@@ -48,7 +55,7 @@ def get_all_blocks() -> list[dict]:
 def get_block_detail(block_id: str) -> list[dict]:
     """获取板块内个股列表（含龙头标记、涨跌幅、资金流）。"""
     url = "https://openapi.eastmoney.com/data/v1/block/stock"
-    params = {"appkey": APPKEY, "blockId": block_id}
+    params = {"appkey": _get_appkey(), "blockId": block_id}
     try:
         res = requests.get(url, params=params, timeout=15).json()
         return res.get("data", {}).get("list", [])
@@ -110,8 +117,8 @@ def scan_strong_blocks(top_n: int = 50) -> list[dict]:
     扫描前 top_n 热门板块，返回强势板块列表。
     强势定义：龙头与昨日相同（稳定）或涨幅 > 3%。
     """
-    if not APPKEY:
-        print("[concept] ⚠️  未设置 EASTMONEY_APPKEY 环境变量，无法调用东财API")
+    if not _get_appkey():
+        print("[concept] ⚠️  未设置 eastmoney.appkey（config.json）或 EASTMONEY_APPKEY 环境变量")
         return []
 
     blocks = get_all_blocks()

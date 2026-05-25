@@ -132,13 +132,23 @@ def send_wechat(title: str, desp: str, sendkey: str, dry_run: bool = False) -> N
 
 @functools.lru_cache(maxsize=1)
 def load_alert_config() -> dict:
-    """Load alert_config.json from repo root. Returns {} on failure.
+    """Load config.json + watchlist.json + screener_universe from repo root, merged.
 
-    lru_cache(1) — alert_config 只在启动时读，进程内复用，避免 24+ callers 重复 IO。
+    Backward-compatible: returns same shape as old alert_config.json.
+    lru_cache(1) — 只在启动时读，进程内复用，避免 24+ callers 重复 IO。
     config 改动需要重启进程（已通过 watchdog / setup_scheduler 重新生成 bat 实现）。
     """
-    cfg_path = Path(__file__).resolve().parent.parent / "alert_config.json"
-    return read_json(cfg_path, default={})
+    root = Path(__file__).resolve().parent.parent
+    cfg = read_json(root / "config.json", default={})
+    wl = read_json(root / "watchlist.json", default={})
+    cfg.update(wl)
+    su = read_json(root / "data" / "screener_universe.json", default=[])
+    cfg["screener_universe"] = su
+    return cfg
+
+
+# Alias: prefer load_config() in new code
+load_config = load_alert_config
 
 
 def read_json(path, default=None):

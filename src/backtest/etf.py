@@ -53,7 +53,7 @@ from factors.config import (
 )
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-CONFIG_PATH = os.path.join(_ROOT, "alert_config.json")
+CONFIG_PATH = os.path.join(_ROOT, "watchlist.json")
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ def load_etf_universe(universe_file: Optional[str] = None) -> list[dict]:
         cfg = json.load(f)
     etf_list = cfg.get("etf_watchlist", [])
     if not etf_list:
-        raise ValueError("alert_config.json 中 etf_watchlist 为空，请先填入 ETF 列表")
+        raise ValueError("watchlist.json 中 etf_watchlist 为空，请先填入 ETF 列表")
     return [{"code": e["code"], "name": e.get("name", e["code"])} for e in etf_list]
 
 
