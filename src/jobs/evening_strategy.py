@@ -33,13 +33,37 @@ def _load(path: Path) -> dict | None:
         return None
 
 
+def _latest_trading_day(ref: datetime | None = None):
+    """Return the latest trading day using weekday proxy (Mon-Fri)."""
+    now = ref or datetime.now()
+    d = now.date()
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def _trading_day_gap(file_dt, ref: datetime | None = None) -> int:
+    """Trading-day gap from file date to latest trading day; weekends don't count."""
+    latest = _latest_trading_day(ref)
+    cur = file_dt.date() if hasattr(file_dt, "date") else file_dt
+    if cur > latest:
+        return 0
+    gap = 0
+    while cur < latest:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:
+            gap += 1
+    return gap
+
+
 def _is_fresh(date_str: str, fmt: str = "%Y%m%d", max_days: int = 1) -> bool:
-    """昨天或今天的数据都算新鲜。"""
+    """按交易日判断新鲜度：最新交易日=0，上一交易日=1；周末看到周五仍算最新有效。"""
     if not date_str:
         return False
     try:
-        d = datetime.strptime(date_str[:10].replace("-", "")[:8], "%Y%m%d")
-        return (datetime.now() - d).days <= max_days
+        d = datetime.strptime(date_str[:10].replace("-", "")[:8], fmt)
+        gap = _trading_day_gap(d)
+        return 0 <= gap <= max_days
     except Exception:
         return False
 
@@ -172,8 +196,8 @@ _SOURCE_FILES = [
 def _check_sources(max_days: int = 1) -> dict[str, dict]:
     """扫描 7 路 source 文件，返回 {tag: {"status": ..., "age_days": N, "file_date": "YYYYMMDD"}}.
     status: 'fresh' (<= max_days)、'stale' (older)、'missing' (file 不存在或日期字段缺失)
+    age_days 按交易日口径计算，周末不计入过期。
     """
-    today = datetime.now().date()
     out: dict[str, dict] = {}
     for tag, fname, key in _SOURCE_FILES:
         path = DATA / fname
@@ -198,8 +222,8 @@ def _check_sources(max_days: int = 1) -> dict[str, dict]:
         except Exception:
             out[tag] = {"status": "missing", "reason": f"unparseable: {digits}"}
             continue
-        age = (today - file_date).days
-        status = "fresh" if age <= max_days else "stale"
+        age = _trading_day_gap(file_date)
+        status = "fresh" if 0 <= age <= max_days else "stale"
         out[tag] = {"status": status, "age_days": age, "file_date": digits}
     return out
 
@@ -755,7 +779,7 @@ def _build_message(
             detail_strs = []
             for tag, info in bad:
                 if info["status"] == "stale":
-                    detail_strs.append(f"{tag}({info.get('age_days', '?')}日前)")
+                    detail_strs.append(f"{tag}({info.get('age_days', '?')}个交易日前)")
                 else:
                     detail_strs.append(f"{tag}缺")
             parts.append(f"⚠️ **源 {n_total - n_bad}/{n_total} 正常**，缺失/过期: {' '.join(detail_strs)}")
@@ -798,7 +822,7 @@ def main() -> None:
     source_status = _check_sources(max_days=1)
     _bad = {t: i for t, i in source_status.items() if i["status"] != "fresh"}
     if _bad:
-        _detail = {t: (i["status"] if i["status"] == "missing" else f"stale-{i.get('age_days', '?')}d") for t, i in _bad.items()}
+        _detail = {t: (i["status"] if i["status"] == "missing" else f"stale-{i.get('age_days', '?')}td") for t, i in _bad.items()}
         print(f"[evening_strategy] 源状态: {len(source_status) - len(_bad)}/{len(source_status)} 正常，问题源: {_detail}")
     else:
         print(f"[evening_strategy] 源状态: {len(source_status)}/{len(source_status)} 全部正常")
