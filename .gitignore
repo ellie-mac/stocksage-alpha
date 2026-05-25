@@ -54,3 +54,5 @@ scripts/ask_advisors.py
 scripts/r*.txt
 # local architecture doc (not for CI)
 ARCHITECTURE.md
+# claude handoff doc (local only, for handing off to next agent)
+CLAUDE_HANDOFF.md
