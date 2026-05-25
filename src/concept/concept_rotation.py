@@ -250,8 +250,11 @@ def concept_rotation(mode: str = "evening", top_n: int = 15,
         )
 
         # 量价背离惩罚: 量比>1.5 且 主力净流出 → 放量出货信号, 扣15分
+        # 普通流出惩罚: 主力净流出但量比不高 → 轻度扣分5分
         if c["volume_ratio"] > 1.5 and c["net_inflow"] < 0:
-            score -= 0.15
+            score -= 0.15  # 放量出货, 严重
+        elif c["net_inflow"] < 0:
+            score -= 0.05  # 普通流出, 轻微惩罚
 
         c["score"] = round(score * 100, 1)
         # 保存各因子百分位供展示
