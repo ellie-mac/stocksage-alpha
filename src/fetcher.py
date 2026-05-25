@@ -7,6 +7,10 @@ import threading
 
 socket.setdefaulttimeout(40)  # 40s cap on all socket ops (akshare HTTP + BaoStock TCP)
 
+# 在导入 akshare 之前设置代理（akshare 内部 import requests 时即绑定环境变量）
+from common import setup_proxy as _setup_proxy
+_proxy_active = _setup_proxy()
+
 import akshare as ak
 import pandas as pd
 from datetime import datetime, timedelta

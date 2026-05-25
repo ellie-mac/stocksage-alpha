@@ -151,6 +151,36 @@ def load_alert_config() -> dict:
 load_config = load_alert_config
 
 
+def setup_proxy(force: bool = False) -> bool:
+    """设置 HTTP(S) 代理环境变量，让 akshare/requests 自动走 mihomo 代理。
+
+    仅在代理可达时生效。push2.eastmoney.com 等国内行情接口需要国内IP代理。
+    返回 True 表示代理已激活。
+
+    Args:
+        force: 跳过连通性检测，直接设置代理变量。
+    """
+    proxy_url = os.environ.get("STOCKSAGE_PROXY", "http://127.0.0.1:7890")
+
+    if not force:
+        # 检测代理是否可达
+        import socket as _sock
+        try:
+            host, port = proxy_url.replace("http://", "").replace("https://", "").split(":")
+            s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+            s.settimeout(2)
+            s.connect((host, int(port)))
+            s.close()
+        except (OSError, ValueError):
+            return False
+
+    os.environ["HTTP_PROXY"] = proxy_url
+    os.environ["HTTPS_PROXY"] = proxy_url
+    # 不代理本地和非eastmoney流量的关键服务
+    os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost,api.tushare.pro,push.larkbot.app")
+    return True
+
+
 def read_json(path, default=None):
     """从 JSON 文件读取。失败返回 default（默认 None，传 {} 或 [] 适应 dict/list 期望）。
 
