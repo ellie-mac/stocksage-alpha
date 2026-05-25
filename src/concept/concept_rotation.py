@@ -123,7 +123,8 @@ def _fetch_all_concepts(session: requests.Session) -> list[dict]:
             "big_order": item.get("f164", 0) or 0,
             "up_count": up,
             "down_count": down,
-            "breadth": round(up / total, 3) if total > 0 else 0.5,
+            # 广度乘规模系数: 成分股<20只时打折, 避免小概念虚高
+            "breadth": round((up / total) * min(total / 20, 1.0), 3) if total > 0 else 0,
             "leader_name": item.get("f128", ""),
             "leader_code": item.get("f140", ""),
             "leader_pct": item.get("f136", 0) or 0,
