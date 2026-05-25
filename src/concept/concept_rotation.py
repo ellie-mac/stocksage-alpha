@@ -42,20 +42,20 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 WEIGHTS_EVENING = {
     "breadth": 0.25,        # 广度: 最硬指标, 全面涨=延续概率高
     "trend_3d": 0.22,       # 3日趋势: 连续强=主线逻辑确认
-    "volume_ratio": 0.18,   # 量比: 异常放量=新资金进场
-    "turnover": 0.12,       # 换手率: 持续关注度
+    "net_inflow": 0.15,     # 主力流入: 主力进场次日大概率延续
+    "volume_ratio": 0.15,   # 量比: 异常放量=新资金进场
     "momentum": 0.10,       # 动量: 降权避免追高
-    "net_inflow": 0.08,     # 主力流入: 方向参考
+    "turnover": 0.08,       # 换手率: 持续关注度
     "big_order": 0.05,      # 超大单: 补充信号
 }
 
 WEIGHTS_INTRADAY = {
     "speed": 0.20,          # 涨速: 正在加速=发动时刻
-    "volume_ratio": 0.20,   # 量比: 突然放量=资金涌入
+    "volume_ratio": 0.17,   # 量比: 突然放量=资金涌入
     "breadth": 0.18,        # 广度: 板块普涨确认
+    "net_inflow": 0.15,     # 主力流入: 主力进场次日大概率延续
     "momentum": 0.15,       # 动量: 盘中需方向确认
-    "trend_3d": 0.12,       # 3日趋势: 有基础的加速更可靠
-    "net_inflow": 0.10,     # 主力流入: 盘中实时更真实
+    "trend_3d": 0.10,       # 3日趋势: 有基础的加速更可靠
     "turnover": 0.05,       # 换手率: 盘中不完整, 降权
 }
 
