@@ -1,30 +1,26 @@
 #!/usr/bin/env python3
 """
-概念板块轮动评分器 — 多因子综合打分，辅助判断强势概念轮入/轮出信号。
+概念板块轮动评分器 — 双模式多因子综合打分。
 
-因子:
-  1. 今日涨跌幅 (f3)           — 即时动量
-  2. 主力净流入 (f62)          — 聪明钱方向（可靠性有限，降权）
-  3. 上涨家数占比 (f104/(f104+f105)) — 板块广度（硬指标不可伪造）
-  4. 近3日累计涨幅 (kline)     — 趋势延续性
-  5. 超大单净流入 (f164)       — 机构级别资金（同主力，降权）
-  6. 换手率 (f8)              — 资金活跃度/市场关注度
-  7. 龙头溢价率 (f136/f3)     — 负向惩罚：龙头独秀说明跟风弱
+两种模式:
+  1. 盘后复盘版 (evening): 收盘后运行, 选明天可买的概念方向
+  2. 盘中实时版 (intraday): 盘中运行, 发现正在启动的概念
 
-评分逻辑:
-  - 各因子在全板块中排名 → 百分位 (0~1)
-  - 加权合成总分:
-      动量 15% + 主力流入 15% + 广度 20% + 3日趋势 20% +
-      超大单 10% + 换手率 10% + 龙头溢价 -10%（负向惩罚）
-  - 附加信号:
-      🔥 强势轮入: 总分Top10 且 3日趋势>0
-      🌱 蓄势待发: 今日涨幅<2% 但 主力净流入Top20 且 超大单为正
-      ⚠️ 获利了结: 3日涨幅>10% 但 今日主力净流出
+盘后因子权重 (总和=100%):
+  广度 25% | 3日趋势 22% | 量比 18% | 换手率 12% | 动量 10% | 主力流入 8% | 超大单 5%
+
+盘中因子权重 (总和=100%):
+  涨速 20% | 量比 20% | 广度 18% | 动量 15% | 3日趋势 12% | 主力流入 10% | 换手率 5%
+
+信号输出:
+  火 强势轮入: 综合Top10 + 3日趋势>0
+  苗 蓄势待发: 涨幅<2% + 主力流入Top20 + 量比>1.5
+  警 获利了结: 3日涨>8% + 今日主力净流出
 
 用法:
-    python -X utf8 src/concept/concept_rotation.py [--top 15] [--no-proxy] [--json]
+    python -X utf8 src/concept/concept_rotation.py [--mode evening|intraday] [--top 15] [--json]
 
-网络: push2.eastmoney.com 需要国内IP，海外VM通过 mihomo 代理（127.0.0.1:7890）。
+网络: push2.eastmoney.com 需国内IP, 海外VM通过 mihomo 代理 (127.0.0.1:7890).
 """
 from __future__ import annotations
 
@@ -42,15 +38,25 @@ DATA = ROOT / "data"
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
-# 权重配置（正向因子 + 负向惩罚因子，绝对值之和=1.0）
-WEIGHTS = {
-    "momentum": 0.15,       # 今日涨幅 — 即时动量，略降避免追高
-    "net_inflow": 0.15,     # 主力净流入 — 东财数据可靠性有限，降权
-    "breadth": 0.20,        # 上涨家数占比 — 硬指标不可伪造
-    "trend_3d": 0.20,       # 近3日累计涨幅 — 趋势延续性
-    "big_order": 0.10,      # 超大单净流入 — 同主力，降权
-    "turnover": 0.10,       # 换手率 — 资金活跃度/关注度
-    "leader_premium": -0.10,  # 龙头溢价率 — 负向惩罚，龙头独秀=不健康
+# ── 双模式权重 ─────────────────────────────────────────────────────────────────
+WEIGHTS_EVENING = {
+    "breadth": 0.25,        # 广度: 最硬指标, 全面涨=延续概率高
+    "trend_3d": 0.22,       # 3日趋势: 连续强=主线逻辑确认
+    "volume_ratio": 0.18,   # 量比: 异常放量=新资金进场
+    "turnover": 0.12,       # 换手率: 持续关注度
+    "momentum": 0.10,       # 动量: 降权避免追高
+    "net_inflow": 0.08,     # 主力流入: 方向参考
+    "big_order": 0.05,      # 超大单: 补充信号
+}
+
+WEIGHTS_INTRADAY = {
+    "speed": 0.20,          # 涨速: 正在加速=发动时刻
+    "volume_ratio": 0.20,   # 量比: 突然放量=资金涌入
+    "breadth": 0.18,        # 广度: 板块普涨确认
+    "momentum": 0.15,       # 动量: 盘中需方向确认
+    "trend_3d": 0.12,       # 3日趋势: 有基础的加速更可靠
+    "net_inflow": 0.10,     # 主力流入: 盘中实时更真实
+    "turnover": 0.05,       # 换手率: 盘中不完整, 降权
 }
 
 NOISE_KEYWORDS = [
@@ -59,8 +65,7 @@ NOISE_KEYWORDS = [
     "涨停", "连板", "首板", "打板",
 ]
 
-# API fields
-BLOCK_FIELDS = "f2,f3,f4,f8,f12,f14,f62,f104,f105,f109,f128,f136,f140,f164,f166"
+BLOCK_FIELDS = "f2,f3,f4,f7,f8,f10,f12,f14,f22,f62,f104,f105,f128,f136,f140,f164,f166"
 
 
 def _get_session(use_proxy: bool = True) -> requests.Session:
@@ -110,20 +115,18 @@ def _fetch_all_concepts(session: requests.Session) -> list[dict]:
             "code": item.get("f12", ""),
             "name": name,
             "pct_chg": item.get("f3", 0) or 0,
+            "volume_ratio": item.get("f10", 0) or 0,
+            "speed": item.get("f22", 0) or 0,
+            "turnover": item.get("f8", 0) or 0,
+            "amplitude": item.get("f7", 0) or 0,
             "net_inflow": item.get("f62", 0) or 0,
+            "big_order": item.get("f164", 0) or 0,
             "up_count": up,
             "down_count": down,
             "breadth": round(up / total, 3) if total > 0 else 0.5,
-            "big_order": item.get("f164", 0) or 0,
-            "turnover": item.get("f8", 0) or 0,
             "leader_name": item.get("f128", ""),
             "leader_code": item.get("f140", ""),
             "leader_pct": item.get("f136", 0) or 0,
-            # 龙头溢价率: 龙头涨幅 / 板块涨幅，越高说明龙头独秀、跟风弱
-            "leader_premium": (
-                round((item.get("f136", 0) or 0) / (item.get("f3", 0) or 0.01), 2)
-                if (item.get("f3", 0) or 0) > 0.5 else 1.0
-            ),
         })
     return results
 
@@ -147,7 +150,6 @@ def _fetch_kline_3d(session: requests.Session, code: str) -> float | None:
         klines = r.json().get("data", {}).get("klines", [])
         if len(klines) < 3:
             return None
-        # 取最近3天涨幅之和
         total = 0.0
         for k in klines[-3:]:
             p = k.split(",")
@@ -170,17 +172,11 @@ def _percentile_rank(values: list[float]) -> list[float]:
     return ranks
 
 
-def concept_rotation(top_n: int = 15, use_proxy: bool = True) -> dict:
+def concept_rotation(mode: str = "evening", top_n: int = 15,
+                     use_proxy: bool = True) -> dict:
     """
     概念板块轮动评分。
-    返回 {
-        "timestamp": str,
-        "total_concepts": int,
-        "strong_entry": [...],   # 强势轮入
-        "preparing": [...],      # 蓄势待发
-        "take_profit": [...],    # 获利了结
-        "full_ranking": [...],   # 全部排名
-    }
+    mode: "evening" (盘后复盘) 或 "intraday" (盘中实时)
     """
     session = _get_session(use_proxy)
 
@@ -191,71 +187,71 @@ def concept_rotation(top_n: int = 15, use_proxy: bool = True) -> dict:
             print("[rotation] ❌ push2.eastmoney.com 不可达")
             return {}
 
+    weights = WEIGHTS_EVENING if mode == "evening" else WEIGHTS_INTRADAY
+
     # Step 1: 获取实时多因子数据
     concepts = _fetch_all_concepts(session)
     if not concepts:
         print("[rotation] ❌ 获取概念板块数据失败")
         return {}
 
-    print(f"[rotation] 获取 {len(concepts)} 个概念板块, 拉取3日K线...")
+    print(f"[rotation] 模式: {'盘后复盘' if mode == 'evening' else '盘中实时'} | "
+          f"获取 {len(concepts)} 个概念板块")
 
-    # Step 2: 批量获取3日趋势
-    batch_size = 20
-    trend_map: dict[str, float] = {}
-    codes = [(c["code"], c["name"]) for c in concepts]
+    # Step 2: 获取3日趋势 (both modes use it, just different weight)
+    if weights.get("trend_3d", 0) > 0:
+        print("[rotation] 拉取3日K线...")
+        batch_size = 20
+        trend_map: dict[str, float] = {}
+        codes = [(c["code"], c["name"]) for c in concepts]
 
-    for i in range(0, len(codes), batch_size):
-        batch = codes[i:i + batch_size]
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            futs = {ex.submit(_fetch_kline_3d, session, code): name for code, name in batch}
-            for f in as_completed(futs):
-                name = futs[f]
-                result = f.result()
-                if result is not None:
-                    trend_map[name] = result
-        if i + batch_size < len(codes):
-            time.sleep(0.2)
+        for i in range(0, len(codes), batch_size):
+            batch = codes[i:i + batch_size]
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futs = {ex.submit(_fetch_kline_3d, session, code): name
+                        for code, name in batch}
+                for f in as_completed(futs):
+                    name = futs[f]
+                    result = f.result()
+                    if result is not None:
+                        trend_map[name] = result
+            if i + batch_size < len(codes):
+                time.sleep(0.2)
 
-    # Fill missing trends with 0
-    for c in concepts:
-        c["trend_3d"] = trend_map.get(c["name"], 0.0)
+        for c in concepts:
+            c["trend_3d"] = trend_map.get(c["name"], 0.0)
+    else:
+        for c in concepts:
+            c["trend_3d"] = 0.0
 
-    # Step 3: 百分位排名
-    momentum_vals = [c["pct_chg"] for c in concepts]
-    inflow_vals = [c["net_inflow"] for c in concepts]
-    breadth_vals = [c["breadth"] for c in concepts]
-    trend_vals = [c["trend_3d"] for c in concepts]
-    bigorder_vals = [c["big_order"] for c in concepts]
-    turnover_vals = [c["turnover"] for c in concepts]
-    premium_vals = [c["leader_premium"] for c in concepts]
+    # Step 3: 各因子百分位排名
+    factor_values: dict[str, list[float]] = {
+        "momentum": [c["pct_chg"] for c in concepts],
+        "volume_ratio": [c["volume_ratio"] for c in concepts],
+        "speed": [c["speed"] for c in concepts],
+        "turnover": [c["turnover"] for c in concepts],
+        "breadth": [c["breadth"] for c in concepts],
+        "trend_3d": [c["trend_3d"] for c in concepts],
+        "net_inflow": [c["net_inflow"] for c in concepts],
+        "big_order": [c["big_order"] for c in concepts],
+    }
 
-    momentum_pct = _percentile_rank(momentum_vals)
-    inflow_pct = _percentile_rank(inflow_vals)
-    breadth_pct = _percentile_rank(breadth_vals)
-    trend_pct = _percentile_rank(trend_vals)
-    bigorder_pct = _percentile_rank(bigorder_vals)
-    turnover_pct = _percentile_rank(turnover_vals)
-    premium_pct = _percentile_rank(premium_vals)  # 越高=龙头越独秀=越差
+    factor_pcts: dict[str, list[float]] = {
+        k: _percentile_rank(v) for k, v in factor_values.items()
+    }
 
-    # Step 4: 加权合成（leader_premium 为负向因子）
+    # Step 4: 加权合成
     for i, c in enumerate(concepts):
-        score = (
-            WEIGHTS["momentum"] * momentum_pct[i] +
-            WEIGHTS["net_inflow"] * inflow_pct[i] +
-            WEIGHTS["breadth"] * breadth_pct[i] +
-            WEIGHTS["trend_3d"] * trend_pct[i] +
-            WEIGHTS["big_order"] * bigorder_pct[i] +
-            WEIGHTS["turnover"] * turnover_pct[i] +
-            WEIGHTS["leader_premium"] * premium_pct[i]  # 负权重：溢价率高则扣分
+        score = sum(
+            weights.get(factor, 0) * factor_pcts[factor][i]
+            for factor in factor_pcts
+            if factor in weights
         )
         c["score"] = round(score * 100, 1)
-        c["momentum_pct"] = round(momentum_pct[i] * 100, 1)
-        c["inflow_pct"] = round(inflow_pct[i] * 100, 1)
-        c["breadth_pct"] = round(breadth_pct[i] * 100, 1)
-        c["trend_pct"] = round(trend_pct[i] * 100, 1)
-        c["bigorder_pct"] = round(bigorder_pct[i] * 100, 1)
-        c["turnover_pct"] = round(turnover_pct[i] * 100, 1)
-        c["premium_pct"] = round(premium_pct[i] * 100, 1)
+        # 保存各因子百分位供展示
+        for factor in weights:
+            if factor in factor_pcts:
+                c[f"{factor}_pct"] = round(factor_pcts[factor][i] * 100, 1)
 
     # Sort by composite score
     concepts.sort(key=lambda x: -x["score"])
@@ -265,23 +261,29 @@ def concept_rotation(top_n: int = 15, use_proxy: bool = True) -> dict:
     preparing = []      # 🌱 蓄势待发
     take_profit = []    # ⚠️ 获利了结
 
-    inflow_top20_threshold = sorted(inflow_vals, reverse=True)[min(19, len(inflow_vals) - 1)]
+    inflow_vals = factor_values["net_inflow"]
+    inflow_top20 = sorted(inflow_vals, reverse=True)[min(19, len(inflow_vals) - 1)]
+    top10_score = concepts[min(9, len(concepts) - 1)]["score"]
 
     for c in concepts:
         # 强势轮入: Top10综合分 + 3日趋势为正
-        if c["score"] >= concepts[min(9, len(concepts) - 1)]["score"] and c["trend_3d"] > 0:
+        if c["score"] >= top10_score and c["trend_3d"] > 0:
             strong_entry.append(c)
 
-        # 蓄势待发: 今日涨幅<2% 但主力净流入Top20 且超大单为正
-        if c["pct_chg"] < 2.0 and c["net_inflow"] >= inflow_top20_threshold and c["big_order"] > 0:
+        # 蓄势待发: 今日涨幅<2% + 主力净流入Top20 + 量比>1.5
+        if (c["pct_chg"] < 2.0 and c["net_inflow"] >= inflow_top20
+                and c["volume_ratio"] > 1.5):
             preparing.append(c)
 
-        # 获利了结: 3日涨幅>10% 但今日主力净流出
-        if c["trend_3d"] > 10.0 and c["net_inflow"] < 0:
+        # 获利了结: 3日涨幅>8% + 今日主力净流出
+        if c["trend_3d"] > 8.0 and c["net_inflow"] < 0:
             take_profit.append(c)
 
     return {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "mode": mode,
+        "mode_cn": "盘后复盘" if mode == "evening" else "盘中实时",
+        "weights": weights,
         "total_concepts": len(concepts),
         "strong_entry": strong_entry[:top_n],
         "preparing": preparing[:10],
@@ -291,80 +293,120 @@ def concept_rotation(top_n: int = 15, use_proxy: bool = True) -> dict:
 
 
 def _format_inflow(val: float) -> str:
-    """格式化资金流（亿）"""
+    """格式化资金流（亿/万）"""
     if abs(val) >= 1e8:
-        return f"{val / 1e8:.1f}亿"
+        return f"{val / 1e8:+.1f}亿"
     elif abs(val) >= 1e4:
-        return f"{val / 1e4:.0f}万"
-    return f"{val:.0f}"
+        return f"{val / 1e4:+.0f}万"
+    return f"{val:+.0f}"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="概念板块轮动评分器")
+    parser = argparse.ArgumentParser(description="概念板块轮动评分器（双模式）")
+    parser.add_argument("--mode", choices=["evening", "intraday"], default="evening",
+                        help="运行模式: evening=盘后复盘, intraday=盘中实时")
     parser.add_argument("--top", type=int, default=15, help="输出排名前N（默认15）")
     parser.add_argument("--no-proxy", action="store_true", help="不使用代理")
-    parser.add_argument("--json", action="store_true", help="输出JSON到 data/concept_rotation.json")
+    parser.add_argument("--json", action="store_true", help="输出JSON")
     args = parser.parse_args()
 
-    result = concept_rotation(top_n=args.top, use_proxy=not args.no_proxy)
+    result = concept_rotation(mode=args.mode, top_n=args.top,
+                              use_proxy=not args.no_proxy)
     if not result:
         return
 
     if args.json:
-        out_path = DATA / "concept_rotation.json"
+        suffix = "evening" if args.mode == "evening" else "intraday"
+        out_path = DATA / f"concept_rotation_{suffix}.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str),
                             encoding="utf-8")
-        print(f"[rotation] 已写入 {out_path}")
+        print(f"\n[rotation] 已写入 {out_path}")
 
     ts = result["timestamp"]
-    print(f"\n{'='*85}")
-    print(f"  概念板块轮动评分  {ts}  (共{result['total_concepts']}个概念)")
-    print(f"  权重: 动量{int(WEIGHTS['momentum']*100)}% | 主力流入{int(WEIGHTS['net_inflow']*100)}% | "
-          f"广度{int(WEIGHTS['breadth']*100)}% | 3日趋势{int(WEIGHTS['trend_3d']*100)}% | "
-          f"超大单{int(WEIGHTS['big_order']*100)}% | 换手{int(WEIGHTS['turnover']*100)}% | "
-          f"龙头溢价{int(WEIGHTS['leader_premium']*100)}%")
-    print(f"{'='*85}")
+    weights = result["weights"]
+    mode_cn = result["mode_cn"]
+
+    print(f"\n{'='*88}")
+    print(f"  概念板块轮动评分 [{mode_cn}]  {ts}  (共{result['total_concepts']}个概念)")
+    print(f"  权重: ", end="")
+    weight_strs = [f"{_factor_cn(k)}{int(v*100)}%" for k, v in weights.items()]
+    print(" | ".join(weight_strs))
+    print(f"{'='*88}")
 
     # 强势轮入
     if result["strong_entry"]:
         print(f"\n🔥 强势轮入 (综合Top10 + 3日趋势向上)")
-        print(f"{'─'*85}")
-        print(f"  {'概念':<12} {'综合分':>5} {'今日':>6} {'3日':>6} {'主力流入':>10} {'广度':>5} {'龙头':<10}")
-        print(f"{'─'*85}")
-        for c in result["strong_entry"]:
-            print(f"  {c['name']:<12} {c['score']:>5.1f} {c['pct_chg']:>+5.2f}% "
-                  f"{c['trend_3d']:>+5.2f}% {_format_inflow(c['net_inflow']):>10} "
-                  f"{c['breadth']*100:>4.0f}% {c['leader_name']:<10}")
+        print(f"{'─'*88}")
+        if args.mode == "intraday":
+            print(f"  {'概念':<12} {'分数':>5} {'涨幅':>6} {'涨速':>6} "
+                  f"{'量比':>5} {'广度':>5} {'主力流入':>10} {'龙头':<10}")
+            print(f"{'─'*88}")
+            for c in result["strong_entry"]:
+                print(f"  {c['name']:<12} {c['score']:>5.1f} {c['pct_chg']:>+5.2f}% "
+                      f"{c['speed']:>+5.2f} {c['volume_ratio']:>5.2f} "
+                      f"{c['breadth']*100:>4.0f}% {_format_inflow(c['net_inflow']):>10} "
+                      f"{c['leader_name']:<10}")
+        else:
+            print(f"  {'概念':<12} {'分数':>5} {'涨幅':>6} {'3日':>6} "
+                  f"{'量比':>5} {'广度':>5} {'主力流入':>10} {'龙头':<10}")
+            print(f"{'─'*88}")
+            for c in result["strong_entry"]:
+                print(f"  {c['name']:<12} {c['score']:>5.1f} {c['pct_chg']:>+5.2f}% "
+                      f"{c['trend_3d']:>+5.2f} {c['volume_ratio']:>5.2f} "
+                      f"{c['breadth']*100:>4.0f}% {_format_inflow(c['net_inflow']):>10} "
+                      f"{c['leader_name']:<10}")
 
     # 蓄势待发
     if result["preparing"]:
-        print(f"\n🌱 蓄势待发 (涨幅<2% + 主力流入Top20 + 超大单为正)")
-        print(f"{'─'*85}")
+        print(f"\n🌱 蓄势待发 (涨幅<2% + 主力流入Top20 + 量比>1.5)")
+        print(f"{'─'*88}")
         for c in result["preparing"]:
             print(f"  {c['name']:<12} 分:{c['score']:>5.1f} 涨:{c['pct_chg']:>+5.2f}% "
-                  f"主力:{_format_inflow(c['net_inflow'])} 超大单:{_format_inflow(c['big_order'])}")
+                  f"量比:{c['volume_ratio']:.2f} 主力:{_format_inflow(c['net_inflow'])} "
+                  f"龙头:{c['leader_name']}")
 
     # 获利了结
     if result["take_profit"]:
-        print(f"\n⚠️  获利了结 (3日涨>10% + 今日主力流出)")
-        print(f"{'─'*85}")
+        print(f"\n⚠️  获利了结 (3日涨>8% + 今日主力流出)")
+        print(f"{'─'*88}")
         for c in result["take_profit"]:
             print(f"  {c['name']:<12} 3日:{c['trend_3d']:>+5.2f}% "
-                  f"今日流出:{_format_inflow(c['net_inflow'])}")
+                  f"今日流出:{_format_inflow(c['net_inflow'])} 涨幅:{c['pct_chg']:>+.2f}%")
 
     # 全排名
     print(f"\n📊 综合评分 Top{args.top}")
-    print(f"{'─'*85}")
-    print(f"  {'#':>2} {'概念':<12} {'分数':>5} {'今日%':>6} {'3日%':>6} "
-          f"{'主力流入':>10} {'广度':>5} {'涨/跌':>5} {'龙头':<8}")
-    print(f"{'─'*85}")
+    print(f"{'─'*88}")
+    if args.mode == "intraday":
+        print(f"  {'#':>2} {'概念':<12} {'分数':>5} {'涨幅':>6} {'涨速':>5} "
+              f"{'量比':>5} {'广度':>5} {'涨/跌':>5} {'主力流入':>10} {'龙头':<8}")
+    else:
+        print(f"  {'#':>2} {'概念':<12} {'分数':>5} {'涨幅':>6} {'3日':>6} "
+              f"{'量比':>5} {'换手':>5} {'广度':>5} {'涨/跌':>5} {'主力流入':>10} {'龙头':<8}")
+    print(f"{'─'*88}")
     for i, c in enumerate(result["full_ranking"], 1):
-        print(f"  {i:>2} {c['name']:<12} {c['score']:>5.1f} {c['pct_chg']:>+5.2f} "
-              f"{c['trend_3d']:>+5.2f} {_format_inflow(c['net_inflow']):>10} "
-              f"{c['breadth']*100:>4.0f}% {c['up_count']:>2}/{c['down_count']:<2} "
-              f"{c['leader_name']:<8}")
-    print(f"{'='*85}")
+        if args.mode == "intraday":
+            print(f"  {i:>2} {c['name']:<12} {c['score']:>5.1f} {c['pct_chg']:>+5.2f} "
+                  f"{c['speed']:>+4.1f} {c['volume_ratio']:>5.2f} "
+                  f"{c['breadth']*100:>4.0f}% {c['up_count']:>2}/{c['down_count']:<2} "
+                  f"{_format_inflow(c['net_inflow']):>10} {c['leader_name']:<8}")
+        else:
+            print(f"  {i:>2} {c['name']:<12} {c['score']:>5.1f} {c['pct_chg']:>+5.2f} "
+                  f"{c['trend_3d']:>+5.2f} {c['volume_ratio']:>5.2f} "
+                  f"{c['turnover']:>5.1f} {c['breadth']*100:>4.0f}% "
+                  f"{c['up_count']:>2}/{c['down_count']:<2} "
+                  f"{_format_inflow(c['net_inflow']):>10} {c['leader_name']:<8}")
+    print(f"{'='*88}")
+
+
+def _factor_cn(key: str) -> str:
+    """因子英文key转中文"""
+    mapping = {
+        "momentum": "动量", "volume_ratio": "量比", "speed": "涨速",
+        "turnover": "换手", "breadth": "广度", "trend_3d": "3日趋势",
+        "net_inflow": "主力", "big_order": "超大单",
+    }
+    return mapping.get(key, key)
 
 
 if __name__ == "__main__":
