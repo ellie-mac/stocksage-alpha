@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <URI>\main_Scan</URI>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-12-1-1270816290-1254716311-571079601-3195462294</UserId>
+      <LogonType>S4U</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <WakeToRun>true</WakeToRun>
+    <IdleSettings>
+      <Duration>PT10M</Duration>
+      <WaitTimeout>PT1H</WaitTimeout>
+      <StopOnIdleEnd>true</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
+  </Settings>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-04-26T10:30:00+00:00</StartBoundary>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+  <Actions Context="Author">
+    <Exec>
+      <Command>"C:\Users\jiapeichen\repos\stocksage-alpha\tasks\run_monitor_scan.bat"</Command>
+    </Exec>
+  </Actions>
+</Task>

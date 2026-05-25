@@ -128,7 +128,7 @@ def _fetch_stock_kline_prices(session: requests.Session, code: str,
         secid = f"0.{code}"
     else:
         secid = f"0.{code}"
-    url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+    url = "http://push2his.eastmoney.com/api/qt/stock/kline/get"
     params = {
         "secid": secid,
         "fields1": "f1",

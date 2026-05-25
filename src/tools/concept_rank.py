@@ -97,7 +97,7 @@ def _get_frequent_leaders(history: dict, concept_name: str, top_n: int = 3) -> l
 
 def _fetch_kline(session: requests.Session, code: str, days: int = 70) -> list[tuple[str, float]]:
     """获取概念板块日K线（日期, 涨跌幅%）"""
-    url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+    url = "http://push2his.eastmoney.com/api/qt/stock/kline/get"
     params = {
         "secid": f"90.{code}",
         "fields1": "f1",

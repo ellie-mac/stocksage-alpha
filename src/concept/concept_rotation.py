@@ -133,7 +133,7 @@ def _fetch_all_concepts(session: requests.Session) -> list[dict]:
 
 def _fetch_kline_3d(session: requests.Session, code: str) -> float | None:
     """获取近3个交易日累计涨幅"""
-    url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+    url = "http://push2his.eastmoney.com/api/qt/stock/kline/get"
     params = {
         "secid": f"90.{code}",
         "fields1": "f1",
