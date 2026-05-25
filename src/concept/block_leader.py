@@ -29,8 +29,8 @@ DATA = ROOT / "data"
 HISTORY_FILE = DATA / "concept_leaders_history.json"
 
 # push2 API 参数: f2=最新价 f3=涨跌幅 f4=涨跌额 f8=换手率 f12=代码 f14=名称
-# f62=主力净流入 f184=换手率(板块) f136=领涨股名 f140=领涨股代码 f141=领涨股涨幅
-BLOCK_FIELDS = "f2,f3,f4,f8,f12,f14,f62,f136,f140,f141"
+# f62=主力净流入 f128=领涨股名 f140=领涨股代码 f136=领涨股涨幅
+BLOCK_FIELDS = "f2,f3,f4,f8,f12,f14,f62,f128,f136,f140"
 STOCK_FIELDS = "f2,f3,f6,f8,f12,f14,f62"
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -85,9 +85,9 @@ def get_concept_blocks(session: requests.Session, top_n: int = 50) -> list[dict]
                 "pct_chg": item.get("f3", 0),
                 "turnover": item.get("f8", 0),
                 "net_inflow": item.get("f62", 0),
-                "leader_name": item.get("f136", ""),
+                "leader_name": item.get("f128", ""),
                 "leader_code": item.get("f140", ""),
-                "leader_pct": item.get("f141", 0),
+                "leader_pct": item.get("f136", 0),
             })
         return results
     except Exception as e:
