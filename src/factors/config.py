@@ -36,7 +36,7 @@ FACTOR_WEIGHTS: dict[str, float] = {
     # ── Tier 2: ICIR 0.5–0.9 ─────────────────────────────────────────────
     "div_yield":             0.7,   # IC=+0.0281, ICIR=0.959 (2026-04-15)
     "position_52w":          0.7,   # IC=+0.1154, ICIR=0.934 (2026-04-15)
-    "growth":                1.0,   # IC=+0.0545, ICIR=0.900 (2026-04-15)
+    "growth":                1.21,   # IC=+0.0545, ICIR=0.900 (2026-04-15)
     "upday_ratio":           0.2,   # IC=+0.0564, ICIR=+0.717 (12p-AB run); up-day frequency = trend quality
     "roe_trend":             0.2,   # IC=+0.0353, ICIR=+0.294 (2026-05-07); hit=83% (consistent hit rate)
     "main_inflow":           0.2,   # IC=+0.0546, ICIR=0.568 (2026-04-15)
@@ -44,7 +44,7 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "hammer_bottom":         0.8,   # IC=+0.0693, ICIR=0.612 (2026-04-15)
 
     # ── Regime-dependent / reduced (unstable direction across runs) ───────
-    "momentum":              0.2,   # IC=-0.0545, ICIR=-0.278 (2026-05-07, correction period); reduced 0.8→0.2; BULL regime amplifies
+    "momentum":              0.19,   # IC=-0.0545, ICIR=-0.278 (2026-05-07, correction period); reduced 0.8→0.2; BULL regime amplifies
     "medium_term_momentum":  0.0,   # IC=-0.0481, ICIR=-0.214 (2026-05-07); zeroed — direction flipped in correction; BULL regime handles
     "market_beta":           0.0,   # IC=-0.0453, ICIR=-0.323 (2026-05-07); zeroed — direction flipped in correction; BULL regime handles
 

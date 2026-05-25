@@ -1,0 +1,21 @@
+{
+  "date": "2026-05-12",
+  "day": 7,
+  "morning": {
+    "timestamp": "09:25:46",
+    "query": "综合",
+    "regime": "NORMAL",
+    "picks": [],
+    "night_confirmed": 0,
+    "night_total": 0
+  },
+  "midday": {
+    "timestamp": "11:36:24"
+  },
+  "evening": {
+    "timestamp": "15:06:07",
+    "avg_change_pct": null,
+    "benchmark_change_pct": -0.077,
+    "verdict": "数据不足"
+  }
+}

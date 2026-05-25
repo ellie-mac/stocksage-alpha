@@ -1,0 +1,10 @@
+{
+  "date": "2026-05-23",
+  "day": 14,
+  "evening": {
+    "timestamp": "15:06:02",
+    "avg_change_pct": null,
+    "benchmark_change_pct": 1.296,
+    "verdict": "数据不足"
+  }
+}

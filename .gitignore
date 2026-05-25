@@ -24,7 +24,6 @@ build/
 xhs/config.json
 xhs/records/
 xhs/run_*.bat
-tasks/
 docs/PROJECT_STRUCTURE.md
 logs/
 scripts/logs/
@@ -54,5 +53,10 @@ scripts/ask_advisors.py
 scripts/r*.txt
 # local architecture doc (not for CI)
 ARCHITECTURE.md
-# claude handoff doc (local only, for handing off to next agent)
-CLAUDE_HANDOFF.md
+
+# runtime data (VM-generated)
+data/
+src/data/
+src/stocksage.db
+tasks/*.bak-*
+tasks/archive/

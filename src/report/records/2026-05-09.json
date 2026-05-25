@@ -1,0 +1,15 @@
+{
+  "date": "2026-05-09",
+  "day": 4,
+  "midday": {
+    "timestamp": "17:34:05"
+  },
+  "morning": {
+    "timestamp": "18:19:57",
+    "query": "综合",
+    "regime": "NORMAL",
+    "picks": [],
+    "night_confirmed": 0,
+    "night_total": 0
+  }
+}
