@@ -138,8 +138,7 @@ def ai_review(prompt: str) -> list[dict]:
     try:
         # Use copilot CLI via subprocess
         result = subprocess.run(
-            ["copilot", "-m", "claude-opus-4.7", "--no-spinner", "-"],
-            input=prompt,
+            ["copilot", "-p", prompt, "--model", "claude-opus-4.7", "-s", "--yolo"],
             capture_output=True,
             text=True,
             timeout=120,
