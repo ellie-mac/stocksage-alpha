@@ -26,12 +26,13 @@ from typing import Any
 
 ALL_TASKS: list[dict[str, Any]] = [
     # ── 凌晨/盘前外 ──────────────────────────────────────────────────────────
-    {"name": "weekly_PerfReport", "time": "00:00", "desc": "周度绩效报告",       "push": True,  "slot": None,             "disabled": False, "display": True},
+    {"name": "weekly_PerfReport", "time": "00:00", "desc": "周度绩效报告",       "push": True,  "slot": "weekly_perf_report", "disabled": False, "display": True},
     {"name": "sync_Knowledge",    "time": "02:00", "desc": "知识库同步",         "push": False, "slot": None,             "disabled": True,  "display": False},
-    {"name": "factor_Analysis",   "time": "03:00", "desc": "因子IC分析",         "push": False, "slot": None,             "disabled": False, "display": True},
-    {"name": "institution_Scan",  "time": "04:00", "desc": "机构扫盘",           "push": True,  "slot": None,             "disabled": False, "display": True},
+    {"name": "factor_Analysis",   "time": "03:00", "desc": "因子IC分析",         "push": False, "slot": "factor_analysis","disabled": False, "display": True},
+    {"name": "institution_Scan",  "time": "04:00", "desc": "机构扫盘",           "push": True,  "slot": "institution_scan","disabled": False, "display": True},
 
     # ── 盘前 (07-09) ────────────────────────────────────────────────────────
+    {"name": "auto_Tune",         "time": "08:05", "desc": "参数自动调优",       "push": False, "slot": "auto_tune",      "disabled": False, "display": True},
     {"name": "integrity_Check",   "time": "08:00", "desc": "数据完整性检查",     "push": False, "slot": "integrity_check","disabled": False, "display": True},
     {"name": "cffex_CiticAM",     "time": "19:00", "desc": "中信期货空单跟踪",   "push": True,  "slot": "cffex_citic",    "disabled": False, "display": True},
     {"name": "concept_Warm",      "time": "08:30", "desc": "概念map预热",        "push": False, "slot": "concept_warm",   "disabled": False, "display": True},
@@ -50,7 +51,7 @@ ALL_TASKS: list[dict[str, Any]] = [
     {"name": "hot_Rank_1430",     "time": "14:30", "desc": "热榜快照 14:30",     "push": False, "slot": "hot_rank",       "disabled": False, "display": False},
 
     # ── 收盘 (15-16) ────────────────────────────────────────────────────────
-    {"name": "closing_Batch",     "time": "15:05", "desc": "收盘批处理",         "push": False, "slot": None,             "disabled": False, "display": True},
+    {"name": "closing_Batch",     "time": "15:05", "desc": "收盘批处理",         "push": False, "slot": "closing_batch",  "disabled": False, "display": True},
     {"name": "signal_Tracker",    "time": "15:25", "desc": "信号绩效跟踪",       "push": False, "slot": None,             "disabled": True,  "display": True},
     {"name": "report_Evening",    "time": "15:30", "desc": "收盘报告",           "push": True,  "slot": "chip_evening",   "disabled": True,  "display": True},
     {"name": "market_Warm",       "time": "15:35", "desc": "市场数据预热",       "push": False, "slot": "market_warm",    "disabled": False, "display": True},
@@ -66,14 +67,16 @@ ALL_TASKS: list[dict[str, Any]] = [
     {"name": "chip_Night",        "time": "18:00", "desc": "筹码缓存预取",       "push": False, "slot": "chip_night",     "disabled": False, "display": True},
     {"name": "main_Scan",         "time": "18:30", "desc": "主/小/ETF 扫盘",     "push": True,  "slot": "monitor_scan",   "disabled": False, "display": True},
     {"name": "quality_Prefetch",  "time": "19:10", "desc": "质量指标预热",       "push": False, "slot": "quality_prefetch","disabled": False, "display": True},
-    {"name": "merge_Sessions",    "time": "23:14", "desc": "Lark会话合并",       "push": False, "slot": None,             "disabled": False, "display": True},
     {"name": "golden_Scan",       "time": "19:30", "desc": "金叉策略扫描",       "push": True,  "slot": "gc_scan",        "disabled": False, "display": True},
     {"name": "sideways_Scan",     "time": "20:00", "desc": "横盘策略扫描",       "push": True,  "slot": "sideways_scan",  "disabled": False, "display": True},
     {"name": "escalator_Scan",    "time": "20:15", "desc": "扶梯策略扫描",       "push": True,  "slot": "escalator_scan", "disabled": False, "display": True},
     {"name": "chip_CadScan",      "time": "21:00", "desc": "筹码扫描",           "push": True,  "slot": "cad_scan",       "disabled": False, "display": True},
     {"name": "evening_Strategy",  "time": "22:00", "desc": "多策略汇总·晚间",    "push": True,  "slot": "evening_strategy","disabled": False, "display": True},
-    {"name": "main_Night",        "time": "22:30", "desc": "财务缓存预热",       "push": False, "slot": None,             "disabled": False, "display": True},
-    {"name": "watchlist_Updater", "time": "23:40", "desc": "自选股更新",         "push": False, "slot": None,             "disabled": False, "display": True},
+    {"name": "main_Night",        "time": "22:30", "desc": "财务缓存预热",       "push": False, "slot": "main_night",     "disabled": False, "display": True},
+    {"name": "small_Scan",        "time": "22:40", "desc": "小盘策略扫盘",       "push": True,  "slot": "small_scan",     "disabled": False, "display": True},
+    {"name": "etf_Scan",          "time": "23:10", "desc": "ETF策略扫盘",        "push": True,  "slot": "etf_scan",       "disabled": False, "display": True},
+    {"name": "merge_Sessions",    "time": "23:14", "desc": "Lark会话合并",       "push": False, "slot": "merge_sessions", "disabled": False, "display": True},
+    {"name": "watchlist_Updater", "time": "23:40", "desc": "自选股更新",         "push": False, "slot": "watchlist_updater","disabled": False, "display": True},
 
     # ── 每日 1 次任务汇报（只推飞书，23:00 收尾汇总）────────────────────────────
     # 替代每个任务的 started/ok feishu 噪音；每天晚上汇总一次今日任务状态。

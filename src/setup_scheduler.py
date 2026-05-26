@@ -46,6 +46,15 @@ ESCALATOR_SCAN    = SCRIPTS   / "strategies" / "escalator_scan.py"
 TASK_SUMMARY      = SCRIPTS   / "jobs"       / "task_summary.py"
 ESCALATOR_PERF    = SCRIPTS   / "jobs"       / "escalator_perf_log.py"
 STRATEGY_COMPARE  = SCRIPTS   / "jobs"       / "strategy_compare.py"
+AUTO_TUNE         = SCRIPTS   / "jobs"       / "auto_tune.py"
+CLOSING_BATCH     = SCRIPTS   / "jobs"       / "closing_batch.py"
+FACTOR_ANALYSIS   = SCRIPTS   / "factors"    / "analysis.py"
+INSTITUTION_SCAN  = SCRIPTS   / "strategies" / "institution_scan.py"
+NIGHTLY_SCAN      = SCRIPTS   / "jobs"       / "nightly_scan.py"
+NIGHTLY_PUSH      = SCRIPTS   / "jobs"       / "nightly_push.py"
+WEEKLY_PERF       = SCRIPTS   / "jobs"       / "weekly_perf_report.py"
+WATCHLIST_UPDATER = SCRIPTS   / "strategies" / "watchlist_updater.py"
+MERGE_SESSIONS    = Path.home() / "repos" / "lark-agent" / "merge_sessions.py"
 
 # ── Bot startup tasks (At Logon trigger) ─────────────────────────────────────
 BOT_TASKS = [
@@ -191,6 +200,60 @@ def _scheduled_bat(task_name: str, slot: str, desc: str):
         label_arg = {"Midday": "中午", "Close": "收盘", "Evening": "晚上"}.get(label, label)
         path = TASKS_DIR / f"run_{task_name.lower()}.bat"
         cmd = f'"{PYTHON}" -X utf8 "{TASK_SUMMARY}" "{label_arg}" >> "{log}\\task_summary.log" 2>&1'
+    elif slot == "auto_tune":
+        path = TASKS_DIR / "run_auto_tune.bat"
+        cmd = f'"{PYTHON}" -X utf8 "{AUTO_TUNE}" --apply >> "{log}\\auto_tune.log" 2>&1'
+    elif slot == "closing_batch":
+        path = TASKS_DIR / "run_closing_batch.bat"
+        cmd = f'"{PYTHON}" -X utf8 "{CLOSING_BATCH}" >> "{log}\\closing_batch.log" 2>&1'
+    elif slot == "factor_analysis":
+        path = TASKS_DIR / "run_factor_analysis.bat"
+        cmd = f'"{PYTHON}" -X utf8 "{FACTOR_ANALYSIS}" >> "{log}\\factor_analysis.log" 2>&1'
+    elif slot == "institution_scan":
+        path = TASKS_DIR / "run_institution_scan.bat"
+        cmd = f'"{PYTHON}" -X utf8 "{INSTITUTION_SCAN}" --push-if-changed >> "{log}\\institution_scan.log" 2>&1'
+    elif slot == "main_night":
+        path = TASKS_DIR / "run_main_night.bat"
+        cmd = (
+            f'"{PYTHON}" -X utf8 "{GEN_UNIVERSE}" >> "{log}\\universe_main.log" 2>&1\n'
+            f'if errorlevel 1 (\n'
+            f'    {notify_cmd}\n'
+            f'    {discord_fail_cmd}\n'
+            f'    exit /b 1\n'
+            f')\n'
+            f'"{PYTHON}" -X utf8 "{BATCH_FIN}" >> "{log}\\batch_financials.log" 2>&1'
+        )
+    elif slot == "small_scan":
+        path = TASKS_DIR / "run_small_scan.bat"
+        cmd = (
+            f'"{PYTHON}" -X utf8 "{NIGHTLY_SCAN}" --only small --no-push >> "{log}\\small_scan.log" 2>&1\n'
+            f'if errorlevel 1 (\n'
+            f'    {notify_cmd}\n'
+            f'    {discord_fail_cmd}\n'
+            f'    exit /b 1\n'
+            f')\n'
+            f'"{PYTHON}" -X utf8 "{NIGHTLY_PUSH}" --strategy small >> "{log}\\small_scan.log" 2>&1'
+        )
+    elif slot == "etf_scan":
+        path = TASKS_DIR / "run_etf_scan.bat"
+        cmd = (
+            f'"{PYTHON}" -X utf8 "{NIGHTLY_SCAN}" --only etf --no-push >> "{log}\\etf_scan.log" 2>&1\n'
+            f'if errorlevel 1 (\n'
+            f'    {notify_cmd}\n'
+            f'    {discord_fail_cmd}\n'
+            f'    exit /b 1\n'
+            f')\n'
+            f'"{PYTHON}" -X utf8 "{NIGHTLY_PUSH}" --strategy etf >> "{log}\\etf_scan.log" 2>&1'
+        )
+    elif slot == "weekly_perf_report":
+        path = TASKS_DIR / "run_weekly_perf_report.bat"
+        cmd = f'"{PYTHON}" -X utf8 "{WEEKLY_PERF}" >> "{log}\\weekly_perf_report.log" 2>&1'
+    elif slot == "watchlist_updater":
+        path = TASKS_DIR / "run_watchlist_updater.bat"
+        cmd = f'"{PYTHON}" -X utf8 "{WATCHLIST_UPDATER}" >> "{log}\\watchlist_updater.log" 2>&1'
+    elif slot == "merge_sessions":
+        path = TASKS_DIR / "run_merge_sessions.bat"
+        cmd = f'"{PYTHON}" -X utf8 "{MERGE_SESSIONS}" >> "{log}\\merge_sessions.log" 2>&1'
     else:
         raise ValueError(f"Unknown slot: {slot}")
 
