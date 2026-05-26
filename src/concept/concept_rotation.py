@@ -311,6 +311,95 @@ def _format_inflow(val: float) -> str:
     return f"{val:+.0f}"
 
 
+def recalc_from_cache(mode: str = "evening", top_n: int = 15) -> dict:
+    """从缓存JSON读取原始因子数据，用当前权重重新打分。"""
+    suffix = "evening" if mode == "evening" else "intraday"
+    cache_path = DATA / f"concept_rotation_{suffix}.json"
+    if not cache_path.exists():
+        print(f"[recalc] ❌ 缓存文件不存在: {cache_path}")
+        return {}
+
+    cached = json.loads(cache_path.read_text(encoding="utf-8"))
+    concepts = cached.get("full_ranking", [])
+    if not concepts:
+        print("[recalc] ❌ 缓存中无排名数据")
+        return {}
+
+    # 需要完整概念列表来做百分位排名，但缓存只存了 top_n
+    # 如果缓存的 total_concepts > len(concepts)，百分位会不精确，但仍比旧权重好
+    print(f"[recalc] 从缓存加载 {len(concepts)} 个概念 (原始时间: {cached.get('timestamp', '?')})")
+
+    weights = WEIGHTS_EVENING if mode == "evening" else WEIGHTS_INTRADAY
+
+    # 重新百分位排名
+    factor_keys = ["momentum", "volume_ratio", "speed", "turnover",
+                   "breadth", "trend_3d", "net_inflow", "big_order"]
+    # 映射: momentum 来自 pct_chg
+    factor_values: dict[str, list[float]] = {
+        "momentum": [c.get("pct_chg", 0) for c in concepts],
+        "volume_ratio": [c.get("volume_ratio", 0) for c in concepts],
+        "speed": [c.get("speed", 0) for c in concepts],
+        "turnover": [c.get("turnover", 0) for c in concepts],
+        "breadth": [c.get("breadth", 0) for c in concepts],
+        "trend_3d": [c.get("trend_3d", 0) for c in concepts],
+        "net_inflow": [c.get("net_inflow", 0) for c in concepts],
+        "big_order": [c.get("big_order", 0) for c in concepts],
+    }
+
+    factor_pcts: dict[str, list[float]] = {
+        k: _percentile_rank(v) for k, v in factor_values.items()
+    }
+
+    # 加权合成 + 量价背离惩罚
+    for i, c in enumerate(concepts):
+        score = sum(
+            weights.get(factor, 0) * factor_pcts[factor][i]
+            for factor in factor_pcts
+            if factor in weights
+        )
+        if c.get("volume_ratio", 0) > 1.5 and c.get("net_inflow", 0) < 0:
+            score -= 0.15
+        elif c.get("net_inflow", 0) < 0:
+            score -= 0.05
+
+        c["score"] = round(score * 100, 1)
+        for factor in weights:
+            if factor in factor_pcts:
+                c[f"{factor}_pct"] = round(factor_pcts[factor][i] * 100, 1)
+
+    concepts.sort(key=lambda x: -x["score"])
+
+    # 分类信号
+    strong_entry = []
+    preparing = []
+    take_profit = []
+
+    inflow_vals = factor_values["net_inflow"]
+    inflow_top20 = sorted(inflow_vals, reverse=True)[min(19, len(inflow_vals) - 1)] if inflow_vals else 0
+    top10_score = concepts[min(9, len(concepts) - 1)]["score"] if len(concepts) >= 10 else 0
+
+    for c in concepts:
+        if c["score"] >= top10_score and c.get("trend_3d", 0) > 0:
+            strong_entry.append(c)
+        if (c.get("pct_chg", 0) < 2.0 and c.get("net_inflow", 0) >= inflow_top20
+                and c.get("volume_ratio", 0) > 1.5):
+            preparing.append(c)
+        if c.get("trend_3d", 0) > 8.0 and c.get("net_inflow", 0) < 0:
+            take_profit.append(c)
+
+    return {
+        "timestamp": cached.get("timestamp", "?") + " (recalc)",
+        "mode": mode,
+        "mode_cn": ("盘后复盘" if mode == "evening" else "盘中实时") + " [重算]",
+        "weights": weights,
+        "total_concepts": len(concepts),
+        "strong_entry": strong_entry[:top_n],
+        "preparing": preparing[:10],
+        "take_profit": take_profit[:10],
+        "full_ranking": concepts[:top_n],
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="概念板块轮动评分器（双模式）")
     parser.add_argument("--mode", choices=["evening", "intraday"], default="evening",
@@ -318,10 +407,15 @@ def main():
     parser.add_argument("--top", type=int, default=15, help="输出排名前N（默认15）")
     parser.add_argument("--no-proxy", action="store_true", help="不使用代理")
     parser.add_argument("--json", action="store_true", help="输出JSON")
+    parser.add_argument("--recalc", action="store_true",
+                        help="从缓存数据用当前权重重新打分（不联网）")
     args = parser.parse_args()
 
-    result = concept_rotation(mode=args.mode, top_n=args.top,
-                              use_proxy=not args.no_proxy)
+    if args.recalc:
+        result = recalc_from_cache(mode=args.mode, top_n=args.top)
+    else:
+        result = concept_rotation(mode=args.mode, top_n=args.top,
+                                  use_proxy=not args.no_proxy)
     if not result:
         return
 
