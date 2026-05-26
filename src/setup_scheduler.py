@@ -235,9 +235,14 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, shell=False)
 
 
+HIDDEN_VBS = TASKS_DIR / "hidden_run.vbs"
+
+
 def _create_daily_task(name: str, time_str: str, bat_path: Path):
+    # 通过 wscript + hidden_run.vbs 隐藏窗口运行，避免弹出控制台
+    tr = f'wscript.exe "{HIDDEN_VBS}" "{bat_path}"'
     cmd = [
-        "schtasks", "/Create", "/TN", name, "/TR", str(bat_path),
+        "schtasks", "/Create", "/TN", name, "/TR", tr,
         "/SC", "DAILY", "/ST", time_str, "/RL", "HIGHEST", "/F"
     ]
     return _run(cmd)
