@@ -54,6 +54,7 @@ NIGHTLY_SCAN      = SCRIPTS   / "jobs"       / "nightly_scan.py"
 NIGHTLY_PUSH      = SCRIPTS   / "jobs"       / "nightly_push.py"
 WEEKLY_PERF       = SCRIPTS   / "jobs"       / "weekly_perf_report.py"
 WATCHLIST_UPDATER = SCRIPTS   / "strategies" / "watchlist_updater.py"
+CONCEPT_GUARD     = SCRIPTS   / "jobs"       / "concept_guard.py"
 MERGE_SESSIONS    = Path.home() / "repos" / "lark-agent" / "merge_sessions.py"
 
 # ── Bot startup tasks (At Logon trigger) ─────────────────────────────────────
@@ -254,6 +255,9 @@ def _scheduled_bat(task_name: str, slot: str, desc: str):
     elif slot == "merge_sessions":
         path = TASKS_DIR / "run_merge_sessions.bat"
         cmd = f'"{PYTHON}" -X utf8 "{MERGE_SESSIONS}" >> "{log}\\merge_sessions.log" 2>&1'
+    elif slot == "concept_guard":
+        path = TASKS_DIR / f"run_{task_name.lower()}.bat"
+        cmd = f'"{PYTHON}" -X utf8 "{CONCEPT_GUARD}" >> "{log}\\concept_guard.log" 2>&1'
     else:
         raise ValueError(f"Unknown slot: {slot}")
 

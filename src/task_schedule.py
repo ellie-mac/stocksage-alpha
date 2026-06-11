@@ -26,15 +26,16 @@ from typing import Any
 
 ALL_TASKS: list[dict[str, Any]] = [
     # ── 凌晨/盘前外 ──────────────────────────────────────────────────────────
-    {"name": "weekly_PerfReport", "time": "00:00", "desc": "周度绩效报告",       "push": True,  "slot": "weekly_perf_report", "disabled": False, "display": True},
+    {"name": "weekly_PerfReport", "time": "00:00", "desc": "周度绩效报告",       "push": False, "slot": "weekly_perf_report", "disabled": False, "display": True},
     {"name": "sync_Knowledge",    "time": "02:00", "desc": "知识库同步",         "push": False, "slot": None,             "disabled": True,  "display": False},
     {"name": "factor_Analysis",   "time": "03:00", "desc": "因子IC分析",         "push": False, "slot": "factor_analysis","disabled": False, "display": True},
-    {"name": "institution_Scan",  "time": "04:00", "desc": "机构扫盘",           "push": True,  "slot": "institution_scan","disabled": False, "display": True},
+    {"name": "institution_Scan",  "time": "04:00", "desc": "机构扫盘",           "push": False, "slot": "institution_scan","disabled": False, "display": True},
 
     # ── 盘前 (07-09) ────────────────────────────────────────────────────────
+    {"name": "concept_Guard_AM",  "time": "08:50", "desc": "概念证伪监控·早盘",   "push": True,  "slot": "concept_guard",  "disabled": False, "display": True},
     {"name": "auto_Tune",         "time": "08:05", "desc": "参数自动调优",       "push": False, "slot": "auto_tune",      "disabled": False, "display": True},
     {"name": "integrity_Check",   "time": "08:00", "desc": "数据完整性检查",     "push": False, "slot": "integrity_check","disabled": False, "display": True},
-    {"name": "cffex_CiticAM",     "time": "19:00", "desc": "中信期货空单跟踪",   "push": True,  "slot": "cffex_citic",    "disabled": False, "display": True},
+    {"name": "cffex_CiticAM",     "time": "19:00", "desc": "中信期货空单跟踪",   "push": False, "slot": "cffex_citic",    "disabled": False, "display": True},
     {"name": "concept_Warm",      "time": "08:30", "desc": "概念map预热",        "push": False, "slot": "concept_warm",   "disabled": False, "display": True},
     {"name": "watchlist_Monitor", "time": "09:15", "desc": "自选股监控",         "push": True,  "slot": None,             "disabled": True,  "display": True},
     {"name": "report_Morning",    "time": "09:25", "desc": "盘前选股报告",       "push": True,  "slot": "chip_morning",   "disabled": True,  "display": True},
@@ -46,6 +47,7 @@ ALL_TASKS: list[dict[str, Any]] = [
     {"name": "hot_Rank_1100",     "time": "11:00", "desc": "热榜快照 11:00",     "push": False, "slot": "hot_rank",       "disabled": False, "display": False},
 
     # ── 盘中 ────────────────────────────────────────────────────────────────
+    {"name": "concept_Guard_PM",  "time": "12:50", "desc": "概念证伪监控·午盘",   "push": True,  "slot": "concept_guard",  "disabled": False, "display": True},
     {"name": "report_Midday",     "time": "11:35", "desc": "午间行情报告",       "push": True,  "slot": "chip_midday",    "disabled": True,  "display": True},
     {"name": "hot_Rank_1330",     "time": "13:30", "desc": "热榜快照 13:30",     "push": False, "slot": "hot_rank",       "disabled": False, "display": False},
     {"name": "hot_Rank_1430",     "time": "14:30", "desc": "热榜快照 14:30",     "push": False, "slot": "hot_rank",       "disabled": False, "display": False},
@@ -55,26 +57,26 @@ ALL_TASKS: list[dict[str, Any]] = [
     {"name": "signal_Tracker",    "time": "15:25", "desc": "信号绩效跟踪",       "push": False, "slot": None,             "disabled": True,  "display": True},
     {"name": "report_Evening",    "time": "15:30", "desc": "收盘报告",           "push": True,  "slot": "chip_evening",   "disabled": True,  "display": True},
     {"name": "market_Warm",       "time": "15:35", "desc": "市场数据预热",       "push": False, "slot": "market_warm",    "disabled": False, "display": True},
-    {"name": "marketcap_Scan",    "time": "16:30", "desc": "市值策略扫盘",       "push": True,  "slot": "marketcap_scan", "disabled": False, "display": True},
-    {"name": "daily_PerfLog",     "time": "16:05", "desc": "胜率统计",           "push": True,  "slot": "daily_perf_log", "disabled": False, "display": True},
-    {"name": "escalator_PerfLog", "time": "16:15", "desc": "扶梯策略胜率分析",   "push": True,  "slot": "escalator_perf_log","disabled": True, "display": True},
-    {"name": "strategy_Compare",  "time": "16:20", "desc": "精选追踪 (复用 strategy_compare.py 重写为 evening_perf_track)", "push": True,  "slot": "strategy_compare","disabled": False, "display": True},
-    {"name": "hot_Scan",          "time": "16:35", "desc": "热榜策略扫描",       "push": True,  "slot": "hot_scan",       "disabled": False, "display": True},
+    {"name": "marketcap_Scan",    "time": "16:30", "desc": "市值策略扫盘",       "push": False, "slot": "marketcap_scan", "disabled": False, "display": True},
+    {"name": "daily_PerfLog",     "time": "16:05", "desc": "胜率统计",           "push": False, "slot": "daily_perf_log", "disabled": False, "display": True},
+    {"name": "escalator_PerfLog", "time": "16:15", "desc": "扶梯策略胜率分析",   "push": False, "slot": "escalator_perf_log","disabled": True, "display": True},
+    {"name": "strategy_Compare",  "time": "16:20", "desc": "精选追踪 (复用 strategy_compare.py 重写为 evening_perf_track)", "push": False, "slot": "strategy_compare","disabled": False, "display": True},
+    {"name": "hot_Scan",          "time": "16:35", "desc": "热榜策略扫描",       "push": False, "slot": "hot_scan",       "disabled": False, "display": True},
 
     # ── 收盘后扫描/预热 (17-22) ───────────────────────────────────────────
     {"name": "price_Prefetch",    "time": "17:00", "desc": "价格历史预热",       "push": False, "slot": "price_prefetch", "disabled": False, "display": True},
     {"name": "fundflow_Prefetch", "time": "17:30", "desc": "资金流向预热",       "push": False, "slot": "fundflow_prefetch","disabled": False, "display": True},
     {"name": "chip_Night",        "time": "18:00", "desc": "筹码缓存预取",       "push": False, "slot": "chip_night",     "disabled": False, "display": True},
-    {"name": "main_Scan",         "time": "18:30", "desc": "主/小/ETF 扫盘",     "push": True,  "slot": "monitor_scan",   "disabled": False, "display": True},
+    {"name": "main_Scan",         "time": "18:30", "desc": "主/小/ETF 扫盘",     "push": False, "slot": "monitor_scan",   "disabled": False, "display": True},
     {"name": "quality_Prefetch",  "time": "19:10", "desc": "质量指标预热",       "push": False, "slot": "quality_prefetch","disabled": False, "display": True},
-    {"name": "golden_Scan",       "time": "19:30", "desc": "金叉策略扫描",       "push": True,  "slot": "gc_scan",        "disabled": False, "display": True},
-    {"name": "sideways_Scan",     "time": "20:00", "desc": "横盘策略扫描",       "push": True,  "slot": "sideways_scan",  "disabled": False, "display": True},
-    {"name": "escalator_Scan",    "time": "20:15", "desc": "扶梯策略扫描",       "push": True,  "slot": "escalator_scan", "disabled": False, "display": True},
-    {"name": "chip_CadScan",      "time": "21:00", "desc": "筹码扫描",           "push": True,  "slot": "cad_scan",       "disabled": False, "display": True},
-    {"name": "evening_Strategy",  "time": "22:00", "desc": "多策略汇总·晚间",    "push": True,  "slot": "evening_strategy","disabled": False, "display": True},
+    {"name": "golden_Scan",       "time": "19:30", "desc": "金叉策略扫描",       "push": False, "slot": "gc_scan",        "disabled": False, "display": True},
+    {"name": "sideways_Scan",     "time": "20:00", "desc": "横盘策略扫描",       "push": False, "slot": "sideways_scan",  "disabled": False, "display": True},
+    {"name": "escalator_Scan",    "time": "20:15", "desc": "扶梯策略扫描",       "push": False, "slot": "escalator_scan", "disabled": False, "display": True},
+    {"name": "chip_CadScan",      "time": "21:00", "desc": "筹码扫描",           "push": False, "slot": "cad_scan",       "disabled": False, "display": True},
+    {"name": "evening_Strategy",  "time": "22:00", "desc": "多策略汇总·晚间",    "push": False, "slot": "evening_strategy","disabled": False, "display": True},
     {"name": "main_Night",        "time": "22:30", "desc": "财务缓存预热",       "push": False, "slot": "main_night",     "disabled": False, "display": True},
-    {"name": "small_Scan",        "time": "22:40", "desc": "小盘策略扫盘",       "push": True,  "slot": "small_scan",     "disabled": False, "display": True},
-    {"name": "etf_Scan",          "time": "23:10", "desc": "ETF策略扫盘",        "push": True,  "slot": "etf_scan",       "disabled": False, "display": True},
+    {"name": "small_Scan",        "time": "22:40", "desc": "小盘策略扫盘",       "push": False, "slot": "small_scan",     "disabled": False, "display": True},
+    {"name": "etf_Scan",          "time": "23:10", "desc": "ETF策略扫盘",        "push": False, "slot": "etf_scan",       "disabled": False, "display": True},
     {"name": "merge_Sessions",    "time": "23:14", "desc": "Lark会话合并",       "push": False, "slot": "merge_sessions", "disabled": False, "display": True},
     {"name": "watchlist_Updater", "time": "23:40", "desc": "自选股更新",         "push": False, "slot": "watchlist_updater","disabled": False, "display": True},
 
