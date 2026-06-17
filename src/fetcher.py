@@ -757,10 +757,11 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     with different `days` values share a single cache entry per stock.
 
     Incremental update logic (2026-06-17 optimization):
-      - If cache exists and last_date is within 5 days → fetch only missing days
-      - Otherwise → full fetch (fresh cache or stale data)
-      - Historical data (>5 days old) is immutable; only recent days need refresh
-      - Reduces daily prefetch from 192M rows to ~5K rows (-99.7%)
+      - Historical prices never change once the market closes
+      - Check cached last_date vs today
+      - If missing N days (1, 3, 10, etc.) → fetch only those N days and append
+      - If cache missing or >30 days stale → full fetch (rare, only after long downtime)
+      - Reduces daily prefetch from ~95min to ~2-3min (-97%)
 
     Source priority:
       1. mootdx/通达信                    — TCP binary; fast from any region; unadjusted
@@ -779,27 +780,26 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
     fetch_days = max(days, _PRICE_FETCH_DAYS)
     cache_key = f"price_{code}_{fetch_days}"
     
-    # Step 1: Check if cache is still valid (within smart_price_ttl)
-    cached_valid = cache.get_df(cache_key, cache.smart_price_ttl())
-    if cached_valid is not None:
-        # Cache hit — return directly
-        if len(cached_valid) > days:
-            return cached_valid.tail(days).reset_index(drop=True)
-        return cached_valid
+    # Step 1: Try to load existing cache (use long TTL since we'll check dates ourselves)
+    # Historical prices never change, so we only care about date coverage, not write time
+    cached = cache.get_df(cache_key, ttl_seconds=365*86400)  # 1 year TTL - essentially permanent
     
-    # Step 2: Cache expired or doesn't exist. Try incremental update if possible.
-    # Use extended TTL (7 days) to retrieve even "expired" cache for incremental update
-    cached_stale = cache.get_df(cache_key, ttl_seconds=7*86400)
-    if cached_stale is not None and not cached_stale.empty and "date" in cached_stale.columns:
+    if cached is not None and not cached.empty and "date" in cached.columns:
         try:
-            last_date = pd.to_datetime(cached_stale["date"].iloc[-1]).normalize()
+            last_date = pd.to_datetime(cached["date"].iloc[-1]).normalize()
             today = pd.Timestamp.now().normalize()
-            days_stale = (today - last_date).days
+            days_missing = (today - last_date).days
             
-            # If cache is reasonably fresh (1-5 days old), try incremental update
-            if 0 < days_stale <= 5:
-                # Fetch only the missing days (stale+2 for safety)
-                incremental_df = _fetch_price_incremental(code, days_to_fetch=days_stale + 2)
+            # Cache is up-to-date (includes today or trading hasn't closed yet)
+            if days_missing <= 0:
+                if len(cached) > days:
+                    return cached.tail(days).reset_index(drop=True)
+                return cached
+            
+            # Cache is stale - fetch only the missing days
+            # Supports any gap: 1 day (normal), 3 days (weekend), 10 days (holiday), etc.
+            if days_missing <= 30:  # Reasonable threshold - beyond 30 days, do full refresh
+                incremental_df = _fetch_price_incremental(code, days_to_fetch=days_missing + 3)
                 if incremental_df is not None and not incremental_df.empty:
                     # Remove any overlap (last_date might be included in new fetch)
                     incremental_df = incremental_df[
@@ -808,7 +808,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
                     
                     if not incremental_df.empty:
                         # Append new data to cached
-                        merged = pd.concat([cached_stale, incremental_df], ignore_index=True)
+                        merged = pd.concat([cached, incremental_df], ignore_index=True)
                         merged = merged.sort_values("date").reset_index(drop=True)
                         
                         # Keep only the requested window (fetch_days from end)
@@ -827,7 +827,7 @@ def get_price_history(code: str, days: int = 365) -> Optional[pd.DataFrame]:
             # Incremental update failed, fall through to full fetch
             log.warning("incremental_update_failed", extra={"code": code, "error": str(e)})
     
-    # Step 3: No valid cache or incremental update failed — do full fetch
+    # Step 2: No cache or cache too old (>30 days stale) — do full fetch
 
     # ── Source 1: mootdx / 通达信 (TCP binary, fastest from any region) ──
     # Unadjusted prices. TCP eliminates HTTP timeout risk from non-CN hosts.
