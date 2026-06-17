@@ -55,6 +55,9 @@ scripts/r*.txt
 # local architecture doc (not for CI)
 ARCHITECTURE.md
 
+# copilot personal workspace (NEVER commit - contains private data)
+copilot/
+
 # runtime data (VM-generated)
 data/
 src/data/
