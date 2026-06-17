@@ -280,23 +280,24 @@ def main() -> None:
     _save_dynamic(new_list)
     print("[updater] 已保存 → watchlist_dynamic.json")
 
-    if evicted or added:
-        try:
-            from notify.notify import push_feishu_card
-            lines = [f"动态自选池  {today}  共{len(new_list)}只"]
-            if added:
-                lines.append(f"\n新增 {len(added)} 只")
-                for e in added:
-                    lines.append(f"  + {e.get('name', e['code'])}({e['code']})  [{src_label.get(e['source'], e['source'])}]")
-            if refreshed:
-                lines.append(f"\n刷新 TTL {len(refreshed)} 只 (同源再选)")
-            if evicted:
-                lines.append(f"\n移除 {len(evicted)} 只")
-                for e, r in evicted:
-                    lines.append(f"  - {e.get('name', e['code'])}({e['code']})  {r}")
-            push_feishu_card(f"自选池更新 +{len(added)} -{len(evicted)} ↻{len(refreshed)}", lines)
-        except Exception as e:
-            print(f"[updater] 飞书推送失败: {e}")
+    # 飞书推送已停用（噪音过大）
+    # if evicted or added:
+    #     try:
+    #         from notify.notify import push_feishu_card
+    #         lines = [f"动态自选池  {today}  共{len(new_list)}只"]
+    #         if added:
+    #             lines.append(f"\n新增 {len(added)} 只")
+    #             for e in added:
+    #                 lines.append(f"  + {e.get('name', e['code'])}({e['code']})  [{src_label.get(e['source'], e['source'])}]")
+    #         if refreshed:
+    #             lines.append(f"\n刷新 TTL {len(refreshed)} 只 (同源再选)")
+    #         if evicted:
+    #             lines.append(f"\n移除 {len(evicted)} 只")
+    #             for e, r in evicted:
+    #                 lines.append(f"  - {e.get('name', e['code'])}({e['code']})  {r}")
+    #         push_feishu_card(f"自选池更新 +{len(added)} -{len(evicted)} ↻{len(refreshed)}", lines)
+    #     except Exception as e:
+    #         print(f"[updater] 飞书推送失败: {e}")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,12 @@
 ak.get_cffex_rank_table 取中信期货行，保存到 cffex_citic_latest.json +
 累积到 cffex_citic_history.json（最近 180 天）。
 带 --push 时同时推 wechat 文本 + Feishu 折线图（2×2 panel 看趋势）。
+
+【对冲逻辑说明】
+中信期货代客席位以机构客户为主，主要用途是对冲场内股票多头风险：
+- 空头持仓增加 → 机构增持股票（需要更多对冲）→ 看涨信号
+- 空头持仓减少 → 机构减持股票（减少对冲需求）→ 看跌信号
+- 数据特征：空多经常同向变化，空多比例温和（1.2-1.5倍），非极端单边投机
 """
 from __future__ import annotations
 
@@ -333,15 +339,19 @@ def backfill_history(days: int = 20, end_date: str | None = None) -> dict:
 
 
 def _overall_view(items: list[dict]) -> str:
+    """解读整体持仓变化（对冲逻辑：空头增加=机构加仓股票=看涨）。"""
     ok_items = [x for x in items if 'error' not in x and x.get('short_change') is not None]
     if not ok_items:
         return '无有效数据'
     total_change = sum(int(x['short_change']) for x in ok_items)
     im_ic_change = sum(int(x['short_change']) for x in ok_items if x['symbol'] in {'IM', 'IC'})
+    
+    # 对冲逻辑：空头增加 = 机构增持股票（需要更多对冲）= 看涨信号
     if total_change >= 3000 and im_ic_change > 0:
-        return f"空仓加速堆积（单日 +{total_change} 手），压力主要在中小盘"
+        return f"机构增持股票（单日空头对冲 +{total_change} 手），中小盘加仓明显 → 看涨"
+    # 空头减少 = 机构减持股票（减少对冲需求）= 看跌信号
     if total_change <= -3000:
-        return f"空仓减压（单日 {total_change:+d} 手），对冲压力下降"
+        return f"机构减持股票（单日空头对冲 {total_change:+d} 手），对冲需求下降 → 看跌"
     return '整体中性波动，先看是否连续两三天同方向累积'
 
 
@@ -381,14 +391,15 @@ def format_body(report: dict) -> str:
         p20 = it.get('percentile_20')
         p20_s = f"{p20:.0f}%" if p20 is not None else 'NA'
         anomaly = it.get('change_anomaly', 'NA')
-        # A股惯例：🔴=多/涨，🟢=空/跌。净空时打绿，净多时打红。
+        # 对冲逻辑：净空头增加=机构加仓股票(看涨)，故净空用🔴；净多用🟢
         net = (it.get('net_short') or 0)
-        side_emoji = '🟢' if net > 0 else ('🔴' if net < 0 else '⚪')
+        side_emoji = '🔴' if net > 0 else ('🟢' if net < 0 else '⚪')
         lines.append(
             f"{side_emoji} **{label}**｜空 {sq}({sc_s}) / 多 {lq}({lc_s})｜空多比 {ratio_s}｜P20 {p20_s}｜动量 {anomaly}<br>"
         )
     lines.append("<br>")
-    lines.append("📖 空多比>1.3 偏空 / 1.0-1.1 接近平手｜P20=20日分位｜动量基于10日波动 z-score<br>")
+    lines.append("📖 【对冲逻辑】空头增加=机构增持股票(看涨)，空头减少=机构减持(看跌)<br>")
+    lines.append("📖 空多比>1.3 偏多对冲 / 1.0-1.1 接近平手｜P20=20日分位｜动量基于10日波动 z-score<br>")
     sample = items[0].get('hist_days') if items and 'error' not in items[0] else 0
     if sample and sample < 30:
         lines.append(f"（样本 {sample} 天，待累积至 30 天指标更稳）<br>")
@@ -562,13 +573,13 @@ def main() -> int:
         ih = next((it for it in items if it["symbol"] == "IH"), None)
         if ih and (ih.get("long_change") or 0) > (ih.get("short_change") or 0):
             insights.append(f"IH (上证50) 多增 {ih.get('long_change', 0):+d} > 空增 {ih.get('short_change', 0):+d} → 机构对大盘蓝筹偏正面")
-        # 哪个合约空多比最大（结构性偏空最强）
+        # 哪个合约空多比最大（对冲需求最强）
         ratios = [(it["symbol"], (it.get("short_qty") or 0) / max(it.get("long_qty") or 1, 1)) for it in items]
         ratios.sort(key=lambda x: -x[1])
         if ratios:
             sym0, r0 = ratios[0]
             if r0 >= 1.4:
-                insights.append(f"{PRODUCT_LABEL.get(sym0, sym0)} 空多比 {r0:.2f} 最高，结构性偏空（IM 长期高位通常是雪球对冲，不一定方向性）")
+                insights.append(f"{PRODUCT_LABEL.get(sym0, sym0)} 空多比 {r0:.2f} 最高，机构对冲需求强（股票持仓较多）")
         # 单日 z-score 是否触发"异常"
         anom = [it for it in items if it.get("change_anomaly") == "异常"]
         if anom:
@@ -582,8 +593,8 @@ def main() -> int:
             f"[期指·中信] {report.get('trade_date', 'NA')} 机构对冲跟踪\n"
             "==========\n"
             f"📌 结论：{tone}\n"
-            f"  • 4 路空单合计变化 {total_chg:+d} 手 / 多单 {long_total:+d} 手\n"
-            f"  • IM+IC 空单变化 {im_ic_chg:+d} 手\n"
+            f"  • 4 路空单合计变化 {total_chg:+d} 手（对冲需求）/ 多单 {long_total:+d} 手\n"
+            f"  • IM+IC 空单变化 {im_ic_chg:+d} 手（中小盘对冲）\n"
             f"{insights_block}"
             "==========\n"
             "📊 各合约（按净空降序）：\n  • " + "\n  • ".join(_line(it) for it in items)

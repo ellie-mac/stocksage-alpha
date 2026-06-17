@@ -36,7 +36,7 @@ FACTOR_WEIGHTS: dict[str, float] = {
     # ── Tier 2: ICIR 0.5–0.9 ─────────────────────────────────────────────
     "div_yield":             0.7,   # IC=+0.0281, ICIR=0.959 (2026-04-15)
     "position_52w":          0.7,   # IC=+0.1154, ICIR=0.934 (2026-04-15)
-    "growth":                1.21,   # IC=+0.0545, ICIR=0.900 (2026-04-15)
+    "growth":                1.3,   # IC=+0.0545, ICIR=0.900 (2026-04-15)
     "upday_ratio":           0.2,   # IC=+0.0564, ICIR=+0.717 (12p-AB run); up-day frequency = trend quality
     "roe_trend":             0.2,   # IC=+0.0353, ICIR=+0.294 (2026-05-07); hit=83% (consistent hit rate)
     "main_inflow":           0.2,   # IC=+0.0546, ICIR=0.568 (2026-04-15)

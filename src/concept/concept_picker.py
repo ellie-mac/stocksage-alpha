@@ -34,11 +34,11 @@ STOCK_FIELDS = "f2,f3,f5,f6,f7,f8,f10,f12,f14,f15,f16,f17,f20,f21"
 
 
 def _get_session(use_proxy: bool = True) -> requests.Session:
+    if use_proxy:
+        from concept.relay_session import make_relay_session
+        return make_relay_session(headers=HEADERS)
     s = requests.Session()
     s.headers.update(HEADERS)
-    if use_proxy:
-        proxy = "http://127.0.0.1:7890"
-        s.proxies = {"http": proxy, "https": proxy}
     return s
 
 

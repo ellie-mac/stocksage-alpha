@@ -61,7 +61,9 @@ def _load_picks_logs() -> list[dict]:
 
 def _fetch_forward_returns(code: str, pick_date: str,
                             entry_price: Optional[float]) -> dict[int, Optional[float]]:
-    """T+1/3/5/10/20 forward return %。pick_date YYYYMMDD。entry_price 缺失时用 pick_date 当日 close 兜底。"""
+    """T+1/3/5/10/20 forward return %。pick_date YYYYMMDD。
+    entry_price 使用 T+1 开盘价（实际买入价）；缺失时用 T+1 open 兜底，
+    若 T+1 open 也拿不到则用 pick_date close（最后手段）。"""
     import fetcher as _f
     import pandas as _pd
     try:
@@ -72,18 +74,21 @@ def _fetch_forward_returns(code: str, pick_date: str,
         return {n: None for n in HOLD_HORIZONS.values()}
     pick_ts = _pd.to_datetime(pick_date, format="%Y%m%d")
 
-    if entry_price is None or entry_price <= 0:
-        entry_df = df[df["date"] <= pick_ts]
-        if entry_df.empty:
-            return {n: None for n in HOLD_HORIZONS.values()}
-        try:
-            entry_price = float(entry_df["close"].iloc[-1])
-        except Exception:
-            return {n: None for n in HOLD_HORIZONS.values()}
-        if entry_price <= 0:
-            return {n: None for n in HOLD_HORIZONS.values()}
-
     fwd = df[df["date"] > pick_ts].sort_values("date")
+
+    # 优先用 T+1 开盘价作为实际 entry（晚间信号次日买入）
+    if entry_price is None or entry_price <= 0:
+        if not fwd.empty and "open" in fwd.columns:
+            try:
+                t1_open = float(fwd["open"].iloc[0])
+                if t1_open > 0:
+                    entry_price = t1_open
+            except Exception:
+                pass
+    # 无法获取有效 entry price，跳过该 pick
+    if entry_price is None or entry_price <= 0:
+        return {n: None for n in HOLD_HORIZONS.values()}
+
     out: dict[int, Optional[float]] = {}
     for n in HOLD_HORIZONS.values():
         if len(fwd) < n:

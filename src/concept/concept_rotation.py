@@ -20,7 +20,7 @@
 用法:
     python -X utf8 src/concept/concept_rotation.py [--mode evening|intraday] [--top 15] [--json]
 
-网络: push2.eastmoney.com 需国内IP, 海外VM通过 mihomo 代理 (127.0.0.1:7890).
+网络: push2.eastmoney.com 需国内IP, 海外VM通过 Tailscale relay (100.111.44.98:8765).
 """
 from __future__ import annotations
 
@@ -33,10 +33,24 @@ from pathlib import Path
 
 import requests
 
+try:
+    import akshare as ak
+    HAS_AKSHARE = True
+except ImportError:
+    HAS_AKSHARE = False
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+
+def _safe_float(v) -> float:
+    """Convert value to float safely, returning 0.0 on failure."""
+    try:
+        return float(v) if v is not None else 0.0
+    except (ValueError, TypeError):
+        return 0.0
 
 # ── 双模式权重 ─────────────────────────────────────────────────────────────────
 WEIGHTS_EVENING = {
@@ -70,11 +84,11 @@ BLOCK_FIELDS = "f2,f3,f4,f7,f8,f10,f12,f14,f22,f62,f104,f105,f128,f136,f140,f164
 
 
 def _get_session(use_proxy: bool = True) -> requests.Session:
+    if use_proxy:
+        from concept.relay_session import make_relay_session
+        return make_relay_session(headers=HEADERS)
     s = requests.Session()
     s.headers.update(HEADERS)
-    if use_proxy:
-        proxy = "http://127.0.0.1:7890"
-        s.proxies = {"http": proxy, "https": proxy}
     return s
 
 
@@ -93,44 +107,135 @@ def _test_push2(session: requests.Session) -> bool:
 
 
 def _fetch_all_concepts(session: requests.Session) -> list[dict]:
-    """获取全部概念板块实时多因子数据"""
+    """获取全部概念板块实时多因子数据（分页拉取确保全量）"""
     url = "https://push2.eastmoney.com/api/qt/clist/get"
-    params = {
-        "fid": "f3", "po": "1", "pz": "500", "pn": "1",
-        "np": "1", "fltt": "2", "invt": "2",
-        "fs": "m:90+t:3",
-        "fields": BLOCK_FIELDS,
-    }
-    r = session.get(url, params=params, timeout=15)
-    r.raise_for_status()
-    items = r.json().get("data", {}).get("diff", [])
+    all_items = []
+    page = 1
+    page_size = 500
+
+    while True:
+        params = {
+            "fid": "f3", "po": "1", "pz": str(page_size), "pn": str(page),
+            "np": "1", "fltt": "2", "invt": "2",
+            "fs": "m:90+t:3",
+            "fields": BLOCK_FIELDS,
+        }
+        r = session.get(url, params=params, timeout=15)
+        r.raise_for_status()
+        data = r.json().get("data", {})
+        items = data.get("diff", [])
+        if not items:
+            break
+        all_items.extend(items)
+        total = data.get("total", 0)
+        if len(all_items) >= total or len(items) < page_size:
+            break
+        page += 1
+
     results = []
-    for item in items:
+    for item in all_items:
         name = item.get("f14", "")
         if any(kw in name for kw in NOISE_KEYWORDS):
             continue
-        up = item.get("f104", 0) or 0
-        down = item.get("f105", 0) or 0
+        up = int(item.get("f104", 0) or 0)
+        down = int(item.get("f105", 0) or 0)
         total = up + down
         results.append({
             "code": item.get("f12", ""),
             "name": name,
-            "pct_chg": item.get("f3", 0) or 0,
-            "volume_ratio": item.get("f10", 0) or 0,
-            "speed": item.get("f22", 0) or 0,
-            "turnover": item.get("f8", 0) or 0,
-            "amplitude": item.get("f7", 0) or 0,
-            "net_inflow": item.get("f62", 0) or 0,
-            "big_order": item.get("f164", 0) or 0,
+            "pct_chg": _safe_float(item.get("f3", 0)),
+            "volume_ratio": _safe_float(item.get("f10", 0)),
+            "speed": _safe_float(item.get("f22", 0)),
+            "turnover": _safe_float(item.get("f8", 0)),
+            "amplitude": _safe_float(item.get("f7", 0)),
+            "net_inflow": _safe_float(item.get("f62", 0)),
+            "big_order": _safe_float(item.get("f164", 0)),
             "up_count": up,
             "down_count": down,
-            # 广度乘规模系数: 成分股<20只时打折, 避免小概念虚高
             "breadth": round((up / total) * min(total / 20, 1.0), 3) if total > 0 else 0,
             "leader_name": item.get("f128", ""),
             "leader_code": item.get("f140", ""),
-            "leader_pct": item.get("f136", 0) or 0,
+            "leader_pct": _safe_float(item.get("f136", 0)),
         })
     return results
+
+
+def _fetch_concepts_akshare() -> list[dict]:
+    """AkShare备用源：从同花顺拉概念列表+日K算涨幅。
+    为避免太慢，只拉概念列表+用缓存中的概念名去拿日K。
+    缺少：量比、涨速、资金流、龙头 — 这些字段填0。
+    """
+    if not HAS_AKSHARE:
+        return []
+    try:
+        print("[rotation] 尝试AkShare备用源(同花顺)...")
+        name_df = ak.stock_board_concept_name_ths()
+        all_names = set(name_df["name"].tolist())
+        print(f"[rotation] 同花顺概念列表: {len(all_names)}个")
+
+        # 优先用本地缓存里有的概念名（减少请求量）
+        cache_path = DATA / "concept_trend3d_cache.json"
+        target_names = []
+        if cache_path.exists():
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            target_names = [n for n in cached.get("data", {}).keys() if n in all_names]
+        if len(target_names) < 30:
+            # 缓存不够，取前100个概念
+            target_names = name_df["name"].tolist()[:100]
+
+        print(f"[rotation] 拉取 {len(target_names)} 个概念日K...")
+        concepts = []
+        today = datetime.now().strftime("%Y%m%d")
+        start = (datetime.now() - timedelta(days=10)).strftime("%Y%m%d")
+        done = 0
+        failed = 0
+
+        for name in target_names:
+            try:
+                hist = ak.stock_board_concept_index_ths(
+                    symbol=name, start_date=start, end_date=today
+                )
+                if hist.empty or len(hist) < 2:
+                    failed += 1
+                    continue
+                last = hist.iloc[-1]
+                prev_close = hist.iloc[-2]["收盘价"]
+                pct_chg = round((last["收盘价"] - prev_close) / prev_close * 100, 2) if prev_close else 0
+
+                # 3日趋势
+                trend_3d = 0.0
+                if len(hist) >= 4:
+                    base = hist.iloc[-4]["收盘价"]
+                    trend_3d = round((last["收盘价"] - base) / base * 100, 2) if base else 0
+
+                concepts.append({
+                    "code": "",
+                    "name": name,
+                    "pct_chg": pct_chg,
+                    "volume_ratio": 0,
+                    "speed": 0,
+                    "turnover": 0,
+                    "amplitude": 0,
+                    "net_inflow": 0,
+                    "big_order": 0,
+                    "up_count": 0,
+                    "down_count": 0,
+                    "breadth": 0,
+                    "leader_name": "",
+                    "leader_code": "",
+                    "leader_pct": 0,
+                    "trend_3d": trend_3d,
+                })
+                done += 1
+            except Exception:
+                failed += 1
+                continue
+
+        print(f"[rotation] AkShare完成: 成功{done}个, 失败{failed}个")
+        return concepts
+    except Exception as e:
+        print(f"[rotation] AkShare也失败: {e}")
+        return []
 
 
 def _fetch_kline_3d(session: requests.Session, code: str) -> float | None:
@@ -174,6 +279,45 @@ def _percentile_rank(values: list[float]) -> list[float]:
     return ranks
 
 
+def _calc_trend_3d_local(daily_dir: Path, concepts: list[dict]) -> dict[str, float]:
+    """从本地每日涨幅文件累加最近3个交易日的趋势。
+    文件格式: daily_dir/YYYYMMDD.json = {"概念名": 当日涨幅, ...}
+    返回空字典表示数据不足3天。
+    """
+    files = sorted(daily_dir.glob("*.json"), reverse=True)
+    if len(files) < 3:
+        return {}
+    # 取最近3天
+    recent_3 = files[:3]
+    day_data = []
+    for f in recent_3:
+        try:
+            day_data.append(json.loads(f.read_text(encoding="utf-8")))
+        except Exception:
+            return {}
+    # 累加3天涨幅
+    trend_map: dict[str, float] = {}
+    for c in concepts:
+        name = c["name"]
+        total = sum(d.get(name, 0.0) for d in day_data)
+        trend_map[name] = round(total, 2)
+    return trend_map
+
+
+def save_daily_change(concepts: list[dict], date_str: str | None = None):
+    """保存当日各概念涨幅，供后续3日趋势计算。
+    每天只需调用一次（收盘后），date_str格式: YYYYMMDD。
+    """
+    daily_dir = DATA / "concept_daily_chg"
+    daily_dir.mkdir(parents=True, exist_ok=True)
+    if not date_str:
+        date_str = datetime.now().strftime("%Y%m%d")
+    out = {c["name"]: c["pct_chg"] for c in concepts}
+    p = daily_dir / f"{date_str}.json"
+    p.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    print(f"[rotation] 已保存当日涨幅: {p.name} ({len(out)}条)")
+
+
 def concept_rotation(mode: str = "evening", top_n: int = 15,
                      use_proxy: bool = True) -> dict:
     """
@@ -182,49 +326,85 @@ def concept_rotation(mode: str = "evening", top_n: int = 15,
     """
     session = _get_session(use_proxy)
 
+    use_akshare = False
     if not _test_push2(session):
         if use_proxy:
             session = _get_session(use_proxy=False)
         if not _test_push2(session):
-            print("[rotation] ❌ push2.eastmoney.com 不可达")
-            return {}
+            print("[rotation] ⚠️ push2.eastmoney.com 不可达，尝试备用源...")
+            use_akshare = True
 
     weights = WEIGHTS_EVENING if mode == "evening" else WEIGHTS_INTRADAY
 
     # Step 1: 获取实时多因子数据
-    concepts = _fetch_all_concepts(session)
-    if not concepts:
-        print("[rotation] ❌ 获取概念板块数据失败")
-        return {}
+    if use_akshare:
+        concepts = _fetch_concepts_akshare()
+        if not concepts:
+            print("[rotation] ❌ 东财+AkShare均失败")
+            return {}
+    else:
+        concepts = _fetch_all_concepts(session)
+        if not concepts:
+            # 东财返回空，试AkShare
+            concepts = _fetch_concepts_akshare()
+            if not concepts:
+                print("[rotation] ❌ 获取概念板块数据失败")
+                return {}
 
     print(f"[rotation] 模式: {'盘后复盘' if mode == 'evening' else '盘中实时'} | "
           f"获取 {len(concepts)} 个概念板块")
 
-    # Step 2: 获取3日趋势 (both modes use it, just different weight)
-    if weights.get("trend_3d", 0) > 0:
-        print("[rotation] 拉取3日K线...")
-        batch_size = 20
-        trend_map: dict[str, float] = {}
-        codes = [(c["code"], c["name"]) for c in concepts]
+    # Step 2: 获取3日趋势 — 优先使用本地累积数据，fallback到push2his
+    # 如果AkShare源已经带了trend_3d，直接跳过
+    daily_chg_dir = DATA / "concept_daily_chg"
+    daily_chg_dir.mkdir(parents=True, exist_ok=True)
 
-        for i in range(0, len(codes), batch_size):
-            batch = codes[i:i + batch_size]
-            with ThreadPoolExecutor(max_workers=8) as ex:
-                futs = {ex.submit(_fetch_kline_3d, session, code): name
-                        for code, name in batch}
-                for f in as_completed(futs):
-                    name = futs[f]
-                    result = f.result()
-                    if result is not None:
-                        trend_map[name] = result
-            if i + batch_size < len(codes):
-                time.sleep(0.2)
+    has_trend = use_akshare and any(c.get("trend_3d", 0) != 0 for c in concepts)
+
+    if not has_trend and weights.get("trend_3d", 0) > 0:
+        trend_map: dict[str, float] = {}
+
+        # 方法A: 从本地累积的每日涨幅数据计算3日趋势
+        local_trend = _calc_trend_3d_local(daily_chg_dir, concepts)
+        if local_trend:
+            trend_map = local_trend
+            print(f"[rotation] 3日趋势(本地累积): {len(trend_map)}条")
+        else:
+            # 方法B: fallback到push2his (过渡期,前3天数据不够时)
+            print("[rotation] 本地数据不足3天，尝试push2his...")
+            batch_size = 20
+            codes = [(c["code"], c["name"]) for c in concepts]
+            for i in range(0, len(codes), batch_size):
+                batch = codes[i:i + batch_size]
+                with ThreadPoolExecutor(max_workers=8) as ex:
+                    futs = {ex.submit(_fetch_kline_3d, session, code): name
+                            for code, name in batch}
+                    for f in as_completed(futs):
+                        name = futs[f]
+                        result = f.result()
+                        if result is not None:
+                            trend_map[name] = result
+                if i + batch_size < len(codes):
+                    time.sleep(0.2)
+
+            if trend_map:
+                print(f"[rotation] 3日K线(push2his): {len(trend_map)}条")
+            else:
+                # 方法C: 最后fallback — 缓存文件
+                cache_path = DATA / "concept_trend3d_cache.json"
+                if cache_path.exists():
+                    cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                    trend_map = cached.get("data", {})
+                    print(f"[rotation] ⚠️ 使用旧缓存3日数据 (来自{cached.get('ts','?')})")
+                else:
+                    print("[rotation] ⚠️ 无3日数据来源，全部为0")
 
         for c in concepts:
             c["trend_3d"] = trend_map.get(c["name"], 0.0)
-    else:
+    elif not has_trend:
         for c in concepts:
             c["trend_3d"] = 0.0
+    # else: AkShare已带trend_3d，无需处理
 
     # Step 3: 各因子百分位排名
     factor_values: dict[str, list[float]] = {
@@ -256,6 +436,13 @@ def concept_rotation(mode: str = "evening", top_n: int = 15,
             score -= 0.15  # 放量出货, 严重
         elif c["net_inflow"] < 0:
             score -= 0.05  # 普通流出, 轻微惩罚
+
+        # 过热惩罚: 3日涨幅大 且 今日主力净流出 → 获利了结信号
+        # 仅在涨多+资金撤退同时满足时扣分，主力仍流入则不惩罚
+        if c["trend_3d"] > 10.0 and c["net_inflow"] < 0:
+            score -= 0.12  # 严重过热+资金撤退
+        elif c["trend_3d"] > 8.0 and c["net_inflow"] < 0:
+            score -= 0.06  # 中度过热+资金撤退
 
         c["score"] = round(score * 100, 1)
         # 保存各因子百分位供展示
@@ -350,7 +537,7 @@ def recalc_from_cache(mode: str = "evening", top_n: int = 15) -> dict:
         k: _percentile_rank(v) for k, v in factor_values.items()
     }
 
-    # 加权合成 + 量价背离惩罚
+    # 加权合成 + 量价背离惩罚 + 过热惩罚
     for i, c in enumerate(concepts):
         score = sum(
             weights.get(factor, 0) * factor_pcts[factor][i]
@@ -361,6 +548,12 @@ def recalc_from_cache(mode: str = "evening", top_n: int = 15) -> dict:
             score -= 0.15
         elif c.get("net_inflow", 0) < 0:
             score -= 0.05
+
+        # 过热惩罚
+        if c.get("trend_3d", 0) > 10.0 and c.get("net_inflow", 0) < 0:
+            score -= 0.12
+        elif c.get("trend_3d", 0) > 8.0 and c.get("net_inflow", 0) < 0:
+            score -= 0.06
 
         c["score"] = round(score * 100, 1)
         for factor in weights:

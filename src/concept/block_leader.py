@@ -7,7 +7,7 @@
 2. 获取板块内领涨个股作为"实际龙头"
 3. 对比今日/昨日龙头，筛选龙头稳定（非一日游）的强势板块
 
-网络：push2.eastmoney.com 需要国内IP，海外VM通过 mihomo 代理（127.0.0.1:7890）。
+网络：push2.eastmoney.com 需要国内IP，海外VM通过 Tailscale relay（100.111.44.98:8765）。
 
 用法：
     python -X utf8 src/concept/block_leader.py [--top N] [--history] [--no-proxy]
@@ -21,6 +21,8 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
+
+from concept.relay_session import make_relay_session
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -37,12 +39,11 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 
 
 def _get_session(use_proxy: bool = True) -> requests.Session:
-    """创建 requests session，自动检测是否需要代理。"""
+    """创建 requests session，海外VM通过 Tailscale relay 访问国内接口。"""
+    if use_proxy:
+        return make_relay_session(headers=HEADERS)
     s = requests.Session()
     s.headers.update(HEADERS)
-    if use_proxy:
-        proxy = "http://127.0.0.1:7890"
-        s.proxies = {"http": proxy, "https": proxy}
     return s
 
 

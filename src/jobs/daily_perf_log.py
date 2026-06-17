@@ -703,32 +703,33 @@ def main() -> None:
             today, args.force)
     print("[daily_perf] 历史记录已写入")
 
-    # ── 推送 (仅 Feishu) ──────────────────────────────────────────────────────
-    try:
-        import sys
-        sys.path.insert(0, str(ROOT / "src"))
-        from notify.notify import push_feishu_content
-        def _tv(s):
-            v = s.get("open_win_rate") if s.get("open_win_rate") is not None else s.get("win_rate")
-            return v
-        parts = []
-        if _tv(ms)        is not None: parts.append(f"主{_tv(ms)}%")
-        if _tv(cs)        is not None: parts.append(f"筹{_tv(cs)}%")
-        if _tv(gs)        is not None: parts.append(f"叉{_tv(gs)}%")
-        if _tv(hs)        is not None: parts.append(f"热{_tv(hs)}%")
-        if _tv(wl_mon_stats) is not None: parts.append(f"监{_tv(wl_mon_stats)}%")
-        if _tv(etf_stats) is not None: parts.append(f"ETF{_tv(etf_stats)}%")
-        if _tv(mcap_stats) is not None: parts.append(f"市{_tv(mcap_stats)}%")
-        if _tv(sw_stats)  is not None: parts.append(f"横{_tv(sw_stats)}%")
-
-        # 转飞书纯文本：<br> → \n，剥掉 markdown **bold**
-        feishu_body = push_body.replace("<br>", "\n").replace("**", "")
-        title = f"[胜率·日] {date_fmt}"
-
-        push_feishu_content(f"{title}\n==========\n{feishu_body}")
-        print("[daily_perf] 飞书推送成功")
-    except Exception as e:
-        print(f"[daily_perf] 飞书推送失败: {e}")
+    # ── 推送已停用（由晚间精选统一解读）──────────────────────────────────────
+    # try:
+    #     import sys
+    #     sys.path.insert(0, str(ROOT / "src"))
+    #     from notify.notify import push_feishu_content
+    #     def _tv(s):
+    #         v = s.get("open_win_rate") if s.get("open_win_rate") is not None else s.get("win_rate")
+    #         return v
+    #     parts = []
+    #     if _tv(ms)        is not None: parts.append(f"主{_tv(ms)}%")
+    #     if _tv(cs)        is not None: parts.append(f"筹{_tv(cs)}%")
+    #     if _tv(gs)        is not None: parts.append(f"叉{_tv(gs)}%")
+    #     if _tv(hs)        is not None: parts.append(f"热{_tv(hs)}%")
+    #     if _tv(wl_mon_stats) is not None: parts.append(f"监{_tv(wl_mon_stats)}%")
+    #     if _tv(etf_stats) is not None: parts.append(f"ETF{_tv(etf_stats)}%")
+    #     if _tv(mcap_stats) is not None: parts.append(f"市{_tv(mcap_stats)}%")
+    #     if _tv(sw_stats)  is not None: parts.append(f"横{_tv(sw_stats)}%")
+    #
+    #     # 转飞书纯文本：<br> → \n，剥掉 markdown **bold**
+    #     feishu_body = push_body.replace("<br>", "\n").replace("**", "")
+    #     title = f"[胜率·日] {date_fmt}"
+    #
+    #     push_feishu_content(f"{title}\n==========\n{feishu_body}")
+    #     print("[daily_perf] 飞书推送成功")
+    # except Exception as e:
+    #     print(f"[daily_perf] 飞书推送失败: {e}")
+    print("[daily_perf] 飞书推送已停用，数据仅落盘")
 
 
 if __name__ == "__main__":
