@@ -47,9 +47,12 @@ def _now_str() -> str:
 # ── price history prefetch ────────────────────────────────────────────────────
 
 def prefetch_price(force: bool = False) -> None:
-    """预热全市场价格历史缓存。跳过已有有效缓存的股票，只补缺失的。"""
+    """预热全市场价格历史缓存。
+    
+    2026-06-17 优化：移除 skip 检查，直接调用 fetcher.get_price_history()。
+    fetcher 内部已实现增量更新逻辑（缺哪天补哪天），无需在此处重复检查。
+    """
     import fetcher
-    import cache as _cache
 
     codes = _load_universe()
     if not codes:
@@ -61,18 +64,12 @@ def prefetch_price(force: bool = False) -> None:
         return
 
     print(f"[prefetch/price] 开始预热 {len(codes)} 只价格历史  {_now_str()}", flush=True)
-    ttl   = _cache.smart_price_ttl()
     total = len(codes)
     done  = 0
-    skipped = 0
     failed  = 0
     t0 = time.time()
 
     def _warm_one(code: str) -> str:
-        norm = fetcher.normalize_code(code)
-        cached = _cache.get_df(f"price_{norm}_550", ttl)
-        if cached is not None:
-            return "skip"
         df = fetcher.get_price_history(code, days=365)
         if df is None or df.empty:
             return "fail"
@@ -87,9 +84,7 @@ def prefetch_price(force: bool = False) -> None:
                 result = "fail"
                 print(f"[prefetch/price] future error: {type(e).__name__}: {e}", flush=True)
             done += 1
-            if result == "skip":
-                skipped += 1
-            elif result == "fail":
+            if result == "fail":
                 failed += 1
             if done % 200 == 0 or done == total:
                 elapsed = time.time() - t0
@@ -97,7 +92,7 @@ def prefetch_price(force: bool = False) -> None:
                 eta     = (total - done) / rate if rate > 0 else 0
                 print(
                     f"[prefetch/price] {done}/{total}  "
-                    f"新增:{done-skipped-failed}  跳过:{skipped}  失败:{failed}  "
+                    f"成功:{done-failed}  失败:{failed}  "
                     f"eta:{eta/60:.0f}min  {_now_str()}",
                     flush=True,
                 )
@@ -105,7 +100,7 @@ def prefetch_price(force: bool = False) -> None:
     elapsed = time.time() - t0
     print(
         f"[prefetch/price] 完成 {_now_str()}  "
-        f"总耗时:{elapsed/60:.1f}min  新增:{done-skipped-failed}  跳过:{skipped}  失败:{failed}",
+        f"总耗时:{elapsed/60:.1f}min  成功:{done-failed}  失败:{failed}",
         flush=True,
     )
 
