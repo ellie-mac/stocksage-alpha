@@ -41,7 +41,6 @@ SIDEWAYS_SCAN     = SCRIPTS   / "strategies" / "sideways_scan.py"
 MARKETCAP_SCAN    = SCRIPTS   / "strategies" / "marketcap_strategy.py"
 EVENING_STRATEGY  = SCRIPTS   / "jobs"       / "evening_strategy.py"
 PREFETCH_QUALITY  = SCRIPTS   / "jobs"       / "prefetch_quality.py"
-CFFEX_CITIC       = SCRIPTS   / "jobs"       / "cffex_citic_positions.py"
 ESCALATOR_SCAN    = SCRIPTS   / "strategies" / "escalator_scan.py"
 TASK_SUMMARY      = SCRIPTS   / "jobs"       / "task_summary.py"
 ESCALATOR_PERF    = SCRIPTS   / "jobs"       / "escalator_perf_log.py"
@@ -185,9 +184,6 @@ def _scheduled_bat(task_name: str, slot: str, desc: str):
     elif slot == "marketcap_scan":
         path = TASKS_DIR / "run_marketcap_scan.bat"
         cmd = f'"{PYTHON}" -X utf8 "{MARKETCAP_SCAN}" --push >> "{log}\\marketcap_scan.log" 2>&1'
-    elif slot == "cffex_citic":
-        path = TASKS_DIR / "run_cffex_citic_am.bat"
-        cmd = f'"{PYTHON}" -X utf8 "{CFFEX_CITIC}" --push >> "{log}\\cffex_citic.log" 2>&1'
     elif slot == "escalator_perf_log":
         path = TASKS_DIR / "run_escalator_perf_log.bat"
         cmd = f'"{PYTHON}" -X utf8 "{ESCALATOR_PERF}" --push >> "{log}\\escalator_perf_log.log" 2>&1'

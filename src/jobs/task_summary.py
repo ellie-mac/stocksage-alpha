@@ -38,7 +38,6 @@ TASK_OUTPUT_FILES: dict[str, list[Path]] = {
     "marketcap_Scan":    [ROOT / "data" / "marketcap_latest.json"],
     "main_Scan":         [ROOT / "data" / "latest_picks.json"],
     "evening_Strategy":  [ROOT / "data" / "latest_picks.json"],
-    "cffex_CiticAM":     [ROOT / "data" / "cffex_citic_latest.json"],
     "escalator_PerfLog": [ROOT / "data" / "escalator_perf.json",
                           ROOT / "data" / "escalator_daily_perf.json"],
     "strategy_Compare":  [ROOT / "data" / "strategy_compare.json",
