@@ -35,7 +35,6 @@ ALL_TASKS: list[dict[str, Any]] = [
     {"name": "concept_Guard_AM",  "time": "08:50", "desc": "概念证伪监控·早盘",   "push": True,  "slot": "concept_guard",  "disabled": False, "display": True},
     {"name": "auto_Tune",         "time": "08:05", "desc": "参数自动调优",       "push": False, "slot": "auto_tune",      "disabled": False, "display": True},
     {"name": "integrity_Check",   "time": "08:00", "desc": "数据完整性检查",     "push": False, "slot": "integrity_check","disabled": False, "display": True},
-    {"name": "cffex_CiticAM",     "time": "19:00", "desc": "中信期货空单跟踪",   "push": False, "slot": "cffex_citic",    "disabled": False, "display": True},
     {"name": "concept_Warm",      "time": "08:30", "desc": "概念map预热",        "push": False, "slot": "concept_warm",   "disabled": False, "display": True},
     {"name": "watchlist_Monitor", "time": "09:15", "desc": "自选股监控",         "push": True,  "slot": None,             "disabled": True,  "display": True},
     {"name": "report_Morning",    "time": "09:25", "desc": "盘前选股报告",       "push": True,  "slot": "chip_morning",   "disabled": True,  "display": True},

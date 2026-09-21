@@ -11,7 +11,7 @@
   - 规则在实战是不是真有 alpha
   - 不同 horizon / regime 下表现差异
 
-推送：飞书文字汇总 + 累计追踪表（参考 cffex/escalator_perf）。
+推送：飞书文字汇总 + 累计追踪表（参考 escalator_perf）。
 
 用法：
     python -X utf8 src/jobs/strategy_compare.py [--push] [--dry-run]
